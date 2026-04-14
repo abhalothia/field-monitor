@@ -1,0 +1,45 @@
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Database
+*.db
+
+# Stored imagery
+images/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Claude
+.claude/
+CLAUDE.local.md
