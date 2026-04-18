@@ -23,6 +23,7 @@ from dashboard.pages.imagery import render_imagery
 from dashboard.pages.alerts import render_alerts
 from dashboard.pages.observations import render_observations
 from dashboard.pages.fields import render_fields
+from dashboard.pages.paddy_timeline import render_paddy_timeline
 
 
 st.set_page_config(
@@ -81,6 +82,8 @@ FIELD_PAGES = {
 
 ALL_PAGES = list(FIELD_PAGES.keys()) + ["Fields"]
 
+PADDY_PAGES = ["Timeline map", "Fields"]
+
 
 def main():
     conn = _get_connection()
@@ -93,7 +96,15 @@ def main():
     with st.sidebar:
         st.title("Field Monitor")
 
-        # Field selector
+        mode = st.radio(
+            "Mode",
+            ["Generic monitor", "Paddy Kharif 2025"],
+            index=0,
+            horizontal=False,
+        )
+        st.divider()
+
+        # Field selector (shared across modes)
         if fields:
             field_options = {f.field_id: f.name for f in fields}
             selected_id = st.selectbox(
@@ -125,12 +136,17 @@ def main():
         st.divider()
 
         # If no fields, default to Fields page
-        default_page = "Fields" if not fields else "Overview"
-        default_idx = ALL_PAGES.index(default_page)
+        if mode == "Paddy Kharif 2025":
+            pages_for_mode = PADDY_PAGES
+            default_page = "Fields" if not fields else "Timeline map"
+        else:
+            pages_for_mode = ALL_PAGES
+            default_page = "Fields" if not fields else "Overview"
+        default_idx = pages_for_mode.index(default_page)
 
         page = st.radio(
             "Navigation",
-            ALL_PAGES,
+            pages_for_mode,
             index=default_idx,
             label_visibility="collapsed",
         )
@@ -163,6 +179,13 @@ def main():
         )
 
     # --- Main content ---
+    if mode == "Paddy Kharif 2025":
+        if page == "Timeline map":
+            render_paddy_timeline(conn)
+        elif page == "Fields":
+            render_fields(conn, field)
+        return
+
     if page == "Fields":
         render_fields(conn, field)
     elif page in FIELD_PAGES:

@@ -73,13 +73,17 @@ def get_all_fields(conn: sqlite3.Connection) -> list[FieldPolygon]:
 # Index readings
 # ---------------------------------------------------------------------------
 
-def upsert_reading(conn: sqlite3.Connection, r: IndexReading) -> None:
+def upsert_reading(
+    conn: sqlite3.Connection,
+    r: IndexReading,
+    season_tag: str = "generic",
+) -> None:
     conn.execute(
         """INSERT INTO index_readings
            (field_id, index_name, reading_date, mean_value, min_value,
-            max_value, stdev_value, sample_count, cloud_cover_pct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(field_id, index_name, reading_date) DO UPDATE SET
+            max_value, stdev_value, sample_count, cloud_cover_pct, season_tag)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(field_id, index_name, reading_date, season_tag) DO UPDATE SET
              mean_value=excluded.mean_value,
              min_value=excluded.min_value,
              max_value=excluded.max_value,
@@ -90,6 +94,7 @@ def upsert_reading(conn: sqlite3.Connection, r: IndexReading) -> None:
             r.field_id, r.index_name, r.reading_date,
             r.mean_value, r.min_value, r.max_value,
             r.stdev_value, r.sample_count, r.cloud_cover_pct,
+            season_tag,
         ),
     )
     conn.commit()
@@ -101,6 +106,7 @@ def get_readings(
     index_name: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    season_tag: str | None = "generic",
 ) -> list[IndexReading]:
     query = "SELECT * FROM index_readings WHERE field_id = ?"
     params: list = [field_id]
@@ -114,6 +120,9 @@ def get_readings(
     if date_to:
         query += " AND reading_date <= ?"
         params.append(date_to)
+    if season_tag is not None:
+        query += " AND season_tag = ?"
+        params.append(season_tag)
 
     query += " ORDER BY reading_date ASC"
 
@@ -134,18 +143,23 @@ def get_readings(
 # Imagery
 # ---------------------------------------------------------------------------
 
-def upsert_imagery(conn: sqlite3.Connection, img: ImageryRecord) -> None:
+def upsert_imagery(
+    conn: sqlite3.Connection,
+    img: ImageryRecord,
+    season_tag: str = "generic",
+) -> None:
     conn.execute(
         """INSERT INTO imagery
-           (field_id, image_date, image_type, file_path, width_px, height_px)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(field_id, image_date, image_type) DO UPDATE SET
+           (field_id, image_date, image_type, file_path, width_px, height_px, season_tag)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(field_id, image_date, image_type, season_tag) DO UPDATE SET
              file_path=excluded.file_path,
              width_px=excluded.width_px,
              height_px=excluded.height_px""",
         (
             img.field_id, img.image_date, img.image_type,
             img.file_path, img.width_px, img.height_px,
+            season_tag,
         ),
     )
     conn.commit()
@@ -155,12 +169,16 @@ def get_imagery(
     conn: sqlite3.Connection,
     field_id: str,
     image_type: str | None = None,
+    season_tag: str | None = "generic",
 ) -> list[ImageryRecord]:
     query = "SELECT * FROM imagery WHERE field_id = ?"
     params: list = [field_id]
     if image_type:
         query += " AND image_type = ?"
         params.append(image_type)
+    if season_tag is not None:
+        query += " AND season_tag = ?"
+        params.append(season_tag)
     query += " ORDER BY image_date DESC"
 
     rows = conn.execute(query, params).fetchall()
@@ -376,15 +394,18 @@ def insert_fetch_log(
     scenes_found: int | None = None,
     records_stored: int | None = None,
     duration_secs: float | None = None,
+    season_tag: str = "generic",
 ) -> None:
     conn.execute(
         """INSERT INTO fetch_log
            (field_id, fetch_type, date_from, date_to, status,
-            error_message, scenes_found, records_stored, duration_secs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            error_message, scenes_found, records_stored, duration_secs,
+            season_tag)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             field_id, fetch_type, date_from, date_to, status,
             error_message, scenes_found, records_stored, duration_secs,
+            season_tag,
         ),
     )
     conn.commit()
