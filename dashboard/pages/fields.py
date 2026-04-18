@@ -20,21 +20,56 @@ from src.crop_detector import CropDetector
 from src.data_fetcher import fetch_and_analyze
 from src.geometry import build_field_polygon
 from src.models import FieldPolygon
+from src.paddy_kharif.paddy_fetcher import fetch_kharif_season
 
 
-def render_fields(conn: sqlite3.Connection, field: FieldPolygon | None) -> None:
+def render_fields(
+    conn: sqlite3.Connection,
+    field: FieldPolygon | None,
+    mode: str = "generic",
+) -> None:
     st.header("Field management")
 
     tab_create, tab_manage = st.tabs(["Create new field", "Manage fields"])
 
     with tab_create:
-        _render_create_field(conn)
+        _render_create_field(conn, mode=mode)
 
     with tab_manage:
-        _render_manage_fields(conn)
+        _render_manage_fields(conn, mode=mode)
 
 
-def _render_create_field(conn: sqlite3.Connection) -> None:
+def _run_paddy_fetch(conn: sqlite3.Connection, target: FieldPolygon) -> None:
+    """Full kharif season fetch + event detection. Blocks for ~3-5 min."""
+    with st.spinner(
+        f"Fetching the full paddy kharif 2025 season for '{target.name}' "
+        f"(Jun 1 2025 - Jan 15 2026). This typically takes 3-5 minutes per "
+        f"field; reruns are free."
+    ):
+        try:
+            config = get_sentinel_config()
+            summary = fetch_kharif_season(conn, target, config, year=2025)
+            msg = (
+                f"Fetched {summary['readings_stored']} readings, "
+                f"{summary['overlays_ndvi']} NDVI overlays, "
+                f"{summary['overlays_rvi']} RVI overlays "
+                f"in {summary['api_requests']} API requests."
+            )
+            if summary.get("events_detected") is not None:
+                msg += f" Detected {summary['events_detected']} phenology events."
+            st.success(msg)
+            if summary["errors"]:
+                with st.expander(f"{len(summary['errors'])} errors occurred"):
+                    for err in summary["errors"][:20]:
+                        st.caption(f"- {err}")
+        except Exception as exc:
+            st.warning(
+                f"Field saved but paddy season fetch failed: {exc}. "
+                f"You can retry from the **Manage fields** tab."
+            )
+
+
+def _render_create_field(conn: sqlite3.Connection, mode: str = "generic") -> None:
     """Draw a polygon on the map to create a new field."""
     # Center on existing field if available, else default
     fields = get_all_fields(conn)
@@ -65,13 +100,28 @@ def _render_create_field(conn: sqlite3.Connection) -> None:
             placeholder="e.g. North wheat plot, Ravi's farm...",
         )
 
-        lookback = st.slider(
-            "Fetch historical data (days)",
-            min_value=30, max_value=365, value=90,
+        is_paddy = mode == "paddy"
+        button_label = (
+            "Save field and fetch kharif 2025 season"
+            if is_paddy
+            else "Save field and fetch data"
         )
 
+        if is_paddy:
+            st.caption(
+                "This will ingest the full paddy kharif 2025 season "
+                "(Jun 1 2025 - Jan 15 2026) for the new field and auto-detect "
+                "transplanting / harvest / stress events. ~3-5 min per field."
+            )
+            lookback = None
+        else:
+            lookback = st.slider(
+                "Fetch historical data (days)",
+                min_value=30, max_value=365, value=90,
+            )
+
         if st.button(
-            "Save field and fetch data",
+            button_label,
             disabled=not field_name.strip(),
             use_container_width=True,
             type="primary",
@@ -82,25 +132,27 @@ def _render_create_field(conn: sqlite3.Connection) -> None:
             # Set as active field
             st.session_state["active_field_id"] = new_field.field_id
 
-            # Fetch satellite data
-            with st.spinner(
-                f"Fetching {lookback} days of satellite data for "
-                f"{field_name}..."
-            ):
-                try:
-                    config = get_sentinel_config()
-                    summary = fetch_and_analyze(
-                        conn, new_field, config, lookback_days=lookback,
-                    )
-                    st.success(
-                        f"Field saved. Fetched {summary['readings_stored']} "
-                        f"readings, {summary['images_saved']} images."
-                    )
-                except Exception as exc:
-                    st.warning(
-                        f"Field saved but data fetch failed: {exc}. "
-                        f"You can retry from the sidebar."
-                    )
+            if is_paddy:
+                _run_paddy_fetch(conn, new_field)
+            else:
+                with st.spinner(
+                    f"Fetching {lookback} days of satellite data for "
+                    f"{field_name}..."
+                ):
+                    try:
+                        config = get_sentinel_config()
+                        summary = fetch_and_analyze(
+                            conn, new_field, config, lookback_days=lookback,
+                        )
+                        st.success(
+                            f"Field saved. Fetched {summary['readings_stored']} "
+                            f"readings, {summary['images_saved']} images."
+                        )
+                    except Exception as exc:
+                        st.warning(
+                            f"Field saved but data fetch failed: {exc}. "
+                            f"You can retry from the sidebar."
+                        )
 
             st.rerun()
 
@@ -108,7 +160,7 @@ def _render_create_field(conn: sqlite3.Connection) -> None:
         st.warning("A polygon needs at least 3 points.")
 
 
-def _render_manage_fields(conn: sqlite3.Connection) -> None:
+def _render_manage_fields(conn: sqlite3.Connection, mode: str = "generic") -> None:
     """List, select, and delete existing fields."""
     fields = get_all_fields(conn)
 
@@ -161,25 +213,38 @@ def _render_manage_fields(conn: sqlite3.Connection) -> None:
             format_func=lambda fid: field_names[fid],
             key="manage_field_fetch",
         )
-        lookback = st.slider(
-            "Lookback (days)", 30, 365, 90, key="manage_lookback",
+        is_paddy = mode == "paddy"
+        if is_paddy:
+            st.caption(
+                "Refetches only weeks missing from DB for the kharif 2025 "
+                "season. A fully-cached field costs zero API calls."
+            )
+        else:
+            lookback = st.slider(
+                "Lookback (days)", 30, 365, 90, key="manage_lookback",
+            )
+        button_label = (
+            "Fetch kharif 2025 season" if is_paddy else "Fetch data"
         )
-        if st.button("Fetch data", use_container_width=True, type="primary"):
+        if st.button(button_label, use_container_width=True, type="primary"):
             target = field_map[fetch_id]
-            with st.spinner(
-                f"Fetching {lookback} days for '{target.name}'..."
-            ):
-                try:
-                    config = get_sentinel_config()
-                    summary = fetch_and_analyze(
-                        conn, target, config, lookback_days=lookback,
-                    )
-                    st.success(
-                        f"{summary['readings_stored']} readings, "
-                        f"{summary['images_saved']} images fetched."
-                    )
-                except Exception as exc:
-                    st.error(f"Fetch failed: {exc}")
+            if is_paddy:
+                _run_paddy_fetch(conn, target)
+            else:
+                with st.spinner(
+                    f"Fetching {lookback} days for '{target.name}'..."
+                ):
+                    try:
+                        config = get_sentinel_config()
+                        summary = fetch_and_analyze(
+                            conn, target, config, lookback_days=lookback,
+                        )
+                        st.success(
+                            f"{summary['readings_stored']} readings, "
+                            f"{summary['images_saved']} images fetched."
+                        )
+                    except Exception as exc:
+                        st.error(f"Fetch failed: {exc}")
 
     with col_delete:
         delete_id = st.selectbox(

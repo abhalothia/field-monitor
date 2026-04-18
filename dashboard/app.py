@@ -183,11 +183,11 @@ def main():
         if page == "Timeline map":
             render_paddy_timeline(conn)
         elif page == "Fields":
-            render_fields(conn, field)
+            render_fields(conn, field, mode="paddy")
         return
 
     if page == "Fields":
-        render_fields(conn, field)
+        render_fields(conn, field, mode="generic")
     elif page in FIELD_PAGES:
         if field is None:
             st.warning(
