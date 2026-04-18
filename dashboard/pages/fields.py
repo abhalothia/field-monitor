@@ -69,6 +69,65 @@ def _run_paddy_fetch(conn: sqlite3.Connection, target: FieldPolygon) -> None:
             )
 
 
+def _render_fetch_all_button(
+    conn: sqlite3.Connection, fields: list[FieldPolygon],
+) -> None:
+    """Sequentially fetch the kharif 2025 season for every registered field.
+
+    Idempotent: a field that's already fully populated makes zero API calls.
+    """
+    n = len(fields)
+    st.caption(
+        f"Batch fetch kharif 2025 for all {n} registered fields. "
+        f"Fully-cached fields cost zero API requests; fresh fields take ~3-5 "
+        f"min each."
+    )
+    if not st.button(
+        f"Fetch all {n} fields (kharif 2025)",
+        use_container_width=True,
+        type="primary",
+    ):
+        return
+
+    config = get_sentinel_config()
+    progress = st.progress(0.0, text="Starting…")
+    log = st.container()
+    total_readings = 0
+    total_requests = 0
+    failures: list[str] = []
+
+    for i, fld in enumerate(fields, start=1):
+        progress.progress((i - 1) / n, text=f"[{i}/{n}] {fld.name}…")
+        try:
+            summary = fetch_kharif_season(conn, fld, config, year=2025)
+        except Exception as exc:  # one failure shouldn't abort the batch
+            failures.append(f"{fld.name}: {exc}")
+            log.warning(f"{fld.name}: {exc}")
+            continue
+        total_readings += summary.get("readings_stored", 0)
+        total_requests += summary.get("api_requests", 0)
+        log.caption(
+            f"[{i}/{n}] {fld.name}: "
+            f"{summary['readings_stored']} readings, "
+            f"{summary['overlays_ndvi']} NDVI overlays, "
+            f"{summary['overlays_rvi']} RVI overlays, "
+            f"{summary['api_requests']} API calls"
+        )
+
+    progress.progress(1.0, text="Done")
+    msg = (
+        f"Batch complete: {total_readings} readings stored, "
+        f"{total_requests} API requests across {n} fields."
+    )
+    if failures:
+        st.warning(msg + f" {len(failures)} field(s) failed.")
+        with st.expander("Failures"):
+            for f in failures:
+                st.caption(f"- {f}")
+    else:
+        st.success(msg)
+
+
 def _render_create_field(conn: sqlite3.Connection, mode: str = "generic") -> None:
     """Draw a polygon on the map to create a new field."""
     # Center on existing field if available, else default
@@ -188,6 +247,10 @@ def _render_manage_fields(conn: sqlite3.Connection, mode: str = "generic") -> No
         use_container_width=True,
         hide_index=True,
     )
+
+    # Bulk actions (paddy mode only — generic mode doesn't define a batch cadence)
+    if mode == "paddy":
+        _render_fetch_all_button(conn, fields)
 
     # Actions
     field_names = {f.field_id: f.name for f in fields}
