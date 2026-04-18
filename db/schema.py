@@ -185,6 +185,9 @@ def _rebuild_index_readings_unique(conn: sqlite3.Connection) -> None:
     UNIQUE(field_id, index_name, reading_date, season_tag)."""
     if _table_unique_includes_season_tag(conn, "index_readings"):
         return
+    # Flush any implicit transaction from the ALTER migrations above so
+    # executescript's internal BEGIN doesn't clash with it.
+    conn.commit()
     conn.executescript(
         """
         PRAGMA foreign_keys = OFF;
@@ -225,6 +228,7 @@ def _rebuild_imagery_unique(conn: sqlite3.Connection) -> None:
     UNIQUE(field_id, image_date, image_type, season_tag)."""
     if _table_unique_includes_season_tag(conn, "imagery"):
         return
+    conn.commit()
     conn.executescript(
         """
         PRAGMA foreign_keys = OFF;
