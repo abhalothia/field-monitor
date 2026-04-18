@@ -15,25 +15,28 @@ from src.geometry import build_field_polygon
 
 
 def main():
-    print(f"KML file: {KML_PATH}")
-    print(f"Field name: {FIELD_NAME}")
-
-    coords = parse_polygon_coordinates(KML_PATH, FIELD_NAME)
-    print(f"Parsed {len(coords)} coordinate pairs")
-
-    field = build_field_polygon(FIELD_NAME, coords, field_id="mandi_field_01")
-    print(f"Field area: {field.area_hectares} hectares")
-    print(f"Center: {field.center_lat:.6f}N, {field.center_lon:.6f}E")
-
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     create_tables(conn)
-    upsert_field(conn, field)
-    conn.close()
 
+    # Optionally import the legacy KML field if the file is present.
+    if KML_PATH.exists():
+        print(f"KML file: {KML_PATH}")
+        print(f"Field name: {FIELD_NAME}")
+        coords = parse_polygon_coordinates(KML_PATH, FIELD_NAME)
+        print(f"Parsed {len(coords)} coordinate pairs")
+        field = build_field_polygon(FIELD_NAME, coords, field_id="mandi_field_01")
+        print(f"Field area: {field.area_hectares} hectares")
+        print(f"Center: {field.center_lat:.6f}N, {field.center_lon:.6f}E")
+        upsert_field(conn, field)
+        print("Legacy KML field registered.")
+    else:
+        print(f"No legacy KML at {KML_PATH} — skipping KML import.")
+        print("You can create fields from the dashboard (Fields page).")
+
+    conn.close()
     print(f"Database initialized at {DB_PATH}")
-    print("Field registered successfully.")
 
 
 if __name__ == "__main__":
