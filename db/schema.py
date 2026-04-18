@@ -2,7 +2,7 @@
 
 import sqlite3
 
-SCHEMA_SQL = """
+TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS fields (
     field_id        TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS crop_detections (
     geotiff_path    TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+"""
 
+INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_readings_field_date
     ON index_readings(field_id, reading_date);
 CREATE INDEX IF NOT EXISTS idx_readings_field_index
@@ -255,8 +257,10 @@ def _rebuild_imagery_unique(conn: sqlite3.Connection) -> None:
 
 def create_tables(conn: sqlite3.Connection) -> None:
     """Create all tables and indexes if they do not exist."""
-    conn.executescript(SCHEMA_SQL)
-    # Run ALTER-based migrations for existing databases (column adds)
+    # Tables first — CREATE TABLE IF NOT EXISTS is a no-op for existing tables,
+    # which may still be missing season_tag.
+    conn.executescript(TABLES_SQL)
+    # ALTER-based column additions for pre-existing tables.
     for stmt in MIGRATION_SQL.strip().split(";"):
         stmt = stmt.strip()
         if not stmt or stmt.startswith("--"):
@@ -264,13 +268,10 @@ def create_tables(conn: sqlite3.Connection) -> None:
         try:
             conn.execute(stmt)
         except Exception:
-            pass  # Column already exists or other idempotent no-op
-    # Rebuild tables whose UNIQUE constraint must now include season_tag.
-    # These helpers are idempotent: they inspect sqlite_master and skip if
-    # the constraint already includes season_tag.
+            pass  # Column already exists — idempotent no-op.
+    # Rebuild UNIQUE constraints to include season_tag (idempotent).
     _rebuild_index_readings_unique(conn)
     _rebuild_imagery_unique(conn)
-    # Re-run SCHEMA_SQL to re-create indexes that may have been dropped with
-    # the old tables.
-    conn.executescript(SCHEMA_SQL)
+    # Now every referenced column exists — safe to create indexes.
+    conn.executescript(INDEXES_SQL)
     conn.commit()
