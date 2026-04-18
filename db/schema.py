@@ -265,9 +265,16 @@ def create_tables(conn: sqlite3.Connection) -> None:
     # which may still be missing season_tag.
     conn.executescript(TABLES_SQL)
     # ALTER-based column additions for pre-existing tables.
-    for stmt in MIGRATION_SQL.strip().split(";"):
+    # Strip line-level `-- ...` comments before splitting on `;`; otherwise a
+    # comment line glues onto the next ALTER and the whole statement gets
+    # discarded by the leading-comment check.
+    cleaned = "\n".join(
+        line for line in MIGRATION_SQL.splitlines()
+        if not line.strip().startswith("--")
+    )
+    for stmt in cleaned.split(";"):
         stmt = stmt.strip()
-        if not stmt or stmt.startswith("--"):
+        if not stmt:
             continue
         try:
             conn.execute(stmt)
