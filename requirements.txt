@@ -27,6 +27,9 @@ schedule>=1.2.0
 # Statistics
 scipy>=1.11.0
 
+# WorldCereal crop-type detection (openEO CDSE federation)
+openeo>=0.30.0
+
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0
