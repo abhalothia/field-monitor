@@ -148,3 +148,127 @@ CDSE-only.
 - Any new weekly-scoped data must be tagged with `season_tag`; re-use
   `repository_paddy.get_season_readings` / `get_existing_reading_dates`
   rather than reaching into `index_readings` directly.
+
+## Next steps for the next Claude Code session
+
+The user's goal: **diagnostic depth for extension-agent triage** —
+inspect a plot, read its crop signals, classify the stress type, and
+decide which fields need a physical visit first. Everything below is
+already scoped and approved by the user; pick it up in order.
+
+### 1. Seed 20 additional plots (quick, no API cost)
+
+Extend `SAMPLE_PLOTS` in `src/paddy_kharif/seed_fields.py` with the 20
+plots under supervisor DEEPOO SINGH. Tuple format is
+`(plot_id_str, owner, village, "ALIGARH", wkt)`. The WKT polygons are
+in the previous user message in the transcript at
+`/root/.claude/projects/-home-user-field-monitor/f6720085-ba81-468e-90f7-5e1569db42cc.jsonl`
+(grep for `PAIMPUR|BHURGARHI|DETA KHURD|PIPLI`). Village counts:
+
+- PAIMPUR × 17: 96307, 96306, 105702, 94805, 280601, 105003, 103103,
+  344203, 104902, 290106, 395302, 406001, 405802, 105204, 105902,
+  103105, plus one more if the transcript yields it
+- BHURGARHI × 2: 102205 (SANJAY), 176801 (SUKHVEER SINGH)
+- DETA KHURD × 1: 178303 (SATISH KUMAR)
+- PIPLI NANGLA KADIRPUR × 1: 246401 (PRADEEP)
+
+After editing, delete `db/field_monitor.db*` and relaunch streamlit to
+re-seed from scratch (seeder is a no-op when `fields` is non-empty).
+
+### 2. Build `dashboard/pages/inspect.py` — the diagnostic page
+
+This is the core of the pivot away from the SmartRisk visual clone.
+Signature: `render_inspect(conn, field)`. Two sections, both
+deterministic and runnable without a fetched season:
+
+**(a) Full signal stack, Plotly subplots sharing x-axis (weekly cadence):**
+
+- Top panel: NDVI, NDRE, NDWI, LSWI lines from
+  `get_season_readings(conn, field.field_id, index_name=<each>)`. Y-axis
+  `[−0.2, 1.0]`. Overlay `PADDY_THRESHOLDS['NDVI']` healthy/stress/severe
+  as horizontal dashed lines (colored green/amber/red).
+- Middle panel: S1_VV, S1_VH in dB. Y-axis `[−25, −5]`.
+- Bottom panel: S1_RVI. Y-axis `[0, 1]`.
+- Shade phenology windows across all three panels using
+  `plotly.graph_objects.layout.shape` with `xref="x"`, `yref="paper"`:
+  - TRANSPLANT_WINDOW (blue, α=0.08)
+  - Vegetative window = `transplant_date + VEGETATIVE_OFFSET_DAYS`
+    (green, α=0.05); fall back to calendar Jul 20 – Aug 20 if no
+    transplant event exists yet
+  - Reproductive window = `transplant_date + REPRODUCTIVE_OFFSET_DAYS`
+    (amber, α=0.08); fall back to Aug 15 – Oct 15
+  - HARVEST_WINDOW (brown, α=0.08)
+- Event markers from `get_paddy_events`: T / H / ! as text annotations
+  anchored to the NDVI line at the event date, colored per
+  `EVENT_MARKER` in `paddy_timeline.py` (reuse that dict).
+
+**(b) Within-field NDVI band histogram, from the latest overlay PNG:**
+
+Use PIL (already a dependency via folium → pillow) to classify pixels.
+`evalscripts_paddy.imagery_paddy_ndvi_overlay` writes an RGBA PNG with
+this color ramp (inspect that file for exact RGB values):
+
+- α = 0: outside SCL validity → **skip**
+- dark gray: NDVI < 0.0 (bare soil / water)
+- red: 0.0 – 0.2
+- orange: 0.2 – 0.4
+- yellow: 0.4 – 0.6
+- light green: 0.6 – 0.8
+- dark green: 0.8 – 1.0
+
+Algorithm: find the latest `ndvi_overlay` via
+`list_overlays(conn, field.field_id)` filtered to `image_type ==
+'ndvi_overlay'`; open PNG with `Image.open(rec.file_path).convert('RGBA')`;
+iterate pixels (or numpy-vectorize — the overlays are ~200×200 so either
+works); group buckets into **High (≥0.6)**, **Medium (0.4–0.6)**, **Low
+(<0.4)** bands; render three `st.metric` cards showing hectares per band
+(`field.area_hectares * band_count / valid_count`) plus a horizontal
+stacked bar (`st.plotly_chart` or `st.progress` × 3).
+
+Prefer numpy: `arr = np.asarray(img); mask = arr[..., 3] > 0`. Use
+nearest-color matching against a 7-tuple lookup of the ramp RGBs.
+
+### 3. Wire the new page in `dashboard/app.py`
+
+```python
+PAGES = ["Timeline map", "Inspect plot", "Fields"]
+...
+elif page == "Inspect plot":
+    from dashboard.pages.inspect import render_inspect
+    render_inspect(conn, field)
+```
+
+The sidebar "Active field" selectbox already drives `field` for this
+page — no new state needed.
+
+### 4. Deferred — layer once real season data is fetched
+
+These need fetched `index_readings` + ground-truth observations, so
+defer them until the user has run `scripts.fetch_paddy_kharif` for at
+least one field:
+
+- **(2) Stress-type inference** — map detected anomalies to rule
+  buckets: `NDWI drop ∧ LSWI drop` → water stress; `NDRE drop ∧ NDVI
+  stable` → nutrient; `VH drop sharp ∧ NDVI drop` → lodging / pest.
+  Show as a single-line call-out on the Inspect page.
+- **(4) Peer benchmark** — rank the active field's current NDVI
+  against the median of other fields in the same village for the
+  current week. Surface as "Δ vs MAUR median: +0.04 (4th of 11)".
+- **(5) Triage ranking** — a simple sortable table on a new "Triage"
+  page scoring every field `= 0.5·(1−NDVI_norm) + 0.3·event_severity
+  + 0.2·days_since_last_visit`. Intended for the extension agent's
+  morning planning.
+
+### 5. Operational notes for the next session
+
+- **Don't commit `.env`.** The user asked once and then
+  retracted; git history is permanent. If asked again, push back.
+- **Can't actually fetch data from this sandbox.** No Sentinel Hub
+  creds, no outbound network, and a full-season pull for one field
+  takes ~3–5 min wall time. Tell the user to run
+  `python -m scripts.fetch_paddy_kharif --verbose` on their laptop.
+- **Dropbox lock errors** are the #1 setup failure mode — see
+  `Database quirks` above; tell the user to move the repo out before
+  debugging anything else.
+- **Feature branch** is `claude/paddy-field-monitor-W4KrU`. All
+  commits should land there; don't push to `main`.
