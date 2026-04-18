@@ -41,11 +41,11 @@ def _get_connection() -> sqlite3.Connection:
         str(DB_PATH), check_same_thread=False, timeout=30.0,
     )
     conn.row_factory = sqlite3.Row
-    # WAL lets reads and writes coexist cleanly if the DB lives in a synced
-    # folder (Dropbox/iCloud). busy_timeout makes the migration wait instead
-    # of failing instantly if the sync client is holding a shared lock.
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass  # Another process briefly held the DB; journal mode is optional.
     create_tables(conn)
     return conn
 
