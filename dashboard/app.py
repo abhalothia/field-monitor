@@ -15,6 +15,7 @@ from db.schema import create_tables
 from db.repository import get_all_fields, get_field, get_field_crop_type
 
 from dashboard.pages.fields import render_fields
+from dashboard.pages.inspect import render_inspect
 from dashboard.pages.paddy_timeline import render_paddy_timeline
 from src.paddy_kharif.seed_fields import seed_fields_if_empty
 
@@ -57,7 +58,7 @@ def _get_active_field(conn: sqlite3.Connection):
     return fields[0]
 
 
-PAGES = ["Timeline map", "Fields"]
+PAGES = ["Timeline map", "Inspect plot", "Fields"]
 
 
 def main():
@@ -117,6 +118,8 @@ def main():
     # --- Main content ---
     if page == "Timeline map":
         render_paddy_timeline(conn)
+    elif page == "Inspect plot":
+        render_inspect(conn, field)
     elif page == "Fields":
         render_fields(conn, field, mode="paddy")
 
