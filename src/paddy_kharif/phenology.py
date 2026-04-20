@@ -176,20 +176,35 @@ def _harvest_optical(
     ndvi_by_date: dict[date, IndexReading],
     field_id: str,
 ) -> list[PaddyEvent]:
-    """NDVI peak >= HARVEST_PEAK_MIN followed by drop >= HARVEST_DROP_MIN
-    within HARVEST_DROP_WINDOW_DAYS, trigger date is the drop endpoint."""
+    """Emit one harvest event when NDVI shows a peak-then-decline signature.
+
+    Two patterns qualify; the first to match wins.
+
+    1. Sharp-drop rule (default): NDVI peak >= HARVEST_PEAK_MIN followed by
+       a drop >= HARVEST_DROP_MIN within HARVEST_DROP_WINDOW_DAYS, with the
+       drop endpoint inside the calendar HARVEST_WINDOW (+14 d buffer).
+       Handles the classic sharp senescence-to-cutting transition.
+
+    2. Gradual-senescence rule: NDVI peak >= HARVEST_PEAK_MIN followed by a
+       near-zero reading (< HARVEST_STUBBLE_MAX) at any date up to
+       HARVEST_STUBBLE_MAX_DAYS_POSTPEAK after the peak. This is the only
+       path that fires for early-transplant PB1 whose decline is too slow
+       to clear the 21-day 0.25 drop bar -- yet the crop IS harvested
+       (the near-zero stubble signal is unambiguous). Drop endpoint is
+       the first reading where NDVI dips below the stubble threshold.
+    """
     start, end = pk_config.HARVEST_WINDOW
-    # Look a little wider than the strict window because the peak itself
-    # typically occurs before the harvest trigger.
-    scan = sorted(
+
+    # --- Pattern 1: sharp-drop rule (original) ---------------------------
+    sharp_scan = sorted(
         (d, r) for d, r in ndvi_by_date.items()
         if r.mean_value is not None
         and start - timedelta(days=30) <= d <= end + timedelta(days=14)
     )
-    for i, (d_peak, r_peak) in enumerate(scan):
+    for i, (d_peak, r_peak) in enumerate(sharp_scan):
         if r_peak.mean_value < pk_config.HARVEST_PEAK_MIN:
             continue
-        for d_drop, r_drop in scan[i + 1:]:
+        for d_drop, r_drop in sharp_scan[i + 1:]:
             if (d_drop - d_peak).days > pk_config.HARVEST_DROP_WINDOW_DAYS:
                 break
             if r_peak.mean_value - r_drop.mean_value >= pk_config.HARVEST_DROP_MIN:
@@ -207,6 +222,36 @@ def _harvest_optical(
                         "peak_ndvi": round(r_peak.mean_value, 4),
                         "drop_ndvi": round(r_drop.mean_value, 4),
                         "drop": round(r_peak.mean_value - r_drop.mean_value, 4),
+                    },
+                )]
+
+    # --- Pattern 2: gradual-senescence rule ------------------------------
+    # Peak can be anywhere in the season; the stubble reading is the
+    # diagnostic half.
+    full_scan = sorted(
+        (d, r) for d, r in ndvi_by_date.items()
+        if r.mean_value is not None
+    )
+    for i, (d_peak, r_peak) in enumerate(full_scan):
+        if r_peak.mean_value < pk_config.HARVEST_PEAK_MIN:
+            continue
+        for d_drop, r_drop in full_scan[i + 1:]:
+            days_after_peak = (d_drop - d_peak).days
+            if days_after_peak > pk_config.HARVEST_STUBBLE_MAX_DAYS_POSTPEAK:
+                break
+            if r_drop.mean_value < pk_config.HARVEST_STUBBLE_MAX:
+                return [PaddyEvent(
+                    field_id=field_id,
+                    event_date=d_drop.isoformat(),
+                    event_type="harvesting",
+                    confidence=0.6,
+                    evidence={
+                        "path": "optical",
+                        "rule": "ndvi_peak_to_stubble",
+                        "peak_date": d_peak.isoformat(),
+                        "peak_ndvi": round(r_peak.mean_value, 4),
+                        "stubble_ndvi": round(r_drop.mean_value, 4),
+                        "days_peak_to_stubble": days_after_peak,
                     },
                 )]
     return []
@@ -272,7 +317,15 @@ def _stress_optical(
     reproductive_end: date,
 ) -> list[PaddyEvent]:
     """Wrap the generic anomaly detector with PB1 thresholds, restricted to
-    the reproductive window. Any medium+ alert becomes a stress event."""
+    the reproductive window. Any medium+ alert becomes a stress event.
+
+    Two extra gates guard against senescence masquerading as stress:
+    (a) trend_decline is only stress-worthy when the *current* reading is
+        already at or below the healthy threshold. A healthy reading that
+        happens to be on a declining edge is ripening, not stress.
+    (b) the caller is expected to pass a `reproductive_end` that already
+        excludes the pre-harvest ripening window (see detect_events).
+    """
     # Lazy import + monkey-patch avoids a config rewrite in the generic
     # anomaly_detector module.
     import config.settings as settings
@@ -286,7 +339,8 @@ def _stress_optical(
     events: list[PaddyEvent] = []
     try:
         for idx, readings in readings_by_index.items():
-            if idx not in pk_config.PADDY_THRESHOLDS:
+            thresholds = pk_config.PADDY_THRESHOLDS.get(idx)
+            if thresholds is None:
                 continue
             windowed = [
                 r for r in readings
@@ -298,19 +352,41 @@ def _stress_optical(
             for a in alerts:
                 if a.severity not in ("medium", "high", "critical"):
                     continue
+                # Gate (a): shape-based alerts (z-score rolling deviation,
+                # linear trend projection) fire on *patterns*, not absolute
+                # values. During normal grain-fill NDVI / NDRE wobble
+                # through ranges that still sit comfortably above the
+                # stress floor -- firing "stress" on a 0.72 -> 0.60 drop
+                # buries the real signal (0.64 -> 0.21 crashes). Require
+                # the current reading itself to be at or below the stress
+                # threshold before admitting a shape-based alert.
+                # `below_threshold` is not gated: it already has an
+                # absolute-value bar built in.
+                if (
+                    a.alert_type in ("trend_decline", "sudden_drop")
+                    and a.current_value is not None
+                    and a.current_value > thresholds.stress
+                ):
+                    continue
+                evidence: dict = {
+                    "path": "optical",
+                    "rule": a.alert_type,
+                    "index": idx,
+                    "severity": a.severity,
+                    "current": a.current_value,
+                }
+                # trend_decline stores the *forward projection* in
+                # baseline_value; label it so consumers aren't misled.
+                if a.alert_type == "trend_decline":
+                    evidence["projected"] = a.baseline_value
+                else:
+                    evidence["baseline"] = a.baseline_value
                 events.append(PaddyEvent(
                     field_id=field_id,
                     event_date=a.alert_date,
                     event_type="stress",
                     confidence=0.6,
-                    evidence={
-                        "path": "optical",
-                        "rule": a.alert_type,
-                        "index": idx,
-                        "severity": a.severity,
-                        "current": a.current_value,
-                        "baseline": a.baseline_value,
-                    },
+                    evidence=evidence,
                 ))
     finally:
         settings.INDEX_THRESHOLDS = original
@@ -410,6 +486,53 @@ def _merge_dual_path(
     return merged
 
 
+def _stress_end_for_field(
+    rep_end: date,
+    harvest_events: list[PaddyEvent],
+    ndvi_by_date: dict[date, IndexReading],
+) -> date:
+    """Return the latest date at which stress detection is still meaningful.
+
+    Stress detection should stay live all the way to the detected harvest
+    date (or the reproductive-window end, whichever is earlier). A crop
+    that crashes hard in the final two weeks before cutting -- NDVI
+    dropping from 0.64 to 0.21 in a week, say -- is a real stress signal
+    that extension agents need to see. Ambiguous late-ripening moves
+    (NDVI 0.60 -> 0.50 over three weeks) are handled by the per-rule
+    gates in `_stress_optical` instead of being erased by this cutoff.
+
+    A tiny buffer is applied when no harvest has been detected but the
+    NDVI peak is in the very last 7 days of the reproductive window --
+    that late peak is unambiguously ripening.
+    """
+    candidate = rep_end
+
+    # Harvest fired -> stress may run all the way to the harvest date.
+    for ev in harvest_events:
+        try:
+            h_date = _parse(ev.event_date)
+        except (TypeError, ValueError):
+            continue
+        if h_date < candidate:
+            candidate = h_date
+
+    # Very-late-peak buffer (only when harvest hasn't fired): a peak in
+    # the final week of the reproductive window is the "harvest detector
+    # just hasn't seen the drop yet" case. Shave 7 days so we don't flag
+    # the onset of senescence as stress.
+    if not harvest_events:
+        late_window_start = rep_end - timedelta(days=7)
+        for d, r in ndvi_by_date.items():
+            if r.mean_value is None or r.mean_value < pk_config.HARVEST_PEAK_MIN:
+                continue
+            if late_window_start <= d <= rep_end:
+                cutoff = d - timedelta(days=7)
+                if cutoff < candidate:
+                    candidate = cutoff
+
+    return candidate
+
+
 def _detected_transplant_date(events: list[PaddyEvent]) -> date:
     """Pick the best transplant date for relative-window calculations.
 
@@ -469,14 +592,22 @@ def detect_events(
     rep_start = t_date + timedelta(days=rep_off_start)
     rep_end = t_date + timedelta(days=rep_off_end)
 
-    # --- Harvest ---
+    # --- Harvest (must run before stress so we can gate stress on it) ---
     harvest_opt = _harvest_optical(ndvi_bd, field_id)
     harvest_sar = _harvest_sar(vv_bd, vh_bd, rvi_bd, field_id)
     harvest_events = _merge_dual_path(harvest_opt, harvest_sar)
 
-    # --- Stress (reproductive window only) ---
-    stress_opt = _stress_optical(by_index, field_id, rep_start, rep_end)
-    stress_sar = _stress_sar(vh_bd, field_id, rep_start, rep_end)
+    # --- Stress (reproductive window, with a pre-harvest ripening cutoff) ---
+    # Once harvest is detected (or detectable from the NDVI peak), the last
+    # ~21 days of the reproductive window are dominated by ripening decline,
+    # which trend_decline will misread as stress. Shrink rep_end to the
+    # earliest pre-harvest cutoff when one is available.
+    stress_rep_end = _stress_end_for_field(
+        rep_end, harvest_events, ndvi_bd,
+    )
+
+    stress_opt = _stress_optical(by_index, field_id, rep_start, stress_rep_end)
+    stress_sar = _stress_sar(vh_bd, field_id, rep_start, stress_rep_end)
     stress_events = _merge_dual_path(stress_opt, stress_sar)
 
     all_events = transplant_events + harvest_events + stress_events

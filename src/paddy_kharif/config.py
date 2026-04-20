@@ -84,6 +84,16 @@ HARVEST_PEAK_MIN = 0.55
 HARVEST_DROP_MIN = 0.25
 HARVEST_DROP_WINDOW_DAYS = 21
 
+# Gradual-senescence harvest path: when the 21-day "sharp drop" rule above
+# misses (common for early-transplant PB1 whose peak sits before the
+# calendar HARVEST_WINDOW), we also accept a peak >= HARVEST_PEAK_MIN
+# followed by a near-zero reading at any point within
+# HARVEST_STUBBLE_MAX_DAYS_POSTPEAK days. Near-zero NDVI (< 0.20) is the
+# unambiguous stubble / fallow signal — anything above that is still
+# metabolising leaf tissue, which argues for stress rather than harvest.
+HARVEST_STUBBLE_MAX = 0.20
+HARVEST_STUBBLE_MAX_DAYS_POSTPEAK = 70
+
 # Stress SAR rule: VH drop vs trailing 4-week mean, in dB.
 S1_VH_STRESS_DROP_DB = -2.0
 S1_VH_TRAILING_WEEKS = 4
