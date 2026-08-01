@@ -22,20 +22,23 @@ The core loop is:
 
 ## Product boundaries
 
-FFL should build four connected layers, in this order:
+FFL should build seven connected layers, in this order:
 
 | PRD | Layer | Outcome |
 |---|---|---|
+| [PRD 00](prds/PRD-00-pilot-mandate.md) | Pilot Mandate | A sharp definition of the first operating loop, its users, and what success proves. |
 | [PRD 01](prds/PRD-01-farm-operating-kernel.md) | Farm Operating Kernel | One durable shared model of farms, plots, seasons, people, work, evidence, and decisions. |
 | [PRD 02](prds/PRD-02-season-execution-and-learning.md) | Season Execution & Learning | A team can run a crop season, resolve exceptions, and learn from what happened. |
 | [PRD 03](prds/PRD-03-data-and-intelligence-fabric.md) | Data & Intelligence Fabric | External data and documents enrich decisions with source provenance; optional AI is safe and useful. |
 | [PRD 04](prds/PRD-04-multi-farm-scale.md) | Multi-Farm Scale | FFL can compare, replicate, and govern operating playbooks across farms and deal structures. |
+| [PRD 05](prds/PRD-05-regional-conditions-service.md) | Regional Conditions Service | A trustworthy, privacy-safe FFL signal product built from public and verified operating data. |
+| [PRD 06](prds/PRD-06-controlled-trials-and-playbooks.md) | Controlled Trials & Playbooks | FFL can run disciplined experiments and promote only evidence-backed practices. |
 
 ## Delivery shape
 
 **V0 — one FFL farm, one season, one operating team**
 
-Build PRD 01 and the essential execution slice of PRD 02. The team must be able to set up the pilot farm, define crop-stage checkpoints and SOPs, create/assign work, record field evidence, resolve exceptions, and review the season in one place.
+Build PRD 00, PRD 01, and the essential execution slice of PRD 02. The team must be able to set up the pilot farm, define crop-stage checkpoints and SOPs, create/assign work, record field evidence, resolve exceptions, and review the season in one place.
 
 **V1 — repeatable farm operating system**
 
@@ -43,7 +46,7 @@ Complete PRD 02 and introduce the useful parts of PRD 03: a few trusted external
 
 **V2 — portfolio and network scale**
 
-Implement PRD 04 once FFL has more than one operating unit and has evidence that comparisons and shared playbooks are changing decisions.
+Implement PRD 04 once FFL has more than one operating unit and has evidence that comparisons and shared playbooks are changing decisions. Implement PRD 06 where FFL is ready to run a controlled operating trial. Consider PRD 05 only after the internal source and governance model has earned trust.
 
 ## Explicit non-goals
 

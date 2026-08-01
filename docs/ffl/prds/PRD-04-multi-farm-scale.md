@@ -20,7 +20,7 @@ The product supports three clearly separated arrangements:
 | Managed farm | Manager operating for an owner or partner | Scoped permissions, service commitments, and owner reporting. |
 | Partner-farmer program | Protocol, extension, and/or procurement partner | Programme-specific signal templates, engagement, and compatibility with existing Fortune systems. |
 
-The commercial and legal terms are configuration and evidence, not assumptions embedded in one workflow.
+The commercial and legal terms are configuration and evidence, not assumptions embedded in one workflow. Land parcel, operational block, season crop allocation, and right-to-operate remain distinct across every arrangement, so a portfolio can split, combine, lease, or retire operating areas without rewriting history.
 
 ## Requirements
 

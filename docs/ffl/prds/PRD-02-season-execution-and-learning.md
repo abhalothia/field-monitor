@@ -55,6 +55,12 @@ Templates must be configurable by crop plan. For example, a crop-stage check may
 - Soil objectives become planned practices and measurement checkpoints, not a one-time score.
 - The product distinguishes direct measurement from inferred condition and preserves the source of each value.
 
+### Outcome capture
+
+- A harvest/output record binds to a season crop allocation and captures harvest window, quantity and canonical unit, measurement method, grade/quality measures, loss/quality evidence, and preliminary or final status.
+- A finalised output record may be corrected only through a linked version with an accountable actor and reason.
+- V0 captures operating outcome and quality context; it does not become a general financial ledger.
+
 ### Learning loop
 
 - At any checkpoint, a manager can record “expected versus observed” and link the relevant signals, work, and decisions.
@@ -67,6 +73,7 @@ Templates must be configurable by crop plan. For example, a crop-stage check may
 - A serious field exception cannot disappear without an owner, resolution, or accepted-risk decision.
 - The team can reconstruct why a material intervention was made and what happened afterwards.
 - The next season starts from explicit learning rather than memory alone.
+- A material harvest/output record can be traced to its allocation, measurement method, evidence, and any later correction.
 
 ## Non-goals
 

@@ -26,6 +26,8 @@ Data can be useful without being authoritative. Every imported fact must preserv
 
 - An administrator registers every source with owner, purpose, authority level, credentials reference, permitted data classes, expected freshness, licensing notes, and mapping version.
 - The source health view shows last success, freshness, coverage, failed runs, and unresolved records.
+- Every adapter declares source identity, authority level, cursor/watermark strategy, idempotency rule, retry policy, permitted geography/time resolution, and stale/outage behaviour.
+- Schema drift quarantines a run for review; it never silently changes a published mapping.
 
 ### Import workbench
 
@@ -35,6 +37,7 @@ Data can be useful without being authoritative. Every imported fact must preserv
 - Preview proposed creates, updates, skips, and row-level validation errors before publishing.
 - Match identities only with stable identifiers or an explicit human confirmation. Ambiguous names, phones, and plots enter a review queue.
 - Publish corrections as linked new versions; never erase the raw input or prior approved record.
+- A conflict policy makes the authority relationship explicit: an external observation may corroborate or challenge field evidence, but it never overwrites an approved primary observation.
 
 ### Documents
 
@@ -42,6 +45,12 @@ Data can be useful without being authoritative. Every imported fact must preserv
 - Assisted extraction is allowed only for named document classes, beginning with soil-lab reports and field-visit reports.
 - Each candidate extracted value displays the page/region source and confidence; a user confirms the target record before publishing.
 - Arbitrary document uploads never create farm facts automatically.
+
+### Configuration governance
+
+- Signal templates, stages, SOPs, and mappings move through `draft`, `review`, `published`, and `retired` states with effective dates and accountable owners.
+- Every signal retains the published template and schema version that accepted it.
+- Configuration validates canonical units, allowed ranges, measurement method, precision, and compatibility with affected crop plans before publication.
 
 ### India-specific sources
 
@@ -65,6 +74,8 @@ It may not:
 - Write or alter operational facts, identity matches, work completion, or approved decisions.
 - Send crop interventions to field users without a responsible human approval.
 - Receive raw lease documents, personal data, precise GPS data, or proprietary buyer terms by default.
+
+Every intelligence run retains an auditable envelope: permitted record IDs/data classes, retrieval/template version, cited source IDs, provider output, reviewer, disposition or rejection reason, evaluation cohort, and kill-switch status.
 
 Admission criteria for an intelligence provider are a documented data-processing agreement, source-cited outputs, role-aware data filtering, evaluation against representative historical cases, and a measurable improvement in operator review time or decision quality.
 
