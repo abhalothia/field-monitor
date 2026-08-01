@@ -25,6 +25,9 @@ build/
 venv/
 .venv/
 
+# Local Git worktrees
+.worktrees/
+
 # IDE
 .vscode/
 .idea/
