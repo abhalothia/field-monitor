@@ -35,9 +35,9 @@ The first two tasks freeze the data and API contract; they are deliberately sequ
 | 3 | API | 5 | `ffl/api/`, `ffl/app.py`, API tests; requires Tasks 3 and 4 |
 | 4A | Field PWA | 6 | `ffl/static/field/` only |
 | 4B | Manager runtime | 7 | `ffl/static/manager/` only |
-| 5 | Full-path verification | 8 | `tests/ffl/test_e2e.py`, runbook |
+| 5 | Surface integration and full-path verification | 8 | `ffl/app.py`, `tests/ffl/test_e2e.py`, surface tests, runbook |
 
-Tasks 1–5 are deliberately sequential: they extend the same persistence and API contracts. After Task 5 is committed and reviewed, Tasks 6 and 7 can run in separate worktrees in parallel because their only shared dependency is the frozen JSON API and their files do not overlap. Integrate each task only after its scoped review passes. Task 8 is sequential because it validates the integrated product.
+Tasks 1–5 are deliberately sequential: they extend the same persistence and API contracts. After Task 5 is committed and reviewed, Tasks 6 and 7 can run in separate worktrees in parallel because they own only separate static directories and their only shared dependency is the frozen JSON API. Task 8 alone adds the shared route wiring after both static surfaces are reviewed. Integrate each task only after its scoped review passes.
 
 ### Task 1: Bootstrap the Clean FFL Application
 
@@ -540,36 +540,35 @@ git commit -m "feat: expose FFL operating kernel API"
 - Create: `ffl/static/field/app.js`
 - Create: `ffl/static/field/styles.css`
 - Create: `ffl/static/field/sw.js`
-- Modify: `ffl/app.py`
 - Create: `tests/ffl/test_field_assets.py`
 
 **Interfaces:**
-- `GET /field` serves `ffl/static/field/index.html`.
 - `app.js` persists pending exceptions in `localStorage` key `ffl.pendingExceptions`.
 - Every queued submission stores `idempotency_key`, payload, and `queued_at`.
 
 - [ ] **Step 1: Write failing static asset tests**
 
 ```python
-def test_field_surface_and_service_worker_are_served(client):
-    field = client.get("/field")
-    worker = client.get("/static/field/sw.js")
+from pathlib import Path
 
-    assert field.status_code == 200
-    assert "Report exception" in field.text
-    assert worker.status_code == 200
-    assert "ffl-field-v1" in worker.text
+
+def test_field_assets_define_offline_exception_capture():
+    root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "field"
+
+    assert "Report exception" in (root / "index.html").read_text()
+    assert "ffl.pendingExceptions" in (root / "app.js").read_text()
+    assert "ffl-field-v1" in (root / "sw.js").read_text()
 ```
 
 - [ ] **Step 2: Run the static asset test to verify it fails**
 
 Run: `python3 -m pytest tests/ffl/test_field_assets.py -v`
 
-Expected: FAIL with `404` for `/field`.
+Expected: FAIL because the field assets do not yet exist.
 
 - [ ] **Step 3: Implement the small offline-first field experience**
 
-Serve `/static` with `StaticFiles` and `/field` with `FileResponse`. The page must include English/Hindi labels for `Today’s work`, `Report exception`, `Severity`, `Photo`, `Location`, `Pending sync`, and `Sync now`.
+The page must include English/Hindi labels for `Today’s work`, `Report exception`, `Severity`, `Photo`, `Location`, `Pending sync`, and `Sync now`. Route wiring is intentionally deferred to Task 8 so this static-only task can run in parallel with Task 7.
 
 `app.js` must:
 
@@ -594,7 +593,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ffl/static/field ffl/app.py tests/ffl/test_field_assets.py
+git add ffl/static/field tests/ffl/test_field_assets.py
 git commit -m "feat: add offline FFL field capture PWA"
 ```
 
@@ -604,34 +603,35 @@ git commit -m "feat: add offline FFL field capture PWA"
 - Create: `ffl/static/manager/index.html`
 - Create: `ffl/static/manager/app.js`
 - Create: `ffl/static/manager/styles.css`
-- Modify: `ffl/app.py`
 - Create: `tests/ffl/test_manager_assets.py`
 
 **Interfaces:**
-- `GET /manager` serves the manager shell.
 - The manager shell requests `GET /api/v1/runtime` and renders open work and exceptions.
 - Selecting an exception requests `GET /api/v1/exceptions/{id}` and renders audit history.
 
 - [ ] **Step 1: Write failing manager surface tests**
 
 ```python
-def test_manager_surface_is_served(client):
-    response = client.get("/manager")
+from pathlib import Path
 
-    assert response.status_code == 200
-    assert "FFL Action Centre" in response.text
-    assert "Open exceptions" in response.text
+
+def test_manager_assets_define_action_centre():
+    root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
+
+    assert "FFL Action Centre" in (root / "index.html").read_text()
+    assert "/api/v1/runtime" in (root / "app.js").read_text()
+    assert "/api/v1/exceptions/" in (root / "app.js").read_text()
 ```
 
 - [ ] **Step 2: Run the manager test to verify it fails**
 
 Run: `python3 -m pytest tests/ffl/test_manager_assets.py -v`
 
-Expected: FAIL with `404` for `/manager`.
+Expected: FAIL because the manager assets do not yet exist.
 
 - [ ] **Step 3: Implement the manager action centre**
 
-The manager shell must render four cards from `/api/v1/runtime`: active allocation, planned/in-progress work, submitted work awaiting review, and open exceptions. The exception list shows severity, title, owner, fallback owner, observed time, current state, and next action. The work list shows title, owner, due time, current state, and whether it is overdue. Do not render satellite indexes, PDF exports, generic metrics, or unsupported AI advice.
+The manager shell must render four cards from `/api/v1/runtime`: active allocation, planned/in-progress work, submitted work awaiting review, and open exceptions. The exception list shows severity, title, owner, fallback owner, observed time, current state, and next action. The work list shows title, owner, due time, current state, and whether it is overdue. Do not render satellite indexes, PDF exports, generic metrics, or unsupported AI advice. Route wiring is intentionally deferred to Task 8 so this static-only task can run in parallel with Task 6.
 
 - [ ] **Step 4: Run the manager test to verify it passes**
 
@@ -642,7 +642,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ffl/static/manager ffl/app.py tests/ffl/test_manager_assets.py
+git add ffl/static/manager tests/ffl/test_manager_assets.py
 git commit -m "feat: add FFL manager action centre"
 ```
 
@@ -650,13 +650,15 @@ git commit -m "feat: add FFL manager action centre"
 
 **Files:**
 - Create: `tests/ffl/test_e2e.py`
+- Create: `tests/ffl/test_surfaces.py`
 - Create: `docs/ffl/LOCAL-RUN.md`
 - Modify: `README.md`
+- Modify: `ffl/app.py`
 
 **Interfaces:**
 - The golden path creates the seeded pilot, reports one idempotent exception, transitions it through `triaged`, `owned`, `mitigated`, `monitoring`, and `resolved`, and confirms an auditable history.
 
-- [ ] **Step 1: Write the end-to-end test**
+- [ ] **Step 1: Write the end-to-end and surface-integration tests**
 
 ```python
 def test_golden_exception_resolution_loop(seeded_client):
@@ -690,15 +692,24 @@ def test_golden_exception_resolution_loop(seeded_client):
     assert [event["to_status"] for event in detail["audit_events"]] == [
         "triaged", "owned", "mitigated", "monitoring", "resolved"
     ]
+
+
+def test_field_and_manager_surfaces_are_served(client):
+    assert client.get("/field").status_code == 200
+    assert "Report exception" in client.get("/field").text
+    assert client.get("/manager").status_code == 200
+    assert "FFL Action Centre" in client.get("/manager").text
 ```
 
-- [ ] **Step 2: Run the end-to-end test to verify it fails where a required endpoint is missing**
+- [ ] **Step 2: Run the tests to verify the surface-integration test fails**
 
 Run: `python3 -m pytest tests/ffl/test_e2e.py -v`
 
-Expected: FAIL only if the exception transition endpoint or audit payload is absent.
+Expected: the existing API golden loop passes; the new surface test fails with `404` until the static routes are wired.
 
-- [ ] **Step 3: Complete the missing endpoint payload and write the local run guide**
+- [ ] **Step 3: Wire the reviewed static surfaces, complete any missing API payload, and write the local run guide**
+
+Mount `ffl/static` at `/static` using `StaticFiles`; add `GET /field` and `GET /manager` routes that return their respective `index.html` files using `FileResponse`. Do not duplicate static content in Python.
 
 `docs/ffl/LOCAL-RUN.md` must contain these exact commands:
 
@@ -717,13 +728,11 @@ Run: `python3 -m pytest tests/ffl -v`
 
 Expected: PASS.
 
-Run: `python3 -m pytest tests -v`
-
-Expected: PASS.
+The legacy suite is known to fail collection under the mandated Python 3.9 runtime because the archived experiment uses Python 3.10 union syntax. Do not modify it for FFL V0; record that known non-FFL limitation in the final verification report instead.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/ffl docs/ffl/LOCAL-RUN.md README.md
+git add ffl/app.py tests/ffl docs/ffl/LOCAL-RUN.md README.md
 git commit -m "test: verify FFL golden operating loop"
 ```
