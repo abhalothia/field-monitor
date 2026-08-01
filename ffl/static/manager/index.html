@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FFL Action Centre</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Field flow ledger</p>
+          <h1>FFL Action Centre</h1>
+          <p id="operating-unit" class="subtle">Loading current field operations…</p>
+        </div>
+        <button id="refresh" type="button">Refresh</button>
+      </header>
+
+      <p id="load-status" class="load-status" aria-live="polite"></p>
+
+      <section class="cards" aria-label="Current action summary">
+        <article class="card">
+          <p class="card-label">Active allocation</p>
+          <p id="allocation-count" class="card-value">—</p>
+          <div id="allocation-list" class="card-detail"></div>
+        </article>
+        <article class="card">
+          <p class="card-label">Planned / in-progress work</p>
+          <p id="active-work-count" class="card-value">—</p>
+          <div id="active-work-summary" class="card-detail"></div>
+        </article>
+        <article class="card">
+          <p class="card-label">Submitted work awaiting review</p>
+          <p id="submitted-work-count" class="card-value">—</p>
+          <div id="submitted-work-summary" class="card-detail"></div>
+        </article>
+        <article class="card">
+          <p class="card-label">Open exceptions</p>
+          <p id="exception-count" class="card-value">—</p>
+          <div id="exception-summary" class="card-detail"></div>
+        </article>
+      </section>
+
+      <section class="workspace" aria-label="Manager actions">
+        <section class="panel" aria-labelledby="work-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Work queue</p>
+              <h2 id="work-heading">Open work</h2>
+            </div>
+          </div>
+          <div id="work-list" class="item-list" aria-live="polite"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="exception-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Escalation queue</p>
+              <h2 id="exception-heading">Open exceptions</h2>
+            </div>
+          </div>
+          <div id="exception-list" class="item-list" aria-live="polite"></div>
+        </section>
+
+        <aside class="panel detail-panel" aria-labelledby="audit-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Exception record</p>
+              <h2 id="audit-heading">Audit history</h2>
+            </div>
+          </div>
+          <div id="exception-detail" class="empty-state">Select an exception to view its audit history.</div>
+        </aside>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
