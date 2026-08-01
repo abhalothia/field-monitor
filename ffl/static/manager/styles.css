@@ -35,6 +35,25 @@ button:hover { background: #124534; }
 .card-value { margin-bottom: 10px; font-size: 2rem; font-weight: 700; }
 .card-detail { display: grid; gap: 4px; font-size: .84rem; }
 
+.portfolio-section { margin-top: 22px; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-heading h2 { font-size: 1.25rem; }
+.section-heading .subtle { margin-bottom: 0; font-size: .84rem; text-align: right; }
+.portfolio-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr)); gap: 18px; }
+.portfolio-panel { min-height: 192px; }
+.portfolio-list { display: grid; gap: 10px; }
+.portfolio-item { border-bottom: 1px solid #e6ebe5; padding: 0 0 12px; }
+.portfolio-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.portfolio-item h4 { margin: 0; font-size: .92rem; line-height: 1.35; }
+.portfolio-item p { margin: 4px 0 0; color: #59655e; font-size: .82rem; line-height: 1.4; }
+.portfolio-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
+.portfolio-meta .status { background: #f0f3f0; color: #526257; }
+.portfolio-counts { display: grid; gap: 8px; margin: 0; }
+.portfolio-counts div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.portfolio-counts dt { font-size: .78rem; text-transform: none; }
+.portfolio-counts dd { color: #1d2a27; font-size: 1rem; font-weight: 700; text-align: right; }
+.portfolio-unavailable { border-color: #ead9c6; background: #fffaf5; }
+
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, .8fr); gap: 18px; margin-top: 22px; align-items: start; }
 .panel { padding: 20px; }
 .panel-heading { align-items: center; border-bottom: 1px solid #e6ebe5; margin-bottom: 8px; padding-bottom: 14px; }
@@ -62,6 +81,8 @@ dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: .88rem; }
 
 @media (max-width: 1040px) {
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portfolio-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portfolio-grid > :first-child { grid-column: 1 / -1; }
   .workspace { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .detail-panel { grid-column: 1 / -1; }
 }
@@ -70,7 +91,10 @@ dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: .88rem; }
   .shell { padding: 20px; }
   .page-header { display: block; }
   .page-header button { margin-top: 16px; }
-  .cards, .workspace { grid-template-columns: 1fr; }
+  .section-heading { display: block; }
+  .section-heading .subtle { margin-top: 8px; text-align: left; }
+  .cards, .portfolio-grid, .workspace { grid-template-columns: 1fr; }
+  .portfolio-grid > :first-child { grid-column: auto; }
   .detail-panel { grid-column: auto; }
   .facts { grid-template-columns: 1fr; }
 }

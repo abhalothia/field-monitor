@@ -9,8 +9,22 @@ def test_manager_assets_define_action_centre():
     assert "FFL Action Centre" in (root / "index.html").read_text()
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
+    assert "/api/v1/portfolio" in app_js
     assert "allocation.crop_name" in app_js
     assert "allocation.cultivar" in app_js
+    assert "Risk &amp; action ledger" in (root / "index.html").read_text()
+    assert "Source &amp; import health" in (root / "index.html").read_text()
+    assert "Trials &amp; playbooks" in (root / "index.html").read_text()
+    assert "Imports awaiting review" in app_js
+    assert "Portfolio context is unavailable. Current action centre data is still usable." in app_js
+    assert "fetch(runtimeUrl)" in app_js
+    assert "fetch(portfolioUrl)" in app_js
+    assert ".catch(renderPortfolioUnavailable)" in app_js
+    assert "ledger.slice(0, 6)" in app_js
+    assert "Sources needing attention" in app_js
+    assert "private_storage_uri" not in app_js
+    assert "evidence_artifact_id" not in app_js
+    assert "content_base64" not in app_js
 
     expected_exception_states = (
         "reported",

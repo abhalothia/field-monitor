@@ -2,6 +2,7 @@
   "use strict";
 
   var runtimeUrl = "/api/v1/runtime";
+  var portfolioUrl = "/api/v1/portfolio";
   var currentRuntime = null;
 
   function element(id) {
@@ -55,6 +56,110 @@
     return text(value).replace(/[&<>'"]/g, function (character) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;" }[character];
     });
+  }
+
+  function readable(value) {
+    return text(value).replace(/_/g, " ");
+  }
+
+  function listedItems(summary) {
+    return summary && Array.isArray(summary.items) ? summary.items : [];
+  }
+
+  function totalCount(summary) {
+    return summary && typeof summary.total_count === "number" ? summary.total_count : 0;
+  }
+
+  function safeSeverity(value) {
+    return ["critical", "high", "medium", "low", "info"].indexOf(value) === -1 ? "medium" : value;
+  }
+
+  function renderPortfolioUnavailable() {
+    element("portfolio-status").textContent = "Portfolio context is unavailable. Current action centre data is still usable.";
+    setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
+    setHtml("portfolio-context", '<p class="empty-state portfolio-unavailable">Source and import context is unavailable right now.</p>');
+    setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
+  }
+
+  function renderRiskLedger(portfolio) {
+    var ledger = listedItems(portfolio.risk_action_ledger);
+    if (!ledger.length) {
+      setHtml("portfolio-ledger", '<p class="empty-state">No portfolio risks currently need action.</p>');
+      return;
+    }
+    setHtml("portfolio-ledger", ledger.slice(0, 6).map(function (item) {
+      var severity = safeSeverity(item.severity);
+      return '<article class="portfolio-item">' +
+        '<h4>' + escapeHtml(item.title) + '</h4>' +
+        '<p>' + escapeHtml(readable(item.action)) + '</p>' +
+        '<div class="portfolio-meta"><span class="severity severity-' + severity + '">' +
+        escapeHtml(severity) + '</span><span class="status">' + escapeHtml(readable(item.status)) +
+        '</span></div></article>';
+    }).join(""));
+  }
+
+  function renderSourceHealth(sources) {
+    var availability = sources && sources.availability ? readable(sources.availability) : "unavailable";
+    var configuredCount = sources && typeof sources.configured_count === "number" ? sources.configured_count : 0;
+    var attention = totalCount(sources && sources.attention);
+    if (availability === "not configured") {
+      return '<p class="empty-state">No approved external source is configured yet.</p>';
+    }
+    if (availability !== "available") {
+      return '<p class="empty-state portfolio-unavailable">Source health is ' + escapeHtml(availability) + '.</p>';
+    }
+    return '<dl class="portfolio-counts"><div><dt>Configured sources</dt><dd>' + configuredCount +
+      '</dd></div><div><dt>Sources needing attention</dt><dd>' + attention + '</dd></div></dl>';
+  }
+
+  function renderImportReview(imports) {
+    var availability = imports && imports.availability ? readable(imports.availability) : "unavailable";
+    if (availability !== "available") {
+      return '<p class="empty-state portfolio-unavailable">Import review is ' + escapeHtml(availability) + '.</p>';
+    }
+    return '<dl class="portfolio-counts"><div><dt>Imports awaiting review</dt><dd>' +
+      totalCount(imports.review_required) + '</dd></div></dl>';
+  }
+
+  function renderDataContext(portfolio) {
+    setHtml("portfolio-context", '<div class="portfolio-item"><h4>Source health</h4>' +
+      renderSourceHealth(portfolio.sources) + '</div><div class="portfolio-item"><h4>Import review</h4>' +
+      renderImportReview(portfolio.imports) + '</div>');
+  }
+
+  function countStatusItems(statuses) {
+    if (!statuses || typeof statuses !== "object") {
+      return 0;
+    }
+    return Object.keys(statuses).reduce(function (total, status) {
+      return total + (typeof statuses[status] === "number" ? statuses[status] : 0);
+    }, 0);
+  }
+
+  function renderLearning(portfolio) {
+    var learning = portfolio.learning || {};
+    var trialStatuses = learning.trials && learning.trials.by_status;
+    var playbookStatuses = learning.playbooks && learning.playbooks.by_status;
+    var availability = learning.availability ? readable(learning.availability) : "unavailable";
+    if (availability !== "available") {
+      setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Learning context is ' +
+        escapeHtml(availability) + '.</p>');
+      return;
+    }
+    setHtml("portfolio-learning", '<dl class="portfolio-counts"><div><dt>Trials</dt><dd>' +
+      countStatusItems(trialStatuses) + '</dd></div><div><dt>Playbooks</dt><dd>' +
+      countStatusItems(playbookStatuses) + '</dd></div></dl>');
+  }
+
+  function renderPortfolio(portfolio) {
+    if (!portfolio || typeof portfolio !== "object") {
+      renderPortfolioUnavailable();
+      return;
+    }
+    renderRiskLedger(portfolio);
+    renderDataContext(portfolio);
+    renderLearning(portfolio);
+    element("portfolio-status").textContent = "Portfolio context updated with the action centre.";
   }
 
   function renderCards(runtime) {
@@ -155,8 +260,9 @@
       });
   }
 
-  function loadRuntime() {
+  function loadActionCentre() {
     element("load-status").textContent = "Loading action centre…";
+    element("portfolio-status").textContent = "Loading portfolio context…";
     fetch(runtimeUrl)
       .then(function (response) {
         if (!response.ok) {
@@ -171,14 +277,24 @@
       .catch(function (error) {
         element("load-status").textContent = error.message;
       });
+
+    fetch(portfolioUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load portfolio context.");
+        }
+        return response.json();
+      })
+      .then(renderPortfolio)
+      .catch(renderPortfolioUnavailable);
   }
 
-  element("refresh").addEventListener("click", loadRuntime);
+  element("refresh").addEventListener("click", loadActionCentre);
   element("exception-list").addEventListener("click", function (event) {
     var button = event.target.closest("[data-exception-id]");
     if (button) {
       loadException(button.getAttribute("data-exception-id"));
     }
   });
-  loadRuntime();
+  loadActionCentre();
 }());
