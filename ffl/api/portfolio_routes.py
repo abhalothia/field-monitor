@@ -16,4 +16,6 @@ def get_portfolio(request: Request, as_of: Optional[str] = None) -> dict:
         current_time = portfolio.parse_as_of(as_of) if as_of is not None else None
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
-    return portfolio.portfolio_snapshot(request.app.state.conn, as_of=current_time)
+    return portfolio.portfolio_snapshot(
+        getattr(request.state, "conn", request.app.state.conn), as_of=current_time
+    )

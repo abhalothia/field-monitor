@@ -88,7 +88,7 @@ class TrialConclusionTransitionRequest(BaseModel):
 
 
 def _connection(request: Request):
-    return request.app.state.conn
+    return getattr(request.state, "conn", request.app.state.conn)
 
 
 def _unprocessable(error: ValueError) -> HTTPException:

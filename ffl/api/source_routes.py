@@ -35,7 +35,7 @@ class SourceRegistrationRequest(BaseModel):
 
 
 def _connection(request: Request):
-    return request.app.state.conn
+    return getattr(request.state, "conn", request.app.state.conn)
 
 
 def _not_found(error: LookupError) -> HTTPException:

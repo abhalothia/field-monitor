@@ -8,7 +8,36 @@ from ffl.persistence.database import (
     DatabaseConfigurationError,
     database_target,
     open_connection,
+    translate_sqlite_sql,
 )
+
+
+class _FakeCursor:
+    rowcount = 1
+
+    def fetchone(self):
+        return {"payload": {"stable": True}, "created_at": __import__("datetime").date(2026, 8, 1)}
+
+    def fetchall(self):
+        return [self.fetchone()]
+
+
+class _FakeRawConnection:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, sql, params):
+        self.calls.append((sql, params))
+        return _FakeCursor()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
 
 
 def test_legacy_sqlite_paths_remain_the_default_target(monkeypatch):
@@ -25,20 +54,57 @@ def test_legacy_sqlite_paths_remain_the_default_target(monkeypatch):
         connection.close()
 
 
-def test_postgres_target_is_explicit_and_fails_closed_without_echoing_dsn():
+def test_postgres_target_is_explicit_without_echoing_dsn():
     dsn = "postgresql://ffl_runtime:secret-never-logged@db.example.test:5432/ffl"
     target = database_target(database_url=dsn, postgres_schema="agro")
 
     assert target.dialect == "postgres"
     assert target.schema == "agro"
-    with pytest.raises(DatabaseConfigurationError) as exc_info:
-        open_connection(target)
-
-    assert "PostgreSQL is configured" in str(exc_info.value)
-    assert "secret-never-logged" not in str(exc_info.value)
+    assert target.dsn == dsn
 
 
-def test_api_startup_never_falls_back_to_sqlite_when_a_postgres_url_is_set(monkeypatch, tmp_path):
+def test_sqlite_sql_translation_keeps_values_safe_and_uses_private_relation_names():
+    translated = translate_sqlite_sql(
+        "INSERT OR IGNORE INTO evidence_artifacts VALUES (?, 'work_items ?')"
+    )
+
+    assert translated == "INSERT INTO agro_evidence_artifacts VALUES (%s, 'work_items ?') ON CONFLICT DO NOTHING"
+    assert translate_sqlite_sql("SELECT * FROM work_items ORDER BY rowid") == (
+        "SELECT * FROM agro_work_items ORDER BY created_at, id"
+    )
+    assert translate_sqlite_sql("BEGIN IMMEDIATE") == "SELECT 1"
+
+
+def test_postgres_connection_preserves_repository_row_contract_without_a_network_call():
+    from ffl.persistence.database import PostgresConnection
+
+    raw = _FakeRawConnection()
+    row = PostgresConnection(raw).execute("SELECT * FROM source_registry WHERE id = ?", ("source-1",)).fetchone()
+
+    assert raw.calls == [("SELECT * FROM agro_source_registry WHERE id = %s", ("source-1",))]
+    assert row["payload"] == '{"stable":true}'
+    assert row[1] == "2026-08-01"
+
+
+def test_postgres_private_table_probe_uses_to_regclass_without_public_catalog_access():
+    from ffl.persistence.database import PostgresConnection
+    from ffl.services.portfolio import _table_exists
+
+    class _ProbeCursor:
+        def fetchone(self):
+            return {"relation_name": "agro_work_items"}
+
+    class _ProbeRaw(_FakeRawConnection):
+        def execute(self, sql, params):
+            self.calls.append((sql, params))
+            return _ProbeCursor()
+
+    raw = _ProbeRaw()
+    assert _table_exists(PostgresConnection(raw), "work_items") is True
+    assert raw.calls == [("SELECT to_regclass(%s) AS relation_name", ("agro_work_items",))]
+
+
+def test_api_startup_never_falls_back_to_sqlite_when_postgres_opening_fails(monkeypatch, tmp_path):
     # Import here so module-level ``app`` was created before this test-specific
     # setting.  This only exercises target selection; it makes no network call.
     from ffl.app import create_app
@@ -47,12 +113,43 @@ def test_api_startup_never_falls_back_to_sqlite_when_a_postgres_url_is_set(monke
         "FFL_DATABASE_URL", "postgresql://ffl_runtime:secret-never-logged@db.example.test/ffl"
     )
 
+    def refusing_connect(_target):
+        raise DatabaseConfigurationError("FFL could not open the configured private PostgreSQL target")
+
+    monkeypatch.setattr("ffl.persistence.database._open_postgres_connection", refusing_connect)
     with pytest.raises(DatabaseConfigurationError) as exc_info:
         create_app(str(tmp_path / "must-not-be-created.db"))
 
-    assert "PostgreSQL is configured" in str(exc_info.value)
+    assert "could not open" in str(exc_info.value)
     assert "secret-never-logged" not in str(exc_info.value)
     assert not (tmp_path / "must-not-be-created.db").exists()
+
+
+def test_postgres_requests_open_a_distinct_connection_without_changing_sqlite_preview(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from ffl.app import create_app
+
+    opened = []
+
+    class _Connection:
+        def close(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    def fake_open(target, **_kwargs):
+        opened.append(target)
+        return _Connection()
+
+    monkeypatch.setenv("FFL_DATABASE_URL", "postgresql://runtime@example.test/ffl")
+    monkeypatch.setattr("ffl.app.open_connection", fake_open)
+    with TestClient(create_app(str(tmp_path / "must-not-be-created.db"))) as client:
+        assert client.get("/health").status_code == 200
+
+    # Bootstrap compatibility connection + a distinct request connection.
+    assert len(opened) == 2
+    assert all(target.dialect == "postgres" for target in opened)
 
 
 @pytest.mark.parametrize("schema", ["AGRO", "agro-app", "agro schema", "1agro"])

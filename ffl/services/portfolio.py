@@ -73,6 +73,10 @@ def _parse_schedule_time(value: Any) -> Optional[datetime]:
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     try:
+        if getattr(conn, "dialect", "sqlite") == "postgres":
+            return conn.execute(
+                "SELECT to_regclass(?) AS relation_name", ("agro_" + table_name,)
+            ).fetchone()["relation_name"] is not None
         return conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table_name,)
         ).fetchone() is not None

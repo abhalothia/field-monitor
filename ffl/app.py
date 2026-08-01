@@ -4,6 +4,7 @@ import os
 from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -42,12 +43,28 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     if app.state.database_target.dialect == "sqlite" and app.state.database_target.sqlite_path != ":memory:":
         Path(app.state.database_target.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
     app.state.conn = open_connection(app.state.database_target, check_same_thread=False)
-    create_schema(app.state.conn)
-    create_communications_schema(app.state.conn)
+    if app.state.database_target.dialect == "sqlite":
+        create_schema(app.state.conn)
+        create_communications_schema(app.state.conn)
     app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
     app.state.manager_api_token = manager_api_token if manager_api_token is not None else configured_manager_token()
     app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
     app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
+
+    @app.middleware("http")
+    async def private_postgres_request_connection(request: Request, call_next):
+        """Never share one PostgreSQL transaction between concurrent requests."""
+        if app.state.database_target.dialect != "postgres":
+            return await call_next(request)
+        connection = open_connection(app.state.database_target, check_same_thread=False)
+        request.state.conn = connection
+        try:
+            return await call_next(request)
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @app.get("/health")
     def health() -> dict:
