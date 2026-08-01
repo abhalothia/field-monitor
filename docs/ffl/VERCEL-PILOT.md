@@ -1,0 +1,67 @@
+# AGRO CEO Vercel pilot
+
+Vercel is suitable for the authenticated Fortune pilot web/API surface and its
+custom domain. It is not the home for the LoopMessage worker, scheduled source
+workers, or durable evidence files. Those retain the private Hetzner worker and
+private object-storage path.
+
+## What this repository deploys
+
+`vercel.json` routes every request to the existing FastAPI entrypoint at
+`api/index.py` and includes `ffl/static/**`. The public root is intentionally
+data-free: it exists so links have a branded title, favicon, and `1200×630`
+Open Graph image. `/manager`, `/field`, and every FFL API remain behind the
+Fortune launch-password session.
+
+## One-time Vercel setup
+
+1. In team **dakshbhatia1's projects**, import this repository as a new project
+   named `agro-ceo`. Keep the repository root as the Root Directory and let
+   Vercel use `requirements.txt` and `vercel.json`.
+2. Attach `agroceo.co` and `www.agroceo.co` in **Project → Settings → Domains**.
+   Make `agroceo.co` primary and redirect `www` to it. Add the exact DNS records
+   Vercel presents; do not copy generic records from another project.
+3. Set `FFL_PUBLIC_ORIGIN=https://agroceo.co` in **Production**. This is the
+   only authority for canonical and social-card URLs; it prevents a request
+   header from changing cached link-preview metadata.
+4. Add the production-only secrets in Vercel's encrypted environment store:
+   `FFL_DATABASE_URL`, `FFL_POSTGRES_SCHEMA=agro`, `FFL_LAUNCH_PASSWORD`, and
+   `FFL_LAUNCH_COOKIE_SECURE=true`. The database URL must be a dedicated,
+   least-privilege runtime role restricted to the private `agro` schema—never
+   a browser key, Supabase secret key, or a migration/superuser URL.
+5. Configure a durable private evidence-store integration before permitting
+   evidence uploads. Vercel's `/tmp` is only a disposable preview fallback.
+
+## Preview policy
+
+- Git pull requests get Vercel Preview deployments automatically. Give Preview
+  its own `FFL_LAUNCH_PASSWORD`; do **not** set `FFL_DATABASE_URL`, Supabase
+  keys, a LoopMessage secret, or production evidence credentials there.
+- Preview's SQLite state is intentionally ephemeral and can be used only for
+  visual/authentication smoke checks with non-sensitive test records.
+- Keep operational previews behind Vercel Deployment Protection for the team.
+  The production domain may remain publicly fetchable because the root contains
+  no operating data and needs to be readable by link-preview crawlers; the
+  application launch gate still protects every operational route.
+- Use a Preview deployment URL for internal review. Share the production domain
+  only after the launch gate, database role, evidence store, and backup check
+  are all verified.
+
+## Verification after each deploy
+
+1. `GET /health` returns `{"service":"ffl-operating-kernel","status":"ok"}`.
+2. An anonymous `GET /manager` redirects to `/login`; an anonymous API request
+   returns `401`.
+3. `GET /` contains `og:title`, `og:image`, `twitter:card`, and canonical URLs
+   rooted at `FFL_PUBLIC_ORIGIN`; `/favicon.svg` and
+   `/static/brand/agro-ceo-social.png` return successfully.
+4. Use the Slack/WhatsApp/X preview inspector appropriate to the recipient to
+   refresh its cache after changing the social card. Social platforms cache
+   previews independently, so deploy success alone does not guarantee an
+   instant refresh.
+
+## Deliberate boundary
+
+Vercel is a request/response surface. Do not enable the LoopMessage worker or
+source-fetch scheduler there. Run those on private Hetzner under the existing
+worker runbook, with their own server-only credentials and alerting.

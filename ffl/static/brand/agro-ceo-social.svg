@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="AGRO CEO — Fortune Farms">
+  <rect width="1200" height="630" fill="#101716"/>
+  <rect x="54" y="50" width="1092" height="530" rx="34" fill="#151E1D" stroke="#35413E" stroke-width="2"/>
+  <path d="M720 82h354v370c-96-12-182-57-251-127-69-69-104-155-103-243Z" fill="#1E2B27"/>
+  <path d="M1110 80c-15 119-68 227-159 318" fill="none" stroke="#A6FF5B" stroke-width="3" opacity=".9"/>
+  <path d="M1110 144c-29 99-78 187-148 265" fill="none" stroke="#A6FF5B" stroke-width="3" opacity=".45"/>
+  <circle cx="954" cy="138" r="9" fill="#A6FF5B"/>
+  <g transform="translate(106 104)">
+    <rect width="64" height="64" rx="16" fill="#F5F3ED"/>
+    <path d="M18 14h28v9H28v8h15v9H28v10h-10V14Z" fill="#101716"/>
+    <path d="M28 31h15v9H28Z" fill="#A6FF5B"/>
+    <circle cx="49" cy="15" r="5" fill="#A6FF5B"/>
+  </g>
+  <text x="190" y="134" fill="#F5F3ED" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" letter-spacing=".6">FORTUNE FARMS</text>
+  <text x="106" y="282" fill="#A6FF5B" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" letter-spacing="4">PRIVATE OPERATING SYSTEM</text>
+  <text x="100" y="408" fill="#F5F3ED" font-family="Arial, Helvetica, sans-serif" font-size="106" font-weight="800" letter-spacing="-4">AGRO CEO</text>
+  <text x="106" y="484" fill="#C9D0CB" font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="400">Real-time farm steering, held to real evidence.</text>
+  <rect x="106" y="524" width="268" height="2" fill="#A6FF5B"/>
+  <text x="106" y="558" fill="#8F9B95" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" letter-spacing="2">agroceo.co</text>
+</svg>

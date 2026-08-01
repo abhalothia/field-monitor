@@ -2,10 +2,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 from typing import AsyncIterator, Optional
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi import Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -34,6 +35,78 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 FIELD_INDEX = STATIC_DIR / "field" / "index.html"
 MANAGER_INDEX = STATIC_DIR / "manager" / "index.html"
 LAUNCH_INDEX = STATIC_DIR / "launch" / "index.html"
+BRAND_DIR = STATIC_DIR / "brand"
+FAVICON_SVG = BRAND_DIR / "favicon.svg"
+MANIFEST = BRAND_DIR / "site.webmanifest"
+
+
+def _public_origin() -> str:
+    """Return the deliberately configured canonical origin for share previews.
+
+    The host is configuration, never an untrusted request header. This prevents
+    hostile Host headers from changing the URLs that social crawlers cache.
+    """
+
+    configured = os.environ.get("FFL_PUBLIC_ORIGIN", "https://agroceo.co").rstrip("/")
+    parsed = urlparse(configured)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or parsed.username
+        or parsed.password
+    ):
+        raise RuntimeError("FFL_PUBLIC_ORIGIN must be an absolute origin without a path")
+    return configured
+
+
+def _public_landing(origin: str) -> str:
+    """A deliberately public, data-free link-preview surface for the pilot."""
+
+    social_image = f"{origin}/static/brand/agro-ceo-social.png"
+    return f'''<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101716">
+    <title>AGRO CEO — Fortune Farms</title>
+    <meta name="description" content="The private operating system for real-time farm steering.">
+    <link rel="canonical" href="{origin}/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Fortune Farms">
+    <meta property="og:title" content="AGRO CEO — Fortune Farms">
+    <meta property="og:description" content="The private operating system for real-time farm steering.">
+    <meta property="og:url" content="{origin}/">
+    <meta property="og:image" content="{social_image}">
+    <meta property="og:image:secure_url" content="{social_image}">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AGRO CEO — Fortune Farms">
+    <meta name="twitter:description" content="The private operating system for real-time farm steering.">
+    <meta name="twitter:image" content="{social_image}">
+    <link rel="stylesheet" href="/static/public/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <p class="wordmark"><span aria-hidden="true">F</span> Fortune Farms</p>
+      <section>
+        <p class="eyebrow">Private operating system</p>
+        <h1>AGRO CEO</h1>
+        <p class="statement">Real-time farm steering, held to real evidence.</p>
+        <a href="/login">Enter pilot <span aria-hidden="true">→</span></a>
+      </section>
+    </main>
+  </body>
+</html>'''
 
 
 @asynccontextmanager
@@ -83,7 +156,16 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             return await call_next(request)
         path = request.url.path
         webhook = path == "/api/v1/communications/loopmessage/webhook" and request.method == "POST"
-        public_paths = {"/health", "/login", "/api/v1/launch/login", "/api/v1/launch/logout"}
+        public_paths = {
+            "/",
+            "/health",
+            "/login",
+            "/favicon.svg",
+            "/favicon.ico",
+            "/site.webmanifest",
+            "/api/v1/launch/login",
+            "/api/v1/launch/logout",
+        }
         if path in public_paths or path.startswith("/static/") or webhook:
             return await call_next(request)
         if request.session.get(SESSION_FLAG) is True:
@@ -103,6 +185,23 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     @app.get("/health")
     def health() -> dict:
         return {"service": "ffl-operating-kernel", "status": "ok"}
+
+    @app.get("/", include_in_schema=False)
+    def public_landing() -> HTMLResponse:
+        return HTMLResponse(_public_landing(_public_origin()))
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(FAVICON_SVG, media_type="image/svg+xml")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def legacy_favicon() -> RedirectResponse:
+        # Keep legacy crawlers and browser probes on the single canonical mark.
+        return RedirectResponse("/favicon.svg", status_code=307)
+
+    @app.get("/site.webmanifest", include_in_schema=False)
+    def web_manifest() -> FileResponse:
+        return FileResponse(MANIFEST, media_type="application/manifest+json")
 
     @app.get("/field", include_in_schema=False)
     def field_surface() -> FileResponse:
