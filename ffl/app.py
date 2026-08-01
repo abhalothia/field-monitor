@@ -65,7 +65,7 @@ def _public_origin() -> str:
     hostile Host headers from changing the URLs that social crawlers cache.
     """
 
-    configured = os.environ.get("FFL_PUBLIC_ORIGIN", "https://agroceo.co").rstrip("/")
+    configured = os.environ.get("FFL_PUBLIC_ORIGIN", "https://www.agroceo.co").rstrip("/")
     parsed = urlparse(configured)
     if (
         parsed.scheme not in {"http", "https"}

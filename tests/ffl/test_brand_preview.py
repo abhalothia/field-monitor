@@ -35,3 +35,11 @@ def test_public_origin_rejects_paths_and_untrusted_shapes(tmp_path, monkeypatch)
         response = client.get("/")
 
     assert response.status_code == 500
+
+
+def test_public_origin_defaults_to_the_configured_production_host(tmp_path, monkeypatch):
+    monkeypatch.delenv("FFL_PUBLIC_ORIGIN", raising=False)
+    with TestClient(create_app(str(tmp_path / "brand.db"))) as client:
+        response = client.get("/")
+
+    assert 'href="https://www.agroceo.co/"' in response.text
