@@ -3,12 +3,13 @@ from dataclasses import asdict
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from ffl.persistence import repository
 from ffl.communications import persistence as communications_persistence
 from ffl.communications import service as communications_service
+from ffl.communications.auth import require_manager
 from ffl.services import operations
 
 
@@ -34,7 +35,6 @@ class ExceptionCreateRequest(BaseModel):
 class CommunicationPromptRequest(BaseModel):
     endpoint_id: str
     template_id: str
-    initiated_by_person_id: str
     idempotency_key: str
 
 
@@ -56,15 +56,11 @@ class CommunicationTemplateRequest(BaseModel):
     locale: str
     purpose: str
     body: str
-    owner_id: str
-
-
-class CommunicationTemplatePublishRequest(BaseModel):
-    publisher_id: str
+    provider_template_id: Optional[str] = None
+    provider_approval_state: str = "not_required"
 
 
 class CandidateAcceptRequest(BaseModel):
-    reviewer_id: str
     signal_template_id: Optional[str] = None
     signal_template_version: Optional[int] = None
     exception_owner_id: Optional[str] = None
@@ -72,10 +68,6 @@ class CandidateAcceptRequest(BaseModel):
     severity: str = "medium"
     signal_values: Optional[Dict[str, Any]] = None
     evidence_artifact_id: Optional[str] = None
-
-
-class CandidateRejectRequest(BaseModel):
-    reviewer_id: str
 
 
 def _connection(request: Request):
@@ -185,18 +177,18 @@ def transition_exception(exception_id: str, payload: TransitionRequest, request:
 
 
 @router.post("/work-items/{work_item_id}/communication-prompts", status_code=status.HTTP_201_CREATED)
-def create_communication_prompt(work_item_id: str, payload: CommunicationPromptRequest, request: Request) -> dict:
+def create_communication_prompt(work_item_id: str, payload: CommunicationPromptRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
         return communications_service.send_work_prompt(
             _connection(request), _communication_provider(request), work_item_id, payload.endpoint_id,
-            payload.template_id, payload.initiated_by_person_id, payload.idempotency_key,
+            payload.template_id, manager_id, payload.idempotency_key,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
 @router.post("/communication-endpoints", status_code=status.HTTP_201_CREATED)
-def create_communication_endpoint(payload: CommunicationEndpointRequest, request: Request) -> dict:
+def create_communication_endpoint(payload: CommunicationEndpointRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
         return _redact_endpoint(communications_persistence.create_endpoint(_connection(request), payload.person_id, payload.provider, payload.address, payload.locale))
     except ValueError as error:
@@ -204,35 +196,35 @@ def create_communication_endpoint(payload: CommunicationEndpointRequest, request
 
 
 @router.post("/communication-endpoints/{endpoint_id}/consents")
-def grant_communication_consent(endpoint_id: str, payload: CommunicationConsentRequest, request: Request) -> dict:
+def grant_communication_consent(endpoint_id: str, payload: CommunicationConsentRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
-        consent = communications_persistence.set_consent(_connection(request), endpoint_id, payload.purpose, True, payload.evidence)
+        consent = communications_persistence.set_consent(_connection(request), endpoint_id, payload.purpose, True, payload.evidence, manager_id)
         return {key: consent[key] for key in ("id", "endpoint_id", "purpose", "status", "granted_at", "revoked_at")}
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
 @router.post("/communication-endpoints/{endpoint_id}/consents/{purpose}/revoke")
-def revoke_communication_consent(endpoint_id: str, purpose: str, payload: CommunicationConsentRequest, request: Request) -> dict:
+def revoke_communication_consent(endpoint_id: str, purpose: str, payload: CommunicationConsentRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
-        consent = communications_persistence.set_consent(_connection(request), endpoint_id, purpose, False, payload.evidence)
+        consent = communications_persistence.set_consent(_connection(request), endpoint_id, purpose, False, payload.evidence, manager_id)
         return {key: consent[key] for key in ("id", "endpoint_id", "purpose", "status", "granted_at", "revoked_at")}
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
 @router.post("/communication-templates", status_code=status.HTTP_201_CREATED)
-def create_communication_template(payload: CommunicationTemplateRequest, request: Request) -> dict:
+def create_communication_template(payload: CommunicationTemplateRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
-        return communications_persistence.create_template(_connection(request), payload.template_key, payload.version, payload.locale, payload.purpose, payload.body, payload.owner_id)
+        return communications_persistence.create_template(_connection(request), payload.template_key, payload.version, payload.locale, payload.purpose, payload.body, manager_id, payload.provider_template_id, payload.provider_approval_state)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
 @router.post("/communication-templates/{template_id}/publish")
-def publish_communication_template(template_id: str, payload: CommunicationTemplatePublishRequest, request: Request) -> dict:
+def publish_communication_template(template_id: str, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
-        return communications_persistence.publish_template(_connection(request), template_id, payload.publisher_id)
+        return communications_persistence.publish_template(_connection(request), template_id, manager_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
@@ -243,28 +235,38 @@ async def loopmessage_webhook(request: Request) -> dict:
     if not provider.verify_webhook(request.headers.get("authorization")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid LoopMessage webhook authorization")
     try:
-        payload = json.loads((await request.body()).decode("utf-8"))
+        raw_body = await request.body()
+        payload = json.loads(raw_body.decode("utf-8"))
         event, created = communications_service.receive_webhook(_connection(request), provider, payload)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+        communications_persistence.quarantine(_connection(request), provider.name, str(error), raw_body if "raw_body" in locals() else b"")
+        return {"status": "quarantined"}
     return {"status": "accepted" if created else "duplicate", "event_id": event["id"], "candidate_id": event.get("candidate_id")}
 
 
 @router.get("/communications/inbox")
-def communications_inbox(request: Request) -> dict:
+def communications_inbox(request: Request, manager_id: str = Depends(require_manager)) -> dict:
     return {"candidates": communications_persistence.inbox(_connection(request))}
 
 
 @router.get("/communications/health")
-def communications_health(request: Request) -> dict:
+def communications_health(request: Request, manager_id: str = Depends(require_manager)) -> dict:
     return communications_persistence.health(_connection(request))
 
 
+@router.post("/communications/prompts/{prompt_id}/no-response")
+def mark_communication_no_response(prompt_id: str, request: Request, manager_id: str = Depends(require_manager)) -> dict:
+    try:
+        return communications_service.mark_no_response(_connection(request), prompt_id, manager_id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
 @router.post("/communications/candidates/{candidate_id}/accept")
-def accept_communication_candidate(candidate_id: str, payload: CandidateAcceptRequest, request: Request) -> dict:
+def accept_communication_candidate(candidate_id: str, payload: CandidateAcceptRequest, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
         return communications_service.accept_candidate(
-            _connection(request), candidate_id, payload.reviewer_id, payload.signal_template_id,
+            _connection(request), candidate_id, manager_id, payload.signal_template_id,
             payload.signal_template_version, payload.exception_owner_id, payload.exception_fallback_owner_id,
             payload.severity, payload.signal_values, payload.evidence_artifact_id,
         )
@@ -273,8 +275,8 @@ def accept_communication_candidate(candidate_id: str, payload: CandidateAcceptRe
 
 
 @router.post("/communications/candidates/{candidate_id}/reject")
-def reject_communication_candidate(candidate_id: str, payload: CandidateRejectRequest, request: Request) -> dict:
+def reject_communication_candidate(candidate_id: str, request: Request, manager_id: str = Depends(require_manager)) -> dict:
     try:
-        return communications_service.reject_candidate(_connection(request), candidate_id, payload.reviewer_id)
+        return communications_service.reject_candidate(_connection(request), candidate_id, manager_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))

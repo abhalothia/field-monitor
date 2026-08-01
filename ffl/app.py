@@ -15,6 +15,7 @@ from ffl.api.source_routes import router as source_router
 from ffl.api.trial_routes import router as trial_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
+from ffl.communications.auth import configured_manager_person_id, configured_manager_token
 from ffl.config import FFL_DATABASE_PATH
 from ffl.persistence.schema import create_schema
 
@@ -32,7 +33,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
@@ -43,6 +44,8 @@ def create_app(database_path: Optional[str] = None, communication_provider=None)
     create_schema(app.state.conn)
     create_communications_schema(app.state.conn)
     app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
+    app.state.manager_api_token = manager_api_token if manager_api_token is not None else configured_manager_token()
+    app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
 
     @app.get("/health")
     def health() -> dict:

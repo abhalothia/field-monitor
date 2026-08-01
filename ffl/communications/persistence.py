@@ -2,6 +2,7 @@ import json
 import hashlib
 import sqlite3
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -37,6 +38,15 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             evidence TEXT NOT NULL,
             UNIQUE(endpoint_id, purpose)
         );
+        CREATE TABLE IF NOT EXISTS communication_consent_events (
+            id TEXT PRIMARY KEY,
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            purpose TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+            actor_id TEXT,
+            provenance TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS communication_templates (
             id TEXT PRIMARY KEY,
             template_key TEXT NOT NULL,
@@ -46,6 +56,8 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             body TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'retired')),
             owner_id TEXT NOT NULL REFERENCES people(id),
+            provider_template_id TEXT,
+            provider_approval_state TEXT NOT NULL DEFAULT 'not_required',
             created_at TEXT NOT NULL,
             UNIQUE(template_key, version, locale)
         );
@@ -57,6 +69,7 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             template_id TEXT NOT NULL REFERENCES communication_templates(id),
             initiated_by_person_id TEXT NOT NULL REFERENCES people(id),
             idempotency_key TEXT NOT NULL UNIQUE,
+            logical_action_key TEXT,
             provider_message_id TEXT UNIQUE,
             status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'scheduled', 'delivered', 'failed', 'unknown', 'responded', 'no_response')),
             created_at TEXT NOT NULL,
@@ -102,14 +115,55 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_communication_prompts_endpoint_status
             ON communication_prompts(endpoint_id, status);
         CREATE INDEX IF NOT EXISTS idx_communication_events_contact ON communication_events(provider, contact_fingerprint);
+        CREATE TABLE IF NOT EXISTS communication_deliveries (
+            id TEXT PRIMARY KEY,
+            prompt_id TEXT NOT NULL REFERENCES communication_prompts(id),
+            attempt INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('attempting', 'accepted', 'unknown', 'failed')),
+            provider_message_id TEXT,
+            error_summary TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(prompt_id, attempt)
+        );
+        CREATE TABLE IF NOT EXISTS communication_schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS communication_quarantines (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            payload_fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """
     )
+    _add_column(conn, "communication_templates", "provider_template_id TEXT")
+    _add_column(conn, "communication_templates", "provider_approval_state TEXT NOT NULL DEFAULT 'not_required'")
+    _add_column(conn, "communication_prompts", "logical_action_key TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_communication_prompts_logical_action ON communication_prompts(logical_action_key) WHERE logical_action_key IS NOT NULL")
+    conn.execute("INSERT OR IGNORE INTO communication_schema_migrations VALUES (?, ?)", ("communications-v2-security", datetime.now(timezone.utc).isoformat()))
     conn.commit()
+
+
+def _add_column(conn: sqlite3.Connection, table: str, definition: str) -> None:
+    column = definition.split()[0]
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info({0})".format(table))}
+    if column not in columns:
+        conn.execute("ALTER TABLE {0} ADD COLUMN {1}".format(table, definition))
+
+
+def _normalize_e164(address: str) -> str:
+    normalized = re.sub(r"[\s\-()]+", "", address)
+    if not re.fullmatch(r"\+[1-9][0-9]{7,14}", normalized):
+        raise ValueError("communication endpoint must be E.164")
+    return normalized
 
 
 def create_endpoint(conn: sqlite3.Connection, person_id: str, provider: str, address: str, locale: str) -> Dict[str, Any]:
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (person_id,)).fetchone() is None:
         raise ValueError("endpoint person does not exist")
+    address = _normalize_e164(address)
     existing = conn.execute("SELECT * FROM communication_endpoints WHERE provider = ? AND address = ?", (provider, address)).fetchone()
     if existing is not None:
         return dict(existing)
@@ -119,16 +173,21 @@ def create_endpoint(conn: sqlite3.Connection, person_id: str, provider: str, add
     return dict(conn.execute("SELECT * FROM communication_endpoints WHERE id = ?", (identifier,)).fetchone())
 
 
-def set_consent(conn: sqlite3.Connection, endpoint_id: str, purpose: str, active: bool, evidence: str) -> Dict[str, Any]:
+def set_consent(conn: sqlite3.Connection, endpoint_id: str, purpose: str, active: bool, evidence: str, actor_id: Optional[str] = None) -> Dict[str, Any]:
     if conn.execute("SELECT 1 FROM communication_endpoints WHERE id = ?", (endpoint_id,)).fetchone() is None:
         raise ValueError("communication endpoint does not exist")
     row = conn.execute("SELECT * FROM communication_consents WHERE endpoint_id = ? AND purpose = ?", (endpoint_id, purpose)).fetchone()
     now = datetime.now(timezone.utc).isoformat()
+    if actor_id is not None and conn.execute("SELECT 1 FROM people WHERE id = ?", (actor_id,)).fetchone() is None:
+        raise ValueError("consent actor does not exist")
     if row is None:
         identifier, _ = _identity()
         conn.execute("INSERT INTO communication_consents VALUES (?, ?, ?, ?, ?, ?, ?)", (identifier, endpoint_id, purpose, 'active' if active else 'revoked', now, None if active else now, evidence))
     else:
         conn.execute("UPDATE communication_consents SET status = ?, granted_at = ?, revoked_at = ?, evidence = ? WHERE id = ?", ('active' if active else 'revoked', now if active else row['granted_at'], None if active else now, evidence, row['id']))
+    conn.commit()
+    identifier, created_at = _identity()
+    conn.execute("INSERT INTO communication_consent_events VALUES (?, ?, ?, ?, ?, ?, ?)", (identifier, endpoint_id, purpose, 'active' if active else 'revoked', actor_id, evidence, created_at))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_consents WHERE endpoint_id = ? AND purpose = ?", (endpoint_id, purpose)).fetchone())
 
@@ -137,11 +196,11 @@ def has_active_consent(conn: sqlite3.Connection, endpoint_id: str, purpose: str)
     return conn.execute("SELECT 1 FROM communication_consents WHERE endpoint_id = ? AND purpose = ? AND status = 'active'", (endpoint_id, purpose)).fetchone() is not None
 
 
-def create_template(conn: sqlite3.Connection, template_key: str, version: int, locale: str, purpose: str, body: str, owner_id: str, status: str = 'draft') -> Dict[str, Any]:
+def create_template(conn: sqlite3.Connection, template_key: str, version: int, locale: str, purpose: str, body: str, owner_id: str, provider_template_id: Optional[str] = None, provider_approval_state: str = "not_required", status: str = 'draft') -> Dict[str, Any]:
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (owner_id,)).fetchone() is None:
         raise ValueError("template owner does not exist")
     identifier, created_at = _identity()
-    conn.execute("INSERT INTO communication_templates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (identifier, template_key, version, locale, purpose, body, status, owner_id, created_at))
+    conn.execute("INSERT INTO communication_templates (id, template_key, version, locale, purpose, body, status, owner_id, provider_template_id, provider_approval_state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (identifier, template_key, version, locale, purpose, body, status, owner_id, provider_template_id, provider_approval_state, created_at))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_templates WHERE id = ?", (identifier,)).fetchone())
 
@@ -161,15 +220,19 @@ def create_prompt(conn: sqlite3.Connection, work_item_id: str, allocation_id: st
     existing = conn.execute("SELECT * FROM communication_prompts WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
     if existing is not None:
         return dict(existing), False
+    logical_action_key = "work_prompt:{0}:{1}:{2}".format(work_item_id, endpoint_id, template_id)
+    logical = conn.execute("SELECT * FROM communication_prompts WHERE logical_action_key = ?", (logical_action_key,)).fetchone()
+    if logical is not None:
+        return dict(logical), False
     identifier, now = _identity()
-    conn.execute("INSERT INTO communication_prompts VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?)", (identifier, work_item_id, allocation_id, endpoint_id, template_id, initiated_by, idempotency_key, now, now))
+    conn.execute("INSERT INTO communication_prompts (id, work_item_id, allocation_id, endpoint_id, template_id, initiated_by_person_id, idempotency_key, logical_action_key, provider_message_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', ?, ?)", (identifier, work_item_id, allocation_id, endpoint_id, template_id, initiated_by, idempotency_key, logical_action_key, now, now))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (identifier,)).fetchone()), True
 
 
 def update_prompt(conn: sqlite3.Connection, prompt_id: str, status: str, provider_message_id: Optional[str] = None) -> Dict[str, Any]:
     row = conn.execute("SELECT status FROM communication_prompts WHERE id = ?", (prompt_id,)).fetchone()
-    allowed = {"pending": {"accepted", "failed"}, "accepted": {"scheduled", "delivered", "failed", "unknown", "responded", "no_response"}, "scheduled": {"delivered", "failed", "unknown", "responded", "no_response"}, "delivered": {"failed", "unknown", "responded", "no_response"}}
+    allowed = {"pending": {"accepted", "failed", "unknown"}, "accepted": {"scheduled", "delivered", "failed", "unknown", "responded", "no_response"}, "scheduled": {"delivered", "failed", "unknown", "responded", "no_response"}, "delivered": {"failed", "unknown", "responded", "no_response"}}
     if row is None or status not in allowed.get(row["status"], set()):
         raise ValueError("invalid communication prompt transition")
     now = datetime.now(timezone.utc).isoformat()
@@ -179,6 +242,20 @@ def update_prompt(conn: sqlite3.Connection, prompt_id: str, status: str, provide
         conn.execute("UPDATE communication_prompts SET status = ?, provider_message_id = ?, updated_at = ? WHERE id = ?", (status, provider_message_id, now, prompt_id))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (prompt_id,)).fetchone())
+
+
+def create_delivery_attempt(conn: sqlite3.Connection, prompt_id: str, status: str, provider_message_id: Optional[str] = None, error_summary: Optional[str] = None) -> None:
+    attempt = conn.execute("SELECT count(*) FROM communication_deliveries WHERE prompt_id = ?", (prompt_id,)).fetchone()[0] + 1
+    identifier, created_at = _identity()
+    conn.execute("INSERT INTO communication_deliveries VALUES (?, ?, ?, ?, ?, ?, ?)", (identifier, prompt_id, attempt, status, provider_message_id, error_summary, created_at))
+    conn.commit()
+
+
+def quarantine(conn: sqlite3.Connection, provider: str, reason: str, payload: bytes) -> None:
+    identifier, created_at = _identity()
+    fingerprint = hashlib.sha256(payload).hexdigest()
+    conn.execute("INSERT INTO communication_quarantines VALUES (?, ?, ?, ?, ?)", (identifier, provider, reason[:200], fingerprint, created_at))
+    conn.commit()
 
 
 def find_endpoint(conn: sqlite3.Connection, provider: str, address: str) -> Optional[Dict[str, Any]]:
@@ -233,6 +310,11 @@ def create_candidate(conn: sqlite3.Connection, event_id: str, prompt_id: Optiona
 
 def get_candidate(conn: sqlite3.Connection, candidate_id: str) -> Optional[Dict[str, Any]]:
     row = conn.execute("SELECT * FROM communication_candidates WHERE id = ?", (candidate_id,)).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_candidate_for_event(conn: sqlite3.Connection, event_id: str) -> Optional[Dict[str, Any]]:
+    row = conn.execute("SELECT * FROM communication_candidates WHERE event_id = ?", (event_id,)).fetchone()
     return dict(row) if row is not None else None
 
 

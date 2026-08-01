@@ -14,9 +14,10 @@ from ffl.services.operations import create_work_item
 
 def _setup(tmp_path: Path):
     provider = FakeLoopMessageProvider()
-    app = create_app(str(tmp_path / "communications.db"), communication_provider=provider)
-    with TestClient(app) as client:
+    app = create_app(str(tmp_path / "communications.db"), communication_provider=provider, manager_api_token="test-manager-token")
+    with TestClient(app, headers={"X-FFL-Manager-Token": "test-manager-token"}) as client:
         seed = seed_pilot(app.state.conn)
+        app.state.manager_person_id = seed["manager_id"]
         work = create_work_item(
             app.state.conn, seed["allocation_id"], "WhatsApp irrigation check", seed["operator_id"],
             "2026-07-10T09:00:00+00:00", initial_status="planned",
@@ -160,9 +161,10 @@ def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_
 
 def test_admin_communications_paths_redact_endpoints_and_publish_templates(tmp_path):
     provider = FakeLoopMessageProvider()
-    app = create_app(str(tmp_path / "admin.db"), communication_provider=provider)
-    with TestClient(app) as client:
+    app = create_app(str(tmp_path / "admin.db"), communication_provider=provider, manager_api_token="test-manager-token")
+    with TestClient(app, headers={"X-FFL-Manager-Token": "test-manager-token"}) as client:
         seed = seed_pilot(app.state.conn)
+        app.state.manager_person_id = seed["manager_id"]
         endpoint = client.post(
             "/api/v1/communication-endpoints",
             json={"person_id": seed["operator_id"], "provider": "loopmessage", "address": "+15550000002", "locale": "hi-IN"},
@@ -177,12 +179,11 @@ def test_admin_communications_paths_redact_endpoints_and_publish_templates(tmp_p
         assert consent.json()["status"] == "active"
         draft = client.post(
             "/api/v1/communication-templates",
-            json={"template_key": "daily_check", "version": 1, "locale": "hi-IN", "purpose": "work_prompt", "body": "Daily check", "owner_id": seed["manager_id"]},
+            json={"template_key": "daily_check", "version": 1, "locale": "hi-IN", "purpose": "work_prompt", "body": "Daily check"},
         )
         assert draft.json()["status"] == "draft"
         published = client.post(
             "/api/v1/communication-templates/{}/publish".format(draft.json()["id"]),
-            json={"publisher_id": seed["manager_id"]},
         )
         assert published.json()["status"] == "published"
 

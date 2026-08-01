@@ -25,6 +25,10 @@ def send_work_prompt(
         raise ValueError("work prompt endpoint must belong to the assigned work owner")
     if template["status"] != "published" or template["purpose"] != WORK_PROMPT_PURPOSE:
         raise ValueError("work prompt requires a published work_prompt template")
+    if getattr(provider, "whatsapp_channel_enabled", False) and (
+        not template["provider_template_id"] or template["provider_approval_state"] != "approved"
+    ):
+        raise ValueError("approved external WhatsApp template is required for configured WhatsApp delivery")
     if not persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
         raise ValueError("work prompt consent is not active")
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (initiated_by_person_id,)).fetchone() is None:
@@ -35,12 +39,15 @@ def send_work_prompt(
     )
     if not created:
         return prompt
+    persistence.create_delivery_attempt(conn, prompt["id"], "attempting")
     try:
         result = provider.send_message(
             endpoint["address"], template["body"], None, prompt["id"]
         )
-    except Exception:
-        return persistence.update_prompt(conn, prompt["id"], "failed")
+    except Exception as error:
+        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary=str(error)[:200])
+        return persistence.update_prompt(conn, prompt["id"], "unknown")
+    persistence.create_delivery_attempt(conn, prompt["id"], "accepted", result.provider_message_id)
     return persistence.update_prompt(conn, prompt["id"], result.status, result.provider_message_id)
 
 
@@ -55,7 +62,12 @@ def receive_webhook(
         {"api_version": event["raw"].get("api_version"), "message_type": event["message_type"]},
     )
     if not created:
-        return stored, False
+        if stored["status"] != "received":
+            return stored, False
+        existing_candidate = persistence.get_candidate_for_event(conn, stored["id"])
+        if existing_candidate is not None:
+            persistence.update_event_status(conn, stored["id"], "review_required")
+            return {**stored, "candidate_id": existing_candidate["id"]}, False
 
     if event["event_type"] in ("message_failed", "message_delivered", "message_scheduled", "unknown"):
         prompt = persistence.find_prompt_for_message(conn, event["message_id"])
@@ -65,6 +77,8 @@ def receive_webhook(
                 persistence.update_prompt(conn, prompt["id"], lifecycle[event["event_type"]])
             except ValueError:
                 pass
+            if event["event_type"] == "message_failed" and event["raw"].get("error_code") == 500:
+                persistence.set_consent(conn, prompt["endpoint_id"], WORK_PROMPT_PURPOSE, False, "LoopMessage error_code 500")
         persistence.update_event_status(conn, stored["id"], "processed")
         return stored, True
     if event["event_type"] != "message_inbound":
@@ -86,6 +100,7 @@ def receive_webhook(
             "text": event["text"], "intent": intent, "message_type": event["message_type"],
             "attachment_ids": [attachment["id"] for attachment in attachments],
             "context_resolved": prompt is not None,
+            "observed_at": event["raw"].get("observed_at"),
         },
     )
     if prompt is not None:
@@ -116,7 +131,7 @@ def accept_candidate(
     if endpoint is None or event is None:
         raise ValueError("candidate linkage is incomplete")
     draft = _candidate_draft(candidate)
-    observed_at = event["received_at"]
+    observed_at = draft.get("observed_at") or event["received_at"]
     if candidate["kind"] == "exception":
         if not exception_owner_id or not exception_fallback_owner_id:
             raise ValueError("exception acceptance requires owner and fallback owner")
@@ -143,3 +158,9 @@ def reject_candidate(conn: sqlite3.Connection, candidate_id: str, reviewer_id: s
     if candidate is None or candidate["status"] != "review":
         raise ValueError("reviewable communication candidate not found")
     return persistence.review_candidate(conn, candidate_id, "rejected", reviewer_id)
+
+
+def mark_no_response(conn: sqlite3.Connection, prompt_id: str, manager_id: str) -> Dict[str, Any]:
+    if conn.execute("SELECT 1 FROM people WHERE id = ?", (manager_id,)).fetchone() is None:
+        raise ValueError("manager does not exist")
+    return persistence.update_prompt(conn, prompt_id, "no_response")
