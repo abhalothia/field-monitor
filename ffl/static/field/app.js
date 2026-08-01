@@ -139,7 +139,7 @@ syncButton.addEventListener("click", syncPending);
 window.addEventListener("online", syncPending);
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("/static/field/sw.js"));
+  window.addEventListener("load", () => navigator.serviceWorker.register("/field-service-worker.js"));
 }
 
 updateSyncStatus();

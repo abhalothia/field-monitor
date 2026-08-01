@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
+import base64
 from pathlib import Path
 import os
 from typing import AsyncIterator, Optional
 from urllib.parse import urlparse
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi import Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
 from ffl.api.import_routes import router as import_router
@@ -38,6 +38,24 @@ LAUNCH_INDEX = STATIC_DIR / "launch" / "index.html"
 BRAND_DIR = STATIC_DIR / "brand"
 FAVICON_SVG = BRAND_DIR / "favicon.svg"
 MANIFEST = BRAND_DIR / "site.webmanifest"
+SOCIAL_CARD_BASE64 = BRAND_DIR / "agro-ceo-social.png.b64"
+APPLE_TOUCH_ICON_BASE64 = BRAND_DIR / "apple-touch-icon.png.b64"
+WEB_ASSETS = {
+    "public.css": STATIC_DIR / "landing" / "styles.css",
+    "launch.css": STATIC_DIR / "launch" / "styles.css",
+    "launch.js": STATIC_DIR / "launch" / "app.js",
+    "manager.css": STATIC_DIR / "manager" / "styles.css",
+    "manager.js": STATIC_DIR / "manager" / "app.js",
+    "field.css": STATIC_DIR / "field" / "styles.css",
+    "field.js": STATIC_DIR / "field" / "app.js",
+}
+FIELD_SERVICE_WORKER = STATIC_DIR / "field" / "sw.js"
+
+
+def _brand_png(path: Path) -> bytes:
+    """Serve immutable PNG assets from text-safe serverless deployment input."""
+
+    return base64.b64decode(path.read_text(encoding="ascii"))
 
 
 def _public_origin() -> str:
@@ -66,7 +84,7 @@ def _public_origin() -> str:
 def _public_landing(origin: str) -> str:
     """A deliberately public, data-free link-preview surface for the pilot."""
 
-    social_image = f"{origin}/static/brand/agro-ceo-social.png"
+    social_image = f"{origin}/brand/agro-ceo-social.png"
     return f'''<!doctype html>
 <html lang="en">
   <head>
@@ -77,7 +95,7 @@ def _public_landing(origin: str) -> str:
     <meta name="description" content="The private operating system for real-time farm steering.">
     <link rel="canonical" href="{origin}/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Fortune Farms">
@@ -93,7 +111,7 @@ def _public_landing(origin: str) -> str:
     <meta name="twitter:title" content="AGRO CEO — Fortune Farms">
     <meta name="twitter:description" content="The private operating system for real-time farm steering.">
     <meta name="twitter:image" content="{social_image}">
-    <link rel="stylesheet" href="/static/public/styles.css">
+    <link rel="stylesheet" href="/assets/public.css">
   </head>
   <body>
     <main class="shell">
@@ -119,7 +137,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
     if app.state.database_target.dialect == "sqlite" and app.state.database_target.sqlite_path != ":memory:":
@@ -169,13 +186,15 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             # A Vercel URL must never turn that omission into an open operating
             # surface: leave only the data-free share shell and static branding
             # available until its encrypted launch secret is configured.
-            if os.environ.get("VERCEL") and not (path in public_paths or path.startswith("/static/")):
+            if os.environ.get("VERCEL") and not (
+                path in public_paths or path.startswith("/assets/") or path.startswith("/brand/") or path == "/field-service-worker.js"
+            ):
                 return JSONResponse(
                     {"detail": "Fortune pilot access is not configured"},
                     status_code=503,
                 )
             return await call_next(request)
-        if path in public_paths or path.startswith("/static/") or webhook:
+        if path in public_paths or path.startswith("/assets/") or path.startswith("/brand/") or path == "/field-service-worker.js" or webhook:
             return await call_next(request)
         if request.session.get(SESSION_FLAG) is True:
             return await call_next(request)
@@ -211,6 +230,37 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     @app.get("/site.webmanifest", include_in_schema=False)
     def web_manifest() -> FileResponse:
         return FileResponse(MANIFEST, media_type="application/manifest+json")
+
+    @app.get("/brand/agro-ceo-social.png", include_in_schema=False)
+    def social_card() -> Response:
+        return Response(_brand_png(SOCIAL_CARD_BASE64), media_type="image/png")
+
+    @app.get("/brand/apple-touch-icon.png", include_in_schema=False)
+    def apple_touch_icon() -> Response:
+        return Response(_brand_png(APPLE_TOUCH_ICON_BASE64), media_type="image/png")
+
+    @app.get("/assets/{asset_name}", include_in_schema=False)
+    def web_asset(asset_name: str) -> FileResponse:
+        """Serve only the explicitly approved browser assets through the app.
+
+        Vercel reserves ``/static`` for its own file handling.  Routing the
+        small allowlist here keeps the same FastAPI app responsible for assets
+        in preview and production, without exposing a filesystem reader.
+        """
+
+        asset_path = WEB_ASSETS.get(asset_name)
+        if asset_path is None:
+            raise HTTPException(status_code=404, detail="asset not found")
+        media_type = "text/css" if asset_name.endswith(".css") else "application/javascript"
+        return FileResponse(asset_path, media_type=media_type)
+
+    @app.get("/field-service-worker.js", include_in_schema=False)
+    def field_service_worker() -> FileResponse:
+        return FileResponse(
+            FIELD_SERVICE_WORKER,
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/"},
+        )
 
     @app.get("/field", include_in_schema=False)
     def field_surface() -> FileResponse:

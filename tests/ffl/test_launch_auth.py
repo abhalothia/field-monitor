@@ -33,6 +33,6 @@ def test_vercel_without_launch_password_fails_closed_except_for_the_data_free_sh
     monkeypatch.setenv("VERCEL", "1")
     with TestClient(create_app(str(tmp_path / "preview.db"), launch_password="")) as client:
         assert client.get("/").status_code == 200
-        assert client.get("/static/brand/agro-ceo-social.png").status_code == 200
+        assert client.get("/brand/agro-ceo-social.png").status_code == 200
         assert client.get("/manager").status_code == 503
         assert client.get("/api/v1/runtime").status_code == 503

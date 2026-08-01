@@ -66,6 +66,6 @@ def test_field_and_manager_surfaces_are_served(client):
     assert "Report exception" in client.get("/field").text
     assert client.get("/manager").status_code == 200
     assert "FFL Action Centre" in client.get("/manager").text
-    assert client.get("/static/field/styles.css").status_code == 200
-    assert client.get("/static/field/sw.js").status_code == 200
-    assert client.get("/static/manager/app.js").status_code == 200
+    assert client.get("/assets/field.css").status_code == 200
+    assert client.get("/field-service-worker.js").status_code == 200
+    assert client.get("/assets/manager.js").status_code == 200
