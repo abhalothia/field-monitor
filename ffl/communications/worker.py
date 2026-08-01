@@ -22,7 +22,7 @@ from ffl.communications.service import (
 )
 from ffl.config import FFL_DATABASE_PATH
 from ffl.communications import persistence
-from ffl.persistence.database import open_connection
+from ffl.persistence.database import database_target, open_connection
 from ffl.persistence.schema import create_schema
 
 
@@ -77,7 +77,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run one private FFL communications maintenance cycle")
     parser.add_argument("--once", action="store_true", help="Run one bounded cycle (the only supported mode)")
     parser.parse_args(argv)
-    conn = open_connection(os.environ.get("FFL_DATABASE_PATH", FFL_DATABASE_PATH))
+    # Use the same target resolver as the API.  If a future production DSN is
+    # set before its repository adapter exists, fail closed rather than letting
+    # this worker quietly process private communications in a local SQLite DB.
+    conn = open_connection(
+        database_target(sqlite_path=os.environ.get("FFL_DATABASE_PATH", FFL_DATABASE_PATH))
+    )
     try:
         create_schema(conn)
         persistence.create_communications_schema(conn)

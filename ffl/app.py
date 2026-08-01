@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-import sqlite3
 import os
 from typing import AsyncIterator, Optional
 
@@ -18,6 +17,7 @@ from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
 from ffl.config import FFL_DATABASE_PATH
+from ffl.persistence.database import database_target, open_connection
 from ffl.persistence.schema import create_schema
 
 
@@ -38,10 +38,10 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
-    Path(app.state.database_path).parent.mkdir(parents=True, exist_ok=True)
-    app.state.conn = sqlite3.connect(app.state.database_path, check_same_thread=False)
-    app.state.conn.row_factory = sqlite3.Row
-    app.state.conn.execute("PRAGMA foreign_keys = ON")
+    app.state.database_target = database_target(sqlite_path=app.state.database_path)
+    if app.state.database_target.dialect == "sqlite" and app.state.database_target.sqlite_path != ":memory:":
+        Path(app.state.database_target.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
+    app.state.conn = open_connection(app.state.database_target, check_same_thread=False)
     create_schema(app.state.conn)
     create_communications_schema(app.state.conn)
     app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
