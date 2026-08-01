@@ -52,7 +52,7 @@ def parse_as_of(value: str) -> datetime:
     except ValueError as exc:
         raise ValueError("as_of must be an ISO-8601 date or timestamp") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        raise ValueError("as_of timestamps must include a timezone")
     return parsed.astimezone(timezone.utc)
 
 

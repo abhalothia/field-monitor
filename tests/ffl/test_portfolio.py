@@ -185,9 +185,15 @@ def test_unmounted_portfolio_route_validates_as_of_and_keeps_service_read_only(f
     before = ffl_db.execute("SELECT status FROM work_items WHERE id = ?", (work.id,)).fetchone()["status"]
     response = client.get("/api/v1/portfolio?as_of=2026-08-01T12:00:00Z")
     invalid = client.get("/api/v1/portfolio?as_of=not-a-date")
+    naive_timestamp = client.get("/api/v1/portfolio?as_of=2026-08-01T12:00:00")
+    date_only = client.get("/api/v1/portfolio?as_of=2026-08-01")
     after = ffl_db.execute("SELECT status FROM work_items WHERE id = ?", (work.id,)).fetchone()["status"]
 
     assert response.status_code == 200
     assert response.json()["as_of"] == "2026-08-01T12:00:00+00:00"
     assert invalid.status_code == 422
+    assert naive_timestamp.status_code == 422
+    assert naive_timestamp.json()["detail"] == "as_of timestamps must include a timezone"
+    assert date_only.status_code == 200
+    assert date_only.json()["as_of"] == "2026-08-01T00:00:00+00:00"
     assert before == after == "planned"
