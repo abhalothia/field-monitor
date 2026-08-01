@@ -372,14 +372,20 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON crop_stage_checkpoints (allocation_id, planned_for);
         CREATE INDEX IF NOT EXISTS idx_harvest_records_allocation_created
             ON harvest_records (allocation_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_season_reviews_allocation_created
+            ON season_reviews (allocation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_source_runs_source_created
             ON source_runs (source_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_regional_signals_region_observed
             ON regional_signals (region, observed_at);
         CREATE INDEX IF NOT EXISTS idx_import_rows_batch_number
             ON import_rows (import_batch_id, row_number);
+        CREATE INDEX IF NOT EXISTS idx_import_batches_purpose_received
+            ON import_batches (purpose, received_at);
         CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial
             ON trial_allocations (trial_id);
+        CREATE INDEX IF NOT EXISTS idx_trial_confounders_trial
+            ON trial_confounders (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trial_conclusions_trial
             ON trial_conclusions (trial_id);
         """

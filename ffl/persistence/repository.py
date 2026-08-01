@@ -42,12 +42,46 @@ def _new_identity() -> Tuple[str, str]:
 
 def _json_value(value: object) -> str:
     """Persist JSON columns consistently while accepting normal Python values."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except ValueError as exc:
+        raise ValueError("JSON values must not contain NaN or infinity") from exc
 
 
 def _validate_content_hash(content_hash: str) -> None:
     if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
         raise ValueError("content_hash must be a lowercase SHA-256 hex digest")
+
+
+def _validate_credentials_reference(credentials_reference: Optional[str]) -> None:
+    if credentials_reference is None:
+        return
+    if re.fullmatch(r"(?:secret|env)://[A-Za-z0-9][A-Za-z0-9._/-]*", credentials_reference) is None:
+        raise ValueError("credentials_reference must be a non-secret secret:// or env:// identifier")
+
+
+def _require_published_template(conn: sqlite3.Connection, template_id: str, template_version: int) -> None:
+    row = conn.execute(
+        "SELECT status FROM signal_templates WHERE id = ? AND version = ?",
+        (template_id, template_version),
+    ).fetchone()
+    if row is None:
+        raise ValueError("signal template ID and version do not match")
+    if row["status"] != "published":
+        raise ValueError("signal template must be published")
+
+
+def _validate_import_lifecycle(
+    status: str, reviewed_at: Optional[str], published_at: Optional[str]
+) -> None:
+    if status in ("received", "profiled") and (reviewed_at is not None or published_at is not None):
+        raise ValueError("received and profiled imports cannot have review or publish timestamps")
+    if status == "review" and (reviewed_at is None or published_at is not None):
+        raise ValueError("review imports require reviewed_at and cannot have published_at")
+    if status == "published" and (reviewed_at is None or published_at is None):
+        raise ValueError("published imports require reviewed_at and published_at")
+    if status in ("quarantined", "failed") and published_at is not None:
+        raise ValueError("quarantined and failed imports cannot have published_at")
 
 
 def _operating_unit(row: sqlite3.Row) -> OperatingUnit:
@@ -556,6 +590,7 @@ def create_field_signal(
     status: str = "submitted", received_at: Optional[str] = None,
     supersedes_signal_id: Optional[str] = None,
 ) -> FieldSignal:
+    _require_published_template(conn, template_id, template_version)
     identifier, created_at = _new_identity()
     received_at = received_at or created_at
     conn.execute(
@@ -584,6 +619,10 @@ def create_crop_stage_checkpoint(
     status: str = "planned", completed_at: Optional[str] = None,
     supersedes_checkpoint_id: Optional[str] = None,
 ) -> CropStageCheckpoint:
+    if (template_id is None) != (template_version is None):
+        raise ValueError("template ID and version must be supplied together")
+    if template_id is not None and template_version is not None:
+        _require_published_template(conn, template_id, template_version)
     identifier, created_at = _new_identity()
     conn.execute(
         "INSERT INTO crop_stage_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -618,6 +657,12 @@ def create_harvest_record(
         raise ValueError("corrected status requires correction_of_id")
     if correction_of_id is None and any((corrected_by_person_id, correction_reason)):
         raise ValueError("correction actor and reason require correction_of_id")
+    if correction_of_id is not None:
+        prior = get_harvest_record(conn, correction_of_id)
+        if prior is None:
+            raise ValueError("prior harvest record does not exist")
+        if prior.allocation_id != allocation_id:
+            raise ValueError("harvest correction must use the predecessor allocation")
     identifier, created_at = _new_identity()
     conn.execute(
         "INSERT INTO harvest_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -691,6 +736,7 @@ def create_source_registry(
     endpoint: Optional[str] = None, freshness_target_hours: Optional[float] = None,
     license_notes: Optional[str] = None, enabled: bool = False,
 ) -> SourceRegistry:
+    _validate_credentials_reference(credentials_reference)
     identifier, created_at = _new_identity()
     try:
         conn.execute(
@@ -760,6 +806,12 @@ def create_regional_signal(
     resolution: Optional[str] = None, freshness_target_hours: Optional[float] = None,
     status: str = "available",
 ) -> RegionalSignal:
+    if source_run_id is not None:
+        source_run = get_source_run(conn, source_run_id)
+        if source_run is None:
+            raise ValueError("source run does not exist")
+        if source_run.source_id != source_id:
+            raise ValueError("regional signal source_run must belong to source_id")
     identifier, created_at = _new_identity()
     received_at = received_at or created_at
     conn.execute(
@@ -795,6 +847,7 @@ def create_import_batch(
         raise ValueError("evidence artifact does not exist")
     if artifact.content_hash != content_hash:
         raise ValueError("import content_hash must match its evidence artifact")
+    _validate_import_lifecycle(status, reviewed_at, published_at)
     identifier, created_at = _new_identity()
     received_at = received_at or created_at
     try:
@@ -947,6 +1000,14 @@ def create_trial_confounder(
     conn: sqlite3.Connection, trial_id: str, category: str, description: str, observed_at: str,
     actor_id: str, allocation_id: Optional[str] = None, evidence_artifact_id: Optional[str] = None,
 ) -> TrialConfounder:
+    if allocation_id is not None:
+        allocation = conn.execute(
+            """SELECT 1 FROM trial_allocations
+               WHERE trial_id = ? AND allocation_id = ? AND status IN ('enrolled', 'withdrawn')""",
+            (trial_id, allocation_id),
+        ).fetchone()
+        if allocation is None:
+            raise ValueError("trial confounder allocation must participate in the trial")
     identifier, created_at = _new_identity()
     conn.execute(
         "INSERT INTO trial_confounders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
