@@ -1,27 +1,53 @@
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from ffl.domain.models import (
     AuditEvent,
+    CropStageCheckpoint,
     CropAllocation,
     Decision,
+    EvidenceArtifact,
     ExceptionRecord,
+    FieldSignal,
+    HarvestRecord,
+    ImportBatch,
+    ImportRow,
     LandParcel,
     OperatingUnit,
     OperationalBlock,
     Person,
+    Playbook,
+    RegionalSignal,
     RightToOperate,
     Season,
+    SeasonReview,
     SignalTemplate,
+    SourceRegistry,
+    SourceRun,
+    Trial,
+    TrialAllocation,
+    TrialConclusion,
+    TrialConfounder,
     WorkItem,
 )
 
 
 def _new_identity() -> Tuple[str, str]:
     return str(uuid.uuid4()), datetime.now(timezone.utc).isoformat()
+
+
+def _json_value(value: object) -> str:
+    """Persist JSON columns consistently while accepting normal Python values."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _validate_content_hash(content_hash: str) -> None:
+    if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
+        raise ValueError("content_hash must be a lowercase SHA-256 hex digest")
 
 
 def _operating_unit(row: sqlite3.Row) -> OperatingUnit:
@@ -96,6 +122,133 @@ def _audit_event(row: sqlite3.Row) -> AuditEvent:
     return AuditEvent(
         row["id"], row["entity_type"], row["entity_id"], row["from_status"],
         row["to_status"], row["actor_id"], row["reason"], row["created_at"],
+    )
+
+
+def _evidence_artifact(row: sqlite3.Row) -> EvidenceArtifact:
+    return EvidenceArtifact(
+        row["id"], row["content_hash"], row["media_type"], row["storage_reference"],
+        row["original_filename"], row["size_bytes"], row["source_uri"],
+        row["created_by_person_id"], row["created_at"],
+    )
+
+
+def _field_signal(row: sqlite3.Row) -> FieldSignal:
+    return FieldSignal(
+        row["id"], row["allocation_id"], row["template_id"], row["template_version"],
+        row["observed_at"], row["received_at"], row["actor_id"], row["evidence_artifact_id"],
+        json.loads(row["values_json"]), row["status"], row["supersedes_signal_id"], row["created_at"],
+    )
+
+
+def _crop_stage_checkpoint(row: sqlite3.Row) -> CropStageCheckpoint:
+    return CropStageCheckpoint(
+        row["id"], row["allocation_id"], row["stage_name"], row["planned_for"], row["status"],
+        json.loads(row["expected_evidence_json"]), row["template_id"], row["template_version"],
+        row["completed_at"], row["supersedes_checkpoint_id"], row["created_at"],
+    )
+
+
+def _harvest_record(row: sqlite3.Row) -> HarvestRecord:
+    return HarvestRecord(
+        row["id"], row["allocation_id"], row["harvest_starts_on"], row["harvest_ends_on"],
+        row["quantity"], row["canonical_unit"], row["measurement_method"],
+        json.loads(row["quality_metrics_json"]), row["evidence_artifact_id"], row["status"],
+        row["correction_of_id"], row["corrected_by_person_id"], row["correction_reason"], row["created_at"],
+    )
+
+
+def _season_review(row: sqlite3.Row) -> SeasonReview:
+    return SeasonReview(
+        row["id"], row["allocation_id"], row["owner_id"],
+        json.loads(row["confirmed_practices_json"]),
+        json.loads(row["invalidated_assumptions_json"]),
+        json.loads(row["unresolved_questions_json"]),
+        json.loads(row["proposed_playbook_changes_json"]), row["status"], row["reviewed_at"], row["created_at"],
+    )
+
+
+def _source_registry(row: sqlite3.Row) -> SourceRegistry:
+    return SourceRegistry(
+        row["id"], row["source_key"], row["display_name"], row["source_type"], row["purpose"],
+        row["authority_level"], row["owner_id"], row["credentials_reference"], row["endpoint"],
+        json.loads(row["permitted_data_classes_json"]), row["freshness_target_hours"],
+        row["license_notes"], row["schema_version"], row["mapping_version"],
+        json.loads(row["default_coverage_json"]), bool(row["enabled"]), row["created_at"],
+    )
+
+
+def _source_run(row: sqlite3.Row) -> SourceRun:
+    return SourceRun(
+        row["id"], row["source_id"], row["cursor"], json.loads(row["coverage_json"]),
+        row["fetched_at"], row["status"], row["rows_received"], row["rows_accepted"],
+        row["error_summary"], row["next_retry_at"], row["mapping_version"], row["created_at"],
+    )
+
+
+def _regional_signal(row: sqlite3.Row) -> RegionalSignal:
+    return RegionalSignal(
+        row["id"], row["source_id"], row["source_run_id"], row["source_identifier"], row["source_url"],
+        row["region"], row["signal_type"], row["observed_at"], row["received_at"], row["valid_from"],
+        row["valid_to"], json.loads(row["coverage_json"]), row["resolution"],
+        row["freshness_target_hours"], row["signal_kind"], json.loads(row["value_json"]), row["status"],
+        row["created_at"],
+    )
+
+
+def _import_batch(row: sqlite3.Row) -> ImportBatch:
+    return ImportBatch(
+        row["id"], row["purpose"], row["status"], row["content_hash"], row["evidence_artifact_id"],
+        row["mapping_version"], row["source_id"], row["owner_id"], row["received_at"],
+        row["reviewed_at"], row["published_at"], json.loads(row["profile_json"]), row["created_at"],
+    )
+
+
+def _import_row(row: sqlite3.Row) -> ImportRow:
+    return ImportRow(
+        row["id"], row["import_batch_id"], row["row_number"], json.loads(row["raw_json"]),
+        json.loads(row["mapped_json"]), row["status"], json.loads(row["validation_errors_json"]),
+        row["target_entity_type"], row["target_entity_id"], row["published_record_id"], row["created_at"],
+    )
+
+
+def _playbook(row: sqlite3.Row) -> Playbook:
+    return Playbook(
+        row["id"], row["name"], row["version"], row["status"], row["owner_id"],
+        json.loads(row["protocol_json"]), row["effective_from"], row["approved_by_person_id"],
+        row["approved_at"], row["created_at"],
+    )
+
+
+def _trial(row: sqlite3.Row) -> Trial:
+    return Trial(
+        row["id"], row["name"], row["hypothesis"], row["owner_id"], row["protocol_version"],
+        row["decision_question"], json.loads(row["treatment_json"]), json.loads(row["comparator_json"]),
+        json.loads(row["eligibility_rule_json"]), json.loads(row["measurements_json"]),
+        json.loads(row["guardrails_json"]), row["status"], row["starts_on"], row["ends_on"],
+        row["status_reason"], row["created_at"],
+    )
+
+
+def _trial_allocation(row: sqlite3.Row) -> TrialAllocation:
+    return TrialAllocation(
+        row["id"], row["trial_id"], row["allocation_id"], row["arm"], row["status"],
+        row["enrolled_at"], row["withdrawn_at"], row["reason"], row["created_at"],
+    )
+
+
+def _trial_confounder(row: sqlite3.Row) -> TrialConfounder:
+    return TrialConfounder(
+        row["id"], row["trial_id"], row["allocation_id"], row["category"], row["description"],
+        row["observed_at"], row["evidence_artifact_id"], row["actor_id"], row["created_at"],
+    )
+
+
+def _trial_conclusion(row: sqlite3.Row) -> TrialConclusion:
+    return TrialConclusion(
+        row["id"], row["trial_id"], row["reviewer_id"], row["status"], json.loads(row["result_json"]),
+        row["confidence_level"], json.loads(row["limitations_json"]), row["evidence_artifact_id"],
+        row["playbook_id"], row["playbook_decision"], row["approved_at"], row["created_at"],
     )
 
 
@@ -353,3 +506,492 @@ def list_audit_events(conn: sqlite3.Connection, entity_type: str, entity_id: str
         (entity_type, entity_id),
     ).fetchall()
     return [_audit_event(row) for row in rows]
+
+
+# V1 shared records. These helpers deliberately only append records; publishing,
+# approval, and adapter workflows belong to the dependent service layers.
+def create_evidence_artifact(
+    conn: sqlite3.Connection, content_hash: str, media_type: str, storage_reference: str,
+    original_filename: Optional[str] = None, size_bytes: Optional[int] = None,
+    source_uri: Optional[str] = None, created_by_person_id: Optional[str] = None,
+) -> EvidenceArtifact:
+    _validate_content_hash(content_hash)
+    identifier, created_at = _new_identity()
+    try:
+        conn.execute(
+            """INSERT INTO evidence_artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (identifier, content_hash, media_type, storage_reference, original_filename, size_bytes,
+             source_uri, created_by_person_id, created_at),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        existing = get_evidence_artifact_by_hash(conn, content_hash)
+        if existing is None:
+            raise
+        return existing
+    return EvidenceArtifact(identifier, content_hash, media_type, storage_reference, original_filename,
+                            size_bytes, source_uri, created_by_person_id, created_at)
+
+
+def get_evidence_artifact(conn: sqlite3.Connection, artifact_id: str) -> Optional[EvidenceArtifact]:
+    row = conn.execute("SELECT * FROM evidence_artifacts WHERE id = ?", (artifact_id,)).fetchone()
+    return _evidence_artifact(row) if row is not None else None
+
+
+def get_evidence_artifact_by_hash(conn: sqlite3.Connection, content_hash: str) -> Optional[EvidenceArtifact]:
+    row = conn.execute("SELECT * FROM evidence_artifacts WHERE content_hash = ?", (content_hash,)).fetchone()
+    return _evidence_artifact(row) if row is not None else None
+
+
+def list_evidence_artifacts(conn: sqlite3.Connection) -> List[EvidenceArtifact]:
+    return [_evidence_artifact(row) for row in conn.execute(
+        "SELECT * FROM evidence_artifacts ORDER BY created_at"
+    ).fetchall()]
+
+
+def create_field_signal(
+    conn: sqlite3.Connection, allocation_id: str, template_id: str, template_version: int,
+    observed_at: str, actor_id: str, values: Any, evidence_artifact_id: Optional[str] = None,
+    status: str = "submitted", received_at: Optional[str] = None,
+    supersedes_signal_id: Optional[str] = None,
+) -> FieldSignal:
+    identifier, created_at = _new_identity()
+    received_at = received_at or created_at
+    conn.execute(
+        "INSERT INTO field_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, allocation_id, template_id, template_version, observed_at, received_at, actor_id,
+         evidence_artifact_id, _json_value(values), status, supersedes_signal_id, created_at),
+    )
+    conn.commit()
+    return get_field_signal(conn, identifier)  # type: ignore[return-value]
+
+
+def get_field_signal(conn: sqlite3.Connection, signal_id: str) -> Optional[FieldSignal]:
+    row = conn.execute("SELECT * FROM field_signals WHERE id = ?", (signal_id,)).fetchone()
+    return _field_signal(row) if row is not None else None
+
+
+def list_field_signals(conn: sqlite3.Connection, allocation_id: str) -> List[FieldSignal]:
+    return [_field_signal(row) for row in conn.execute(
+        "SELECT * FROM field_signals WHERE allocation_id = ? ORDER BY observed_at, created_at", (allocation_id,)
+    ).fetchall()]
+
+
+def create_crop_stage_checkpoint(
+    conn: sqlite3.Connection, allocation_id: str, stage_name: str, planned_for: str,
+    expected_evidence: Any, template_id: Optional[str] = None, template_version: Optional[int] = None,
+    status: str = "planned", completed_at: Optional[str] = None,
+    supersedes_checkpoint_id: Optional[str] = None,
+) -> CropStageCheckpoint:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO crop_stage_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, allocation_id, stage_name, planned_for, status, _json_value(expected_evidence), template_id,
+         template_version, completed_at, supersedes_checkpoint_id, created_at),
+    )
+    conn.commit()
+    return get_crop_stage_checkpoint(conn, identifier)  # type: ignore[return-value]
+
+
+def get_crop_stage_checkpoint(conn: sqlite3.Connection, checkpoint_id: str) -> Optional[CropStageCheckpoint]:
+    row = conn.execute("SELECT * FROM crop_stage_checkpoints WHERE id = ?", (checkpoint_id,)).fetchone()
+    return _crop_stage_checkpoint(row) if row is not None else None
+
+
+def list_crop_stage_checkpoints(conn: sqlite3.Connection, allocation_id: str) -> List[CropStageCheckpoint]:
+    return [_crop_stage_checkpoint(row) for row in conn.execute(
+        "SELECT * FROM crop_stage_checkpoints WHERE allocation_id = ? ORDER BY planned_for, created_at", (allocation_id,)
+    ).fetchall()]
+
+
+def create_harvest_record(
+    conn: sqlite3.Connection, allocation_id: str, harvest_starts_on: str, quantity: float,
+    canonical_unit: str, measurement_method: str, quality_metrics: Any,
+    harvest_ends_on: Optional[str] = None, evidence_artifact_id: Optional[str] = None,
+    status: str = "preliminary", correction_of_id: Optional[str] = None,
+    corrected_by_person_id: Optional[str] = None, correction_reason: Optional[str] = None,
+) -> HarvestRecord:
+    if correction_of_id is not None and status != "corrected":
+        raise ValueError("a harvest correction must use corrected status")
+    if correction_of_id is None and status == "corrected":
+        raise ValueError("corrected status requires correction_of_id")
+    if correction_of_id is None and any((corrected_by_person_id, correction_reason)):
+        raise ValueError("correction actor and reason require correction_of_id")
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO harvest_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, allocation_id, harvest_starts_on, harvest_ends_on, quantity, canonical_unit,
+         measurement_method, _json_value(quality_metrics), evidence_artifact_id, status, correction_of_id,
+         corrected_by_person_id, correction_reason, created_at),
+    )
+    conn.commit()
+    return get_harvest_record(conn, identifier)  # type: ignore[return-value]
+
+
+def create_harvest_correction(
+    conn: sqlite3.Connection, prior_record_id: str, corrected_by_person_id: str, correction_reason: str,
+    quantity: float, quality_metrics: Any, harvest_starts_on: Optional[str] = None,
+    harvest_ends_on: Optional[str] = None, canonical_unit: Optional[str] = None,
+    measurement_method: Optional[str] = None, evidence_artifact_id: Optional[str] = None,
+) -> HarvestRecord:
+    prior = get_harvest_record(conn, prior_record_id)
+    if prior is None:
+        raise ValueError("prior harvest record does not exist")
+    return create_harvest_record(
+        conn, prior.allocation_id, harvest_starts_on or prior.harvest_starts_on, quantity,
+        canonical_unit or prior.canonical_unit, measurement_method or prior.measurement_method, quality_metrics,
+        harvest_ends_on=harvest_ends_on if harvest_ends_on is not None else prior.harvest_ends_on,
+        evidence_artifact_id=evidence_artifact_id, status="corrected", correction_of_id=prior.id,
+        corrected_by_person_id=corrected_by_person_id, correction_reason=correction_reason,
+    )
+
+
+def get_harvest_record(conn: sqlite3.Connection, harvest_record_id: str) -> Optional[HarvestRecord]:
+    row = conn.execute("SELECT * FROM harvest_records WHERE id = ?", (harvest_record_id,)).fetchone()
+    return _harvest_record(row) if row is not None else None
+
+
+def list_harvest_records(conn: sqlite3.Connection, allocation_id: str) -> List[HarvestRecord]:
+    return [_harvest_record(row) for row in conn.execute(
+        "SELECT * FROM harvest_records WHERE allocation_id = ? ORDER BY created_at", (allocation_id,)
+    ).fetchall()]
+
+
+def create_season_review(
+    conn: sqlite3.Connection, allocation_id: str, owner_id: str, confirmed_practices: Any,
+    invalidated_assumptions: Any, unresolved_questions: Any, proposed_playbook_changes: Any,
+    status: str = "draft", reviewed_at: Optional[str] = None,
+) -> SeasonReview:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO season_reviews VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, allocation_id, owner_id, _json_value(confirmed_practices), _json_value(invalidated_assumptions),
+         _json_value(unresolved_questions), _json_value(proposed_playbook_changes), status, reviewed_at, created_at),
+    )
+    conn.commit()
+    return get_season_review(conn, identifier)  # type: ignore[return-value]
+
+
+def get_season_review(conn: sqlite3.Connection, review_id: str) -> Optional[SeasonReview]:
+    row = conn.execute("SELECT * FROM season_reviews WHERE id = ?", (review_id,)).fetchone()
+    return _season_review(row) if row is not None else None
+
+
+def list_season_reviews(conn: sqlite3.Connection, allocation_id: str) -> List[SeasonReview]:
+    return [_season_review(row) for row in conn.execute(
+        "SELECT * FROM season_reviews WHERE allocation_id = ? ORDER BY created_at", (allocation_id,)
+    ).fetchall()]
+
+
+def create_source_registry(
+    conn: sqlite3.Connection, source_key: str, display_name: str, source_type: str, purpose: str,
+    authority_level: str, owner_id: str, permitted_data_classes: Any, schema_version: str,
+    mapping_version: str, default_coverage: Any, credentials_reference: Optional[str] = None,
+    endpoint: Optional[str] = None, freshness_target_hours: Optional[float] = None,
+    license_notes: Optional[str] = None, enabled: bool = False,
+) -> SourceRegistry:
+    identifier, created_at = _new_identity()
+    try:
+        conn.execute(
+            """INSERT INTO source_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (identifier, source_key, display_name, source_type, purpose, authority_level, owner_id,
+             credentials_reference, endpoint, _json_value(permitted_data_classes), freshness_target_hours,
+             license_notes, schema_version, mapping_version, _json_value(default_coverage), int(enabled), created_at),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        existing = get_source_registry_by_key(conn, source_key)
+        if existing is None:
+            raise
+        return existing
+    return get_source_registry(conn, identifier)  # type: ignore[return-value]
+
+
+def get_source_registry(conn: sqlite3.Connection, source_id: str) -> Optional[SourceRegistry]:
+    row = conn.execute("SELECT * FROM source_registry WHERE id = ?", (source_id,)).fetchone()
+    return _source_registry(row) if row is not None else None
+
+
+def get_source_registry_by_key(conn: sqlite3.Connection, source_key: str) -> Optional[SourceRegistry]:
+    row = conn.execute("SELECT * FROM source_registry WHERE source_key = ?", (source_key,)).fetchone()
+    return _source_registry(row) if row is not None else None
+
+
+def list_source_registry(conn: sqlite3.Connection) -> List[SourceRegistry]:
+    return [_source_registry(row) for row in conn.execute(
+        "SELECT * FROM source_registry ORDER BY source_key"
+    ).fetchall()]
+
+
+def create_source_run(
+    conn: sqlite3.Connection, source_id: str, coverage: Any, mapping_version: str,
+    status: str = "pending", cursor: Optional[str] = None, fetched_at: Optional[str] = None,
+    rows_received: int = 0, rows_accepted: int = 0, error_summary: Optional[str] = None,
+    next_retry_at: Optional[str] = None,
+) -> SourceRun:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO source_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, source_id, cursor, _json_value(coverage), fetched_at, status, rows_received,
+         rows_accepted, error_summary, next_retry_at, mapping_version, created_at),
+    )
+    conn.commit()
+    return get_source_run(conn, identifier)  # type: ignore[return-value]
+
+
+def get_source_run(conn: sqlite3.Connection, source_run_id: str) -> Optional[SourceRun]:
+    row = conn.execute("SELECT * FROM source_runs WHERE id = ?", (source_run_id,)).fetchone()
+    return _source_run(row) if row is not None else None
+
+
+def list_source_runs(conn: sqlite3.Connection, source_id: str) -> List[SourceRun]:
+    return [_source_run(row) for row in conn.execute(
+        "SELECT * FROM source_runs WHERE source_id = ? ORDER BY created_at", (source_id,)
+    ).fetchall()]
+
+
+def create_regional_signal(
+    conn: sqlite3.Connection, source_id: str, source_identifier: str, region: str, signal_type: str,
+    observed_at: str, value: Any, coverage: Any, signal_kind: str,
+    source_run_id: Optional[str] = None, source_url: Optional[str] = None,
+    received_at: Optional[str] = None, valid_from: Optional[str] = None, valid_to: Optional[str] = None,
+    resolution: Optional[str] = None, freshness_target_hours: Optional[float] = None,
+    status: str = "available",
+) -> RegionalSignal:
+    identifier, created_at = _new_identity()
+    received_at = received_at or created_at
+    conn.execute(
+        """INSERT INTO regional_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (identifier, source_id, source_run_id, source_identifier, source_url, region, signal_type, observed_at,
+         received_at, valid_from, valid_to, _json_value(coverage), resolution, freshness_target_hours,
+         signal_kind, _json_value(value), status, created_at),
+    )
+    conn.commit()
+    return get_regional_signal(conn, identifier)  # type: ignore[return-value]
+
+
+def get_regional_signal(conn: sqlite3.Connection, regional_signal_id: str) -> Optional[RegionalSignal]:
+    row = conn.execute("SELECT * FROM regional_signals WHERE id = ?", (regional_signal_id,)).fetchone()
+    return _regional_signal(row) if row is not None else None
+
+
+def list_regional_signals(conn: sqlite3.Connection, region: str) -> List[RegionalSignal]:
+    return [_regional_signal(row) for row in conn.execute(
+        "SELECT * FROM regional_signals WHERE region = ? ORDER BY observed_at, created_at", (region,)
+    ).fetchall()]
+
+
+def create_import_batch(
+    conn: sqlite3.Connection, purpose: str, content_hash: str, evidence_artifact_id: str,
+    mapping_version: str, owner_id: str, profile: Any, status: str = "received",
+    source_id: Optional[str] = None, received_at: Optional[str] = None,
+    reviewed_at: Optional[str] = None, published_at: Optional[str] = None,
+) -> ImportBatch:
+    _validate_content_hash(content_hash)
+    artifact = get_evidence_artifact(conn, evidence_artifact_id)
+    if artifact is None:
+        raise ValueError("evidence artifact does not exist")
+    if artifact.content_hash != content_hash:
+        raise ValueError("import content_hash must match its evidence artifact")
+    identifier, created_at = _new_identity()
+    received_at = received_at or created_at
+    try:
+        conn.execute(
+            "INSERT INTO import_batches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (identifier, purpose, status, content_hash, evidence_artifact_id, mapping_version, source_id, owner_id,
+             received_at, reviewed_at, published_at, _json_value(profile), created_at),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        existing = get_import_batch_by_content_hash(conn, content_hash)
+        if existing is None:
+            raise
+        return existing
+    return get_import_batch(conn, identifier)  # type: ignore[return-value]
+
+
+def get_import_batch(conn: sqlite3.Connection, import_batch_id: str) -> Optional[ImportBatch]:
+    row = conn.execute("SELECT * FROM import_batches WHERE id = ?", (import_batch_id,)).fetchone()
+    return _import_batch(row) if row is not None else None
+
+
+def get_import_batch_by_content_hash(conn: sqlite3.Connection, content_hash: str) -> Optional[ImportBatch]:
+    row = conn.execute("SELECT * FROM import_batches WHERE content_hash = ?", (content_hash,)).fetchone()
+    return _import_batch(row) if row is not None else None
+
+
+def list_import_batches(conn: sqlite3.Connection, purpose: Optional[str] = None) -> List[ImportBatch]:
+    if purpose is None:
+        rows = conn.execute("SELECT * FROM import_batches ORDER BY received_at, created_at").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM import_batches WHERE purpose = ? ORDER BY received_at, created_at", (purpose,)
+        ).fetchall()
+    return [_import_batch(row) for row in rows]
+
+
+def create_import_row(
+    conn: sqlite3.Connection, import_batch_id: str, row_number: int, raw: Any, mapped: Any,
+    validation_errors: Any, status: str = "pending", target_entity_type: Optional[str] = None,
+    target_entity_id: Optional[str] = None, published_record_id: Optional[str] = None,
+) -> ImportRow:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO import_rows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, import_batch_id, row_number, _json_value(raw), _json_value(mapped), status,
+         _json_value(validation_errors), target_entity_type, target_entity_id, published_record_id, created_at),
+    )
+    conn.commit()
+    return get_import_row(conn, identifier)  # type: ignore[return-value]
+
+
+def get_import_row(conn: sqlite3.Connection, import_row_id: str) -> Optional[ImportRow]:
+    row = conn.execute("SELECT * FROM import_rows WHERE id = ?", (import_row_id,)).fetchone()
+    return _import_row(row) if row is not None else None
+
+
+def list_import_rows(conn: sqlite3.Connection, import_batch_id: str) -> List[ImportRow]:
+    return [_import_row(row) for row in conn.execute(
+        "SELECT * FROM import_rows WHERE import_batch_id = ? ORDER BY row_number", (import_batch_id,)
+    ).fetchall()]
+
+
+def create_playbook(
+    conn: sqlite3.Connection, name: str, version: int, owner_id: str, protocol: Any,
+    status: str = "draft", effective_from: Optional[str] = None,
+    approved_by_person_id: Optional[str] = None, approved_at: Optional[str] = None,
+) -> Playbook:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO playbooks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, name, version, status, owner_id, _json_value(protocol), effective_from,
+         approved_by_person_id, approved_at, created_at),
+    )
+    conn.commit()
+    return get_playbook(conn, identifier)  # type: ignore[return-value]
+
+
+def get_playbook(conn: sqlite3.Connection, playbook_id: str) -> Optional[Playbook]:
+    row = conn.execute("SELECT * FROM playbooks WHERE id = ?", (playbook_id,)).fetchone()
+    return _playbook(row) if row is not None else None
+
+
+def list_playbooks(conn: sqlite3.Connection, name: Optional[str] = None) -> List[Playbook]:
+    if name is None:
+        rows = conn.execute("SELECT * FROM playbooks ORDER BY name, version").fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM playbooks WHERE name = ? ORDER BY version", (name,)).fetchall()
+    return [_playbook(row) for row in rows]
+
+
+def create_trial(
+    conn: sqlite3.Connection, name: str, hypothesis: str, owner_id: str, protocol_version: str,
+    decision_question: str, treatment: Any, comparator: Any, eligibility_rule: Any,
+    measurements: Any, guardrails: Any, status: str = "draft", starts_on: Optional[str] = None,
+    ends_on: Optional[str] = None, status_reason: Optional[str] = None,
+) -> Trial:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO trials VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, name, hypothesis, owner_id, protocol_version, decision_question, _json_value(treatment),
+         _json_value(comparator), _json_value(eligibility_rule), _json_value(measurements),
+         _json_value(guardrails), status, starts_on, ends_on, status_reason, created_at),
+    )
+    conn.commit()
+    return get_trial(conn, identifier)  # type: ignore[return-value]
+
+
+def get_trial(conn: sqlite3.Connection, trial_id: str) -> Optional[Trial]:
+    row = conn.execute("SELECT * FROM trials WHERE id = ?", (trial_id,)).fetchone()
+    return _trial(row) if row is not None else None
+
+
+def list_trials(conn: sqlite3.Connection, owner_id: Optional[str] = None) -> List[Trial]:
+    if owner_id is None:
+        rows = conn.execute("SELECT * FROM trials ORDER BY created_at").fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM trials WHERE owner_id = ? ORDER BY created_at", (owner_id,)).fetchall()
+    return [_trial(row) for row in rows]
+
+
+def create_trial_allocation(
+    conn: sqlite3.Connection, trial_id: str, allocation_id: str, arm: str,
+    status: str = "enrolled", enrolled_at: Optional[str] = None,
+    withdrawn_at: Optional[str] = None, reason: Optional[str] = None,
+) -> TrialAllocation:
+    identifier, created_at = _new_identity()
+    enrolled_at = enrolled_at or created_at
+    conn.execute(
+        "INSERT INTO trial_allocations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at),
+    )
+    conn.commit()
+    return get_trial_allocation(conn, identifier)  # type: ignore[return-value]
+
+
+def get_trial_allocation(conn: sqlite3.Connection, trial_allocation_id: str) -> Optional[TrialAllocation]:
+    row = conn.execute("SELECT * FROM trial_allocations WHERE id = ?", (trial_allocation_id,)).fetchone()
+    return _trial_allocation(row) if row is not None else None
+
+
+def list_trial_allocations(conn: sqlite3.Connection, trial_id: str) -> List[TrialAllocation]:
+    return [_trial_allocation(row) for row in conn.execute(
+        "SELECT * FROM trial_allocations WHERE trial_id = ? ORDER BY created_at", (trial_id,)
+    ).fetchall()]
+
+
+def create_trial_confounder(
+    conn: sqlite3.Connection, trial_id: str, category: str, description: str, observed_at: str,
+    actor_id: str, allocation_id: Optional[str] = None, evidence_artifact_id: Optional[str] = None,
+) -> TrialConfounder:
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO trial_confounders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, trial_id, allocation_id, category, description, observed_at, evidence_artifact_id,
+         actor_id, created_at),
+    )
+    conn.commit()
+    return get_trial_confounder(conn, identifier)  # type: ignore[return-value]
+
+
+def get_trial_confounder(conn: sqlite3.Connection, confounder_id: str) -> Optional[TrialConfounder]:
+    row = conn.execute("SELECT * FROM trial_confounders WHERE id = ?", (confounder_id,)).fetchone()
+    return _trial_confounder(row) if row is not None else None
+
+
+def list_trial_confounders(conn: sqlite3.Connection, trial_id: str) -> List[TrialConfounder]:
+    return [_trial_confounder(row) for row in conn.execute(
+        "SELECT * FROM trial_confounders WHERE trial_id = ? ORDER BY observed_at, created_at", (trial_id,)
+    ).fetchall()]
+
+
+def create_trial_conclusion(
+    conn: sqlite3.Connection, trial_id: str, reviewer_id: str, result: Any, confidence_level: str,
+    limitations: Any, evidence_artifact_id: str, playbook_decision: str = "none", status: str = "draft",
+    playbook_id: Optional[str] = None,
+    approved_at: Optional[str] = None,
+) -> TrialConclusion:
+    if playbook_decision == "promote" and (status != "approved" or approved_at is None or playbook_id is None):
+        raise ValueError("promoting a playbook requires an approved conclusion, timestamp, and playbook")
+    identifier, created_at = _new_identity()
+    conn.execute(
+        "INSERT INTO trial_conclusions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (identifier, trial_id, reviewer_id, status, _json_value(result), confidence_level,
+         _json_value(limitations), evidence_artifact_id, playbook_id, playbook_decision, approved_at, created_at),
+    )
+    conn.commit()
+    return get_trial_conclusion(conn, identifier)  # type: ignore[return-value]
+
+
+def get_trial_conclusion(conn: sqlite3.Connection, conclusion_id: str) -> Optional[TrialConclusion]:
+    row = conn.execute("SELECT * FROM trial_conclusions WHERE id = ?", (conclusion_id,)).fetchone()
+    return _trial_conclusion(row) if row is not None else None
+
+
+def list_trial_conclusions(conn: sqlite3.Connection, trial_id: str) -> List[TrialConclusion]:
+    return [_trial_conclusion(row) for row in conn.execute(
+        "SELECT * FROM trial_conclusions WHERE trial_id = ? ORDER BY created_at", (trial_id,)
+    ).fetchall()]
