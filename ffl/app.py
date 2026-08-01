@@ -4,10 +4,17 @@ import sqlite3
 from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ffl.api.routes import router
 from ffl.config import FFL_DATABASE_PATH
 from ffl.persistence.schema import create_schema
+
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+FIELD_INDEX = STATIC_DIR / "field" / "index.html"
+MANAGER_INDEX = STATIC_DIR / "manager" / "index.html"
 
 
 @asynccontextmanager
@@ -20,6 +27,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app(database_path: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
     Path(app.state.database_path).parent.mkdir(parents=True, exist_ok=True)
     app.state.conn = sqlite3.connect(app.state.database_path, check_same_thread=False)
@@ -30,6 +38,14 @@ def create_app(database_path: Optional[str] = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict:
         return {"service": "ffl-operating-kernel", "status": "ok"}
+
+    @app.get("/field", include_in_schema=False)
+    def field_surface() -> FileResponse:
+        return FileResponse(FIELD_INDEX)
+
+    @app.get("/manager", include_in_schema=False)
+    def manager_surface() -> FileResponse:
+        return FileResponse(MANAGER_INDEX)
 
     app.include_router(router)
     return app

@@ -34,6 +34,11 @@ This parses the KML file, extracts the field polygon, and registers it in SQLite
 
 ## Usage
 
+### Run the FFL operating kernel
+
+The FastAPI-based FFL operating kernel provides field reporting and manager
+action surfaces. See [the local run guide](docs/ffl/LOCAL-RUN.md) to start it.
+
 ### Fetch satellite data
 
 ```bash
