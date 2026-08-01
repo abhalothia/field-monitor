@@ -75,6 +75,12 @@ def test_sqlite_sql_translation_keeps_values_safe_and_uses_private_relation_name
     assert translate_sqlite_sql("BEGIN IMMEDIATE") == "SELECT 1"
 
 
+def test_postgres_translation_includes_follow_on_private_migrations():
+    assert translate_sqlite_sql("SELECT * FROM soil_baselines WHERE operating_unit_id = ?") == (
+        "SELECT * FROM agro_soil_baselines WHERE operating_unit_id = %s"
+    )
+
+
 def test_postgres_connection_preserves_repository_row_contract_without_a_network_call():
     from ffl.persistence.database import PostgresConnection
 

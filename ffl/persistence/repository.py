@@ -1,8 +1,9 @@
 import json
+import math
 import re
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, List, Optional, Tuple
 
 from ffl.domain.models import (
@@ -18,6 +19,7 @@ from ffl.domain.models import (
     ImportRow,
     LandParcel,
     OperatingUnit,
+    OperatingUnitLocation,
     OperationalBlock,
     Person,
     Playbook,
@@ -26,6 +28,7 @@ from ffl.domain.models import (
     Season,
     SeasonReview,
     SignalTemplate,
+    SoilBaseline,
     SourceRegistry,
     SourceRun,
     Trial,
@@ -86,6 +89,16 @@ def _validate_import_lifecycle(
 
 def _operating_unit(row: sqlite3.Row) -> OperatingUnit:
     return OperatingUnit(row["id"], row["name"], row["created_at"])
+
+
+def _operating_unit_location(row: sqlite3.Row) -> OperatingUnitLocation:
+    return OperatingUnitLocation(
+        row["id"], row["operating_unit_id"], row["country_code"], row["state_name"],
+        row["district_name"], row["district_context_key"], row["subdistrict_name"],
+        row["village_name"], row["pincode"], row["verification_method"],
+        row["verified_by_person_id"], row["verified_at"], row["status"],
+        row["supersedes_location_id"], row["created_at"],
+    )
 
 
 def _land_parcel(row: sqlite3.Row) -> LandParcel:
@@ -164,6 +177,14 @@ def _evidence_artifact(row: sqlite3.Row) -> EvidenceArtifact:
         row["id"], row["content_hash"], row["media_type"], row["storage_reference"],
         row["original_filename"], row["size_bytes"], row["source_uri"],
         row["created_by_person_id"], row["created_at"],
+    )
+
+
+def _soil_baseline(row: sqlite3.Row) -> SoilBaseline:
+    return SoilBaseline(
+        row["id"], row["operating_unit_id"], row["sampled_on"], row["depth_cm_start"],
+        row["depth_cm_end"], row["lab_name"], json.loads(row["measurements_json"]),
+        row["evidence_artifact_id"], row["reviewed_by_person_id"], row["status"], row["created_at"],
     )
 
 
@@ -292,6 +313,179 @@ def create_operating_unit(conn: sqlite3.Connection, name: str) -> OperatingUnit:
     conn.execute("INSERT INTO operating_units VALUES (?, ?, ?)", (identifier, name, created_at))
     conn.commit()
     return OperatingUnit(identifier, name, created_at)
+
+
+def get_operating_unit(conn: sqlite3.Connection, operating_unit_id: str) -> Optional[OperatingUnit]:
+    row = conn.execute("SELECT * FROM operating_units WHERE id = ?", (operating_unit_id,)).fetchone()
+    return _operating_unit(row) if row is not None else None
+
+
+def get_person(conn: sqlite3.Connection, person_id: str) -> Optional[Person]:
+    row = conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    return _person(row) if row is not None else None
+
+
+def _required_text(value: object, name: str, maximum: int = 200) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > maximum:
+        raise ValueError("{0} must be non-empty text up to {1} characters".format(name, maximum))
+    return value.strip()
+
+
+def _optional_text(value: object, name: str, maximum: int = 200) -> Optional[str]:
+    if value is None:
+        return None
+    return _required_text(value, name, maximum)
+
+
+def _validate_soil_measurements(measurements: Any) -> None:
+    if not isinstance(measurements, dict) or not measurements:
+        raise ValueError("soil measurements must be a non-empty object")
+    for metric, measurement in measurements.items():
+        _required_text(metric, "soil measurement name", 80)
+        if not isinstance(measurement, dict):
+            raise ValueError("each soil measurement must include a value and unit")
+        value = measurement.get("value")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+            raise ValueError("each soil measurement value must be a finite number")
+        _required_text(measurement.get("unit"), "soil measurement unit", 40)
+
+
+def _require_iso_date(value: object, name: str) -> str:
+    parsed = _required_text(value, name, 32)
+    try:
+        date.fromisoformat(parsed)
+    except ValueError as error:
+        raise ValueError("{0} must be an ISO-8601 date".format(name)) from error
+    return parsed
+
+
+def _require_iso_timestamp(value: object, name: str) -> str:
+    parsed = _required_text(value, name, 64)
+    try:
+        timestamp = datetime.fromisoformat(parsed.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError("{0} must be an ISO-8601 timestamp".format(name)) from error
+    if timestamp.tzinfo is None:
+        raise ValueError("{0} must include a timezone".format(name))
+    return parsed
+
+
+def create_operating_unit_location(
+    conn: sqlite3.Connection, operating_unit_id: str, state_name: str, district_name: str,
+    district_context_key: str, verified_by_person_id: str, verified_at: str,
+    verification_method: str = "field_verified", subdistrict_name: Optional[str] = None,
+    village_name: Optional[str] = None, pincode: Optional[str] = None,
+) -> OperatingUnitLocation:
+    """Append a reviewed administrative location and supersede the former one.
+
+    A location is intentionally not a parcel boundary, ownership claim, or GPS
+    observation.  Its district context key is the stable internal join for a
+    later approved IMD mapping.
+    """
+    if get_operating_unit(conn, operating_unit_id) is None:
+        raise ValueError("operating unit does not exist")
+    if get_person(conn, verified_by_person_id) is None:
+        raise ValueError("location verifier does not exist")
+    state_name = _required_text(state_name, "state_name")
+    district_name = _required_text(district_name, "district_name")
+    district_context_key = _required_text(district_context_key, "district_context_key", 120)
+    if verification_method not in {"field_verified", "lgd_reference"}:
+        raise ValueError("verification_method must be field_verified or lgd_reference")
+    subdistrict_name = _optional_text(subdistrict_name, "subdistrict_name")
+    village_name = _optional_text(village_name, "village_name")
+    if pincode is not None and (not isinstance(pincode, str) or re.fullmatch(r"[0-9]{6}", pincode) is None):
+        raise ValueError("pincode must be a six-digit Indian PIN when supplied")
+    verified_at = _require_iso_timestamp(verified_at, "verified_at")
+
+    identifier, created_at = _new_identity()
+    with conn:
+        prior_row = conn.execute(
+            "SELECT * FROM operating_unit_locations WHERE operating_unit_id = ? AND status = 'active'",
+            (operating_unit_id,),
+        ).fetchone()
+        if prior_row is not None:
+            conn.execute("UPDATE operating_unit_locations SET status = 'superseded' WHERE id = ?", (prior_row["id"],))
+            audit_id, audit_created_at = _new_identity()
+            conn.execute(
+                "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (audit_id, "operating_unit_location", prior_row["id"], "active", "superseded",
+                 verified_by_person_id, "superseded_by_new_verified_location", audit_created_at),
+            )
+        conn.execute(
+            """INSERT INTO operating_unit_locations
+               (id, operating_unit_id, country_code, state_name, district_name, district_context_key,
+                subdistrict_name, village_name, pincode, verification_method, verified_by_person_id,
+                verified_at, status, supersedes_location_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (identifier, operating_unit_id, "IN", state_name, district_name, district_context_key,
+             subdistrict_name, village_name, pincode, verification_method, verified_by_person_id,
+             verified_at, "active", prior_row["id"] if prior_row is not None else None, created_at),
+        )
+    return get_operating_unit_location(conn, identifier)  # type: ignore[return-value]
+
+
+def get_operating_unit_location(
+    conn: sqlite3.Connection, location_id: str
+) -> Optional[OperatingUnitLocation]:
+    row = conn.execute("SELECT * FROM operating_unit_locations WHERE id = ?", (location_id,)).fetchone()
+    return _operating_unit_location(row) if row is not None else None
+
+
+def get_active_operating_unit_location(
+    conn: sqlite3.Connection, operating_unit_id: str
+) -> Optional[OperatingUnitLocation]:
+    row = conn.execute(
+        """SELECT * FROM operating_unit_locations
+           WHERE operating_unit_id = ? AND status = 'active' ORDER BY verified_at DESC, created_at DESC LIMIT 1""",
+        (operating_unit_id,),
+    ).fetchone()
+    return _operating_unit_location(row) if row is not None else None
+
+
+def create_soil_baseline(
+    conn: sqlite3.Connection, operating_unit_id: str, sampled_on: str, lab_name: str,
+    measurements: Any, evidence_artifact_id: str, reviewed_by_person_id: str,
+    depth_cm_start: Optional[float] = None, depth_cm_end: Optional[float] = None,
+) -> SoilBaseline:
+    """Append a reviewed soil baseline backed by a retained FFL evidence artifact."""
+    if get_operating_unit(conn, operating_unit_id) is None:
+        raise ValueError("operating unit does not exist")
+    if get_person(conn, reviewed_by_person_id) is None:
+        raise ValueError("soil reviewer does not exist")
+    if get_evidence_artifact(conn, evidence_artifact_id) is None:
+        raise ValueError("soil evidence artifact does not exist")
+    sampled_on = _require_iso_date(sampled_on, "sampled_on")
+    lab_name = _required_text(lab_name, "lab_name")
+    _validate_soil_measurements(measurements)
+    for value, name in ((depth_cm_start, "depth_cm_start"), (depth_cm_end, "depth_cm_end")):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0):
+            raise ValueError("{0} must be a finite non-negative number when supplied".format(name))
+    if depth_cm_start is not None and depth_cm_end is not None and depth_cm_end < depth_cm_start:
+        raise ValueError("depth_cm_end must be at least depth_cm_start")
+    identifier, created_at = _new_identity()
+    conn.execute(
+        """INSERT INTO soil_baselines
+           (id, operating_unit_id, sampled_on, depth_cm_start, depth_cm_end, lab_name, measurements_json,
+            evidence_artifact_id, reviewed_by_person_id, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (identifier, operating_unit_id, sampled_on, depth_cm_start, depth_cm_end, lab_name,
+         _json_value(measurements), evidence_artifact_id, reviewed_by_person_id, "reviewed", created_at),
+    )
+    conn.commit()
+    return get_soil_baseline(conn, identifier)  # type: ignore[return-value]
+
+
+def get_soil_baseline(conn: sqlite3.Connection, soil_baseline_id: str) -> Optional[SoilBaseline]:
+    row = conn.execute("SELECT * FROM soil_baselines WHERE id = ?", (soil_baseline_id,)).fetchone()
+    return _soil_baseline(row) if row is not None else None
+
+
+def list_soil_baselines(conn: sqlite3.Connection, operating_unit_id: str) -> List[SoilBaseline]:
+    rows = conn.execute(
+        """SELECT * FROM soil_baselines WHERE operating_unit_id = ? AND status = 'reviewed'
+           ORDER BY sampled_on DESC, created_at DESC""", (operating_unit_id,)
+    ).fetchall()
+    return [_soil_baseline(row) for row in rows]
 
 
 def create_land_parcel(conn: sqlite3.Connection, operating_unit_id: str, name: str, area_hectares: float) -> LandParcel:
