@@ -70,6 +70,17 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS signal_templates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            fields_json TEXT NOT NULL,
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            published_at TEXT NOT NULL,
+            UNIQUE (name, version)
+        );
+
         CREATE TABLE IF NOT EXISTS work_items (
             id TEXT PRIMARY KEY,
             allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),

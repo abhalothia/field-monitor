@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,17 @@ class Person:
     name: str
     role: str
     created_at: str
+
+
+@dataclass(frozen=True)
+class SignalTemplate:
+    id: str
+    name: str
+    version: int
+    status: str
+    fields: List[Dict[str, Any]]
+    owner_id: str
+    published_at: str
 
 
 @dataclass(frozen=True)

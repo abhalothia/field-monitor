@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from ffl.domain.models import (
     Person,
     RightToOperate,
     Season,
+    SignalTemplate,
     WorkItem,
 )
 
@@ -59,6 +61,13 @@ def _crop_allocation(row: sqlite3.Row) -> CropAllocation:
 
 def _person(row: sqlite3.Row) -> Person:
     return Person(row["id"], row["name"], row["role"], row["created_at"])
+
+
+def _signal_template(row: sqlite3.Row) -> SignalTemplate:
+    return SignalTemplate(
+        row["id"], row["name"], row["version"], row["status"],
+        json.loads(row["fields_json"]), row["owner_id"], row["published_at"],
+    )
 
 
 def _work_item(row: sqlite3.Row) -> WorkItem:
@@ -189,6 +198,29 @@ def create_person(conn: sqlite3.Connection, name: str, role: str) -> Person:
     return Person(identifier, name, role, created_at)
 
 
+def create_signal_template(
+    conn: sqlite3.Connection, name: str, version: int, status: str, fields_json: str,
+    owner_id: str, published_at: str,
+) -> SignalTemplate:
+    identifier, _ = _new_identity()
+    conn.execute(
+        "INSERT INTO signal_templates VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (identifier, name, version, status, fields_json, owner_id, published_at),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM signal_templates WHERE id = ?", (identifier,)).fetchone()
+    return _signal_template(row)
+
+
+def get_signal_template(
+    conn: sqlite3.Connection, name: str, version: int
+) -> Optional[SignalTemplate]:
+    row = conn.execute(
+        "SELECT * FROM signal_templates WHERE name = ? AND version = ?", (name, version)
+    ).fetchone()
+    return _signal_template(row) if row is not None else None
+
+
 def list_active_crop_allocations(conn: sqlite3.Connection, operating_unit_id: str) -> List[CropAllocation]:
     rows = conn.execute(
         "SELECT * FROM crop_allocations WHERE operating_unit_id = ? AND status = 'active' ORDER BY created_at",
@@ -213,6 +245,13 @@ def create_work_item(
 def get_work_item(conn: sqlite3.Connection, work_item_id: str) -> Optional[WorkItem]:
     row = conn.execute("SELECT * FROM work_items WHERE id = ?", (work_item_id,)).fetchone()
     return _work_item(row) if row is not None else None
+
+
+def list_work_items(conn: sqlite3.Connection, allocation_id: str) -> List[WorkItem]:
+    rows = conn.execute(
+        "SELECT * FROM work_items WHERE allocation_id = ? ORDER BY created_at", (allocation_id,)
+    ).fetchall()
+    return [_work_item(row) for row in rows]
 
 
 def transition_work_item_with_audit(
