@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.sessions import SessionMiddleware
 
 from ffl.api.import_routes import router as import_router
+from ffl.api.context_routes import router as context_router
 from ffl.api.launch_routes import router as launch_router
 from ffl.api.portfolio_routes import router as portfolio_router
 from ffl.api.routes import router
@@ -278,6 +279,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(launch_router)
     app.include_router(season_router)
     app.include_router(import_router)
+    app.include_router(context_router)
     app.include_router(trial_router)
     app.include_router(source_router)
     app.include_router(portfolio_router)

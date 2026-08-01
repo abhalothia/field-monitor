@@ -17,9 +17,8 @@ from typing import Any, Optional, Sequence, Union
 from urllib.parse import urlparse
 
 
-POSTGRES_BOOTSTRAP_PATH = (
-    Path(__file__).resolve().parents[2] / "db" / "postgres" / "0001_agro_private_schema.sql"
-)
+POSTGRES_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "postgres"
+POSTGRES_BOOTSTRAP_PATH = POSTGRES_MIGRATIONS_DIR / "0001_agro_private_schema.sql"
 _SCHEMA_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
 
@@ -27,12 +26,24 @@ class DatabaseConfigurationError(RuntimeError):
     """A configured database target is unsafe or not implemented yet."""
 
 
-_CORE_RELATIONS = tuple(
-    re.findall(
-        r"CREATE TABLE IF NOT EXISTS (agro_[a-z0-9_]+)",
-        POSTGRES_BOOTSTRAP_PATH.read_text(encoding="utf-8"),
-    )
-)
+def _postgres_relation_names() -> tuple[str, ...]:
+    """Read every reviewed private migration, not just the bootstrap file.
+
+    The compatibility facade must know tables added after the first live
+    bootstrap.  Application startup still never applies a migration; this only
+    keeps repository SQL in the private ``agro`` namespace once an operator has
+    applied the reviewed migration separately.
+    """
+    names = set()
+    for migration in sorted(POSTGRES_MIGRATIONS_DIR.glob("*.sql")):
+        names.update(re.findall(
+            r"CREATE TABLE IF NOT EXISTS (agro_[a-z0-9_]+)",
+            migration.read_text(encoding="utf-8"),
+        ))
+    return tuple(sorted(names, key=len, reverse=True))
+
+
+_CORE_RELATIONS = _postgres_relation_names()
 
 
 def _outside_literals(sql: str, transform) -> str:
