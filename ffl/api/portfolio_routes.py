@@ -1,0 +1,19 @@
+"""Read-only portfolio endpoint; mounted by the final integration step."""
+
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request, status
+
+from ffl.services import portfolio
+
+
+router = APIRouter(prefix="/api/v1")
+
+
+@router.get("/portfolio")
+def get_portfolio(request: Request, as_of: Optional[str] = None) -> dict:
+    try:
+        current_time = portfolio.parse_as_of(as_of) if as_of is not None else None
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+    return portfolio.portfolio_snapshot(request.app.state.conn, as_of=current_time)
