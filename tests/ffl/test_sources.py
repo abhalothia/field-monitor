@@ -322,7 +322,8 @@ def test_transport_success_cannot_claim_healthy_or_fresh_without_current_effecti
     assert status["effective_regional_signal_count"] == 0
 
 
-def test_regional_context_returns_normalised_attributable_signals_without_provider_endpoints(tmp_path):
+def test_regional_context_returns_normalised_attributable_signals_without_provider_endpoints(tmp_path, monkeypatch):
+    monkeypatch.setattr(sources, "_now", lambda: FIXED_NOW)
     app = create_app(str(tmp_path / "regional-context.db"))
     app.include_router(source_router)
     owner = create_person(app.state.conn, "Context Owner", "operations_lead")

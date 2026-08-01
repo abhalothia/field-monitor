@@ -77,15 +77,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run one private FFL communications maintenance cycle")
     parser.add_argument("--once", action="store_true", help="Run one bounded cycle (the only supported mode)")
     parser.parse_args(argv)
-    # Use the same target resolver as the API.  If a future production DSN is
-    # set before its repository adapter exists, fail closed rather than letting
-    # this worker quietly process private communications in a local SQLite DB.
-    conn = open_connection(
-        database_target(sqlite_path=os.environ.get("FFL_DATABASE_PATH", FFL_DATABASE_PATH))
-    )
+    # Use the same explicit target resolver as the API; production PostgreSQL
+    # already carries the reviewed schema, while SQLite needs its local setup.
+    target = database_target(sqlite_path=os.environ.get("FFL_DATABASE_PATH", FFL_DATABASE_PATH))
+    conn = open_connection(target)
     try:
-        create_schema(conn)
-        persistence.create_communications_schema(conn)
+        if target.dialect == "sqlite":
+            create_schema(conn)
+            persistence.create_communications_schema(conn)
         result = run_once(
             conn,
             LoopMessageProvider.from_environment(),

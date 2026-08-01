@@ -152,6 +152,23 @@ def test_postgres_requests_open_a_distinct_connection_without_changing_sqlite_pr
     assert all(target.dialect == "postgres" for target in opened)
 
 
+def test_communications_worker_skips_sqlite_ddl_for_a_private_postgres_target(monkeypatch):
+    from ffl.communications import worker
+
+    class _Connection:
+        def close(self):
+            pass
+
+    target = database_target(database_url="postgresql://runtime@example.test/ffl")
+    monkeypatch.setattr(worker, "database_target", lambda **_kwargs: target)
+    monkeypatch.setattr(worker, "open_connection", lambda _target: _Connection())
+    monkeypatch.setattr(worker, "run_once", lambda *_args, **_kwargs: {"receipts_processed": 0})
+    monkeypatch.setattr(worker, "create_schema", lambda _conn: (_ for _ in ()).throw(AssertionError("SQLite DDL")))
+    monkeypatch.setattr(worker.persistence, "create_communications_schema", lambda _conn: (_ for _ in ()).throw(AssertionError("SQLite DDL")))
+
+    assert worker.main(["--once"]) == 0
+
+
 @pytest.mark.parametrize("schema", ["AGRO", "agro-app", "agro schema", "1agro"])
 def test_private_schema_name_must_be_a_safe_identifier(schema):
     with pytest.raises(DatabaseConfigurationError, match="FFL_POSTGRES_SCHEMA"):

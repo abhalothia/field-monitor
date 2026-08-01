@@ -15,7 +15,7 @@ def _requirement_names(filename: str) -> set[str]:
 def test_ffl_runtime_requirements_exclude_archived_heavy_packages():
     runtime = _requirement_names("requirements.txt")
 
-    assert runtime == {"fastapi", "uvicorn", "httpx", "psycopg[binary]"}
+    assert runtime == {"fastapi", "uvicorn", "httpx", "psycopg[binary]", "itsdangerous"}
     assert runtime.isdisjoint({"numpy", "pandas", "scipy", "streamlit", "plotly", "folium"})
 
 

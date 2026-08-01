@@ -16,7 +16,8 @@ def require_manager(request: Request) -> str:
     presented = request.headers.get("x-ffl-manager-token")
     if not expected or not manager_id or not presented or not hmac.compare_digest(expected, presented):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="manager authorization is required")
-    person = request.app.state.conn.execute("SELECT role FROM people WHERE id = ?", (manager_id,)).fetchone()
+    connection = getattr(request.state, "conn", request.app.state.conn)
+    person = connection.execute("SELECT role FROM people WHERE id = ?", (manager_id,)).fetchone()
     if person is None or person["role"] not in MANAGER_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="manager authorization is not valid")
     return manager_id
