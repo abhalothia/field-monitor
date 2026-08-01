@@ -22,7 +22,7 @@ The core loop is:
 
 ## Product boundaries
 
-FFL should build seven connected layers, in this order:
+FFL should build eight connected layers, in this order:
 
 | PRD | Layer | Outcome |
 |---|---|---|
@@ -33,6 +33,7 @@ FFL should build seven connected layers, in this order:
 | [PRD 04](prds/PRD-04-multi-farm-scale.md) | Multi-Farm Scale | FFL can compare, replicate, and govern operating playbooks across farms and deal structures. |
 | [PRD 05](prds/PRD-05-regional-conditions-service.md) | Regional Conditions Service | A trustworthy, privacy-safe FFL signal product built from public and verified operating data. |
 | [PRD 06](prds/PRD-06-controlled-trials-and-playbooks.md) | Controlled Trials & Playbooks | FFL can run disciplined experiments and promote only evidence-backed practices. |
+| [PRD 07](prds/PRD-07-field-communications-whatsapp.md) | Field Communications & WhatsApp | An opted-in field team can capture and receive time-critical operating context through WhatsApp without turning chat into the operating record. |
 
 ## Delivery shape
 
@@ -42,7 +43,7 @@ Build PRD 00, PRD 01, and the essential execution slice of PRD 02. The team must
 
 **V1 — repeatable farm operating system**
 
-Complete PRD 02 and introduce the useful parts of PRD 03: a few trusted external feeds, document-backed soil records, configurable signal templates, and human-reviewed advisory/playbooks.
+Complete PRD 02 and introduce the useful parts of PRD 03: a few trusted external feeds, document-backed soil records, configurable signal templates, and human-reviewed advisory/playbooks. Add the narrow, opted-in operating loop in PRD 07 only after FFL can preserve field evidence and resolve it to a farm, allocation, and accountable person.
 
 **V2 — portfolio and network scale**
 
@@ -53,6 +54,7 @@ Implement PRD 04 once FFL has more than one operating unit and has evidence that
 - Rebuilding a generic FieldData clone, a generic farmer CRM, or a generic accounting suite.
 - Rebuilding Fortune's existing TraceRice traceability product, satellite partner systems, or any vendor system before a specific integration need is proven.
 - Making a PDF dashboard the product.
+- Treating a WhatsApp conversation, delivery receipt, or AI summary as proof that field work happened.
 - Assuming an arbitrary uploaded document is correct, structured data.
 - Autonomous agronomic recommendations or an AI system that writes operational records.
 - Building for every crop and every geography before one operating loop is proven.

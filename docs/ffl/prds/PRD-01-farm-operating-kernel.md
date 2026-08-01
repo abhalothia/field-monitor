@@ -18,15 +18,18 @@ Create one shared operational model for an FFL-managed farm so that the team alw
 
 ## V0 user experience
 
-The product has three connected surfaces:
+The product has three connected surfaces, with a governed communications bridge added in V1:
 
 1. **Field capture:** a mobile-first, low-friction view of today’s assigned work and context-specific signal forms.
 2. **Farm runtime:** a manager view of the farm calendar, open actions, current exceptions, and recent evidence.
 3. **Leadership brief:** a concise view of readiness, blocked decisions, material risks, and progress against the season plan.
+4. **Field communications bridge (V1):** an opted-in WhatsApp path for concise work prompts, structured deviations, and evidence handoff. It links to the same canonical records as the PWA; it is never a parallel farm-management system.
 
 The field surface must work with short, structured inputs in Hindi and English. It is not an attempt to put a full desktop management suite in an officer’s phone.
 
 The field experience is offline-first. An operator can complete assigned work or report an exception with a photo and GPS without connectivity. The product visibly distinguishes pending, failed, and synced submissions; it never implies that a locally captured action has reached the manager when it has not.
+
+WhatsApp adds reach, not a different truth model. A message is represented as a provider-attributable communication event and may create a reviewable signal or exception candidate. Required structured fields, evidence, allocation resolution, validation, and any approval still apply before FFL changes the operating record.
 
 ## Core model
 
@@ -46,6 +49,7 @@ The kernel owns these canonical records:
 | Signal | A field observation, completion, measurement, request, or exception captured against context. |
 | Decision | A material choice, its rationale, approver, assumptions, and later outcome. |
 | Evidence | Photo, note, document, measurement, or external observation attached to another record. |
+| Communication event (V1) | An attributed inbound or outbound WhatsApp interaction, consent context, delivery state, and links to its resulting draft/evidence. It is not itself a work completion or decision. |
 
 Crop plans, work, signals, outcomes, and decisions bind to a season crop allocation. This preserves history when a parcel changes, a block is combined or split, a partial area is planted, or a tenure arrangement expires. The product flags overlapping active allocations rather than silently merging them.
 
@@ -76,6 +80,7 @@ Every signal and work item must resolve to an operating unit, allocation, season
 - The system records observed time, captured time, submitted time, and received time separately when they differ.
 - A signal can complete work, create an exception, or request review according to a declared rule.
 - Offline replay is idempotent: a locally captured signal becomes exactly one server-side signal when connectivity returns.
+- A WhatsApp-delivered signal is also idempotent by provider message identifier. It is a candidate until it passes the same template, identity, allocation, and evidence checks as a PWA submission.
 
 ### Decisions
 
@@ -115,5 +120,6 @@ Every signal and work item must resolve to an operating unit, allocation, season
 ## Non-goals
 
 - Full land-lease legal workflow, procurement, payroll, accounting, or buyer-contract management.
-- End-to-end farmer-facing WhatsApp flows.
+- A generic chatbot, contact-list sync, group-chat scraping, or an unapproved outbound WhatsApp campaign.
+- Treating a message receipt, read receipt, button tap, or free-form text as an automatic work completion, decision, or agronomic instruction.
 - Satellite, IoT, or AI integrations as a prerequisite for a useful pilot.

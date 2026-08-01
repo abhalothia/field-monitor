@@ -36,6 +36,7 @@ The initial loop is intentionally narrow:
 - Planned work, field signals, exceptions, decisions, evidence, and outcome reviews.
 - Soil baseline and improvement checkpoints as operational context.
 - A short daily operating view and a weekly learning review.
+- A later, opted-in WhatsApp operating bridge for the existing field team, after the native pilot loop is proven. It is a convenience and continuity channel, not a second system of record.
 
 ## Out of scope
 
@@ -43,6 +44,7 @@ The initial loop is intentionally narrow:
 - Automating crop selection or making weather-dependent decisions without human approval.
 - Full accounting, payroll, contracting, procurement, or downstream buyer workflow.
 - A mobile application for every external farmer before field-team adoption is proven.
+- Unreviewed bulk messaging, a generic WhatsApp chatbot, or any outbound crop recommendation without the approval path defined by the operating kernel.
 - Mass historical data migration before the pilot can run natively.
 
 ## Pilot operating cadence
@@ -83,6 +85,12 @@ Before pilot go-live, the operations lead configures and publishes:
 - The weekly operating review and the person who records its decisions and proposed playbook changes.
 
 The product does not fabricate a baseline. Missing or insufficient baseline data is shown explicitly and becomes a pilot-learning gap.
+
+## Communications sequencing
+
+The field PWA is the V0 primary capture surface. WhatsApp is admitted only as a V1 assistive channel for people already known to the pilot, with purpose-specific opt-in and a named operating relationship. A WhatsApp interaction may request work, collect a structured draft, or carry evidence; it never becomes the completed work, approved decision, or resolved exception by itself.
+
+The first release is one small magic loop: a field operator receives a short, bilingual work prompt, can send a photo or report a deviation in the channel they already use, and the manager receives a linked, reviewable candidate in FFL. The product must gracefully fall back to the field PWA and manager escalation when the message cannot be delivered or classified.
 
 ## Success measures
 

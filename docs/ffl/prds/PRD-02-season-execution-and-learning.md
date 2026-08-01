@@ -20,6 +20,8 @@ The scarce asset is not merely data. It is skilled attention at the right crop s
 6. The team records the observed outcome at the appropriate future checkpoint.
 7. At season close, the team reviews what worked, what failed, and which playbook changes are justified.
 
+An opted-in field operator may begin Step 3 in WhatsApp, but the resulting information must land in the identical FFL validation and review path. The channel reduces friction; it does not bypass the operating loop.
+
 ## Signal templates
 
 V0 starts with five configurable template families. The exact wording is per crop and farm; the families are stable:
@@ -33,6 +35,8 @@ V0 starts with five configurable template families. The exact wording is per cro
 | Milestone/harvest quality record | Record material outcomes at predefined stages, including quality observations. |
 
 Templates must be configurable by crop plan. For example, a crop-stage check may require different questions, photos, thresholds, and escalation rules for rice, barley, potato, or mint.
+
+For WhatsApp, templates are rendered as short bilingual prompts, approved quick replies, or a provider-supported structured flow. They must name the farm context and the requested action, and must never turn an ambiguous free-text response into a material operating event without review.
 
 ## Requirements
 
@@ -48,6 +52,15 @@ Templates must be configurable by crop plan. For example, a crop-stage check may
 - An exception can be assigned to a field manager, agronomist, or operations lead.
 - Material exceptions require a documented resolution or a documented decision to accept the risk.
 - A closed exception records a follow-up checkpoint rather than assuming the intervention worked.
+
+### WhatsApp-assisted field loop (V1)
+
+- The channel supports only named operational intents: acknowledge an assigned work item, submit a crop-stage check, report a deviation, attach evidence, request a call-back, or confirm receipt of a non-material update.
+- An inbound message creates a durable, provider-attributable communication event. FFL deduplicates webhook retries by provider message ID and retains the received time separately from the field-observed time.
+- A photo, voice note, location, quick reply, or free text can produce a signal or exception **candidate**. It cannot complete a work item, resolve an exception, approve a decision, or apply an agronomic instruction until the canonical record meets its configured requirements and the accountable user accepts it.
+- The system shows ambiguity instead of guessing. An unresolved sender, farm, allocation, language, or intent routes to a manager review queue with the original evidence and no automatic operational side effect.
+- A pre-approved operational reminder may be sent only to a contact with the corresponding current consent. Material decisions, intervention drafts, and all free-form outbound text require a named human sender/approver.
+- A failed, undelivered, or opt-out-suppressed work prompt leaves the underlying work open and conspicuous; a delivery/read status is never completion evidence.
 
 ### Soil as a managed long-term constraint
 
@@ -74,9 +87,11 @@ Templates must be configurable by crop plan. For example, a crop-stage check may
 - The team can reconstruct why a material intervention was made and what happened afterwards.
 - The next season starts from explicit learning rather than memory alone.
 - A material harvest/output record can be traced to its allocation, measurement method, evidence, and any later correction.
+- A WhatsApp-originated report can be traced from the resulting FFL record to consent, provider event identifier, sender, received time, and retained evidence without exposing the conversation as general farm data.
 
 ## Non-goals
 
 - Automated diagnosis from a photo.
 - Automatic pesticide or irrigation instructions.
 - A universal crop knowledge base before the pilot produces validated playbooks.
+- An always-on agronomy chatbot, autonomous message replies, or a workflow that relies on a WhatsApp read receipt as proof of execution.

@@ -19,6 +19,7 @@ Data can be useful without being authoritative. Every imported fact must preserv
 | Official public context | IMD weather and warnings, IMD agromet bulletins, AGMARKNET trends | Context, candidate risk, and planning input. |
 | Remote-sensing context | Existing satellite partner outputs, Bhuvan/Bhoonidhi products | Context or corroboration; never the sole proof of a field event. |
 | Documents | Soil reports, field reports, lease records, supplier documents | Evidence until mapped and approved. |
+| Operational communications (V1) | Opted-in WhatsApp messages and media through an approved provider | A low-friction capture and notification channel; a message is attributable evidence or a draft, never operational truth by itself. |
 
 ## V1 source capabilities
 
@@ -45,6 +46,17 @@ Data can be useful without being authoritative. Every imported fact must preserv
 - Assisted extraction is allowed only for named document classes, beginning with soil-lab reports and field-visit reports.
 - Each candidate extracted value displays the page/region source and confidence; a user confirms the target record before publishing.
 - Arbitrary document uploads never create farm facts automatically.
+
+### WhatsApp communications connector
+
+The connector is informed by the LoopMessage operating lessons already established in the personal-assistant repository. It does not make FFL dependent on that repository, copy private data into FFL, or make a personal assistant part of the farm product. FFL defines a provider-neutral adapter so the specific approved WhatsApp Business provider can change without rewriting the farm model.
+
+- A contact endpoint belongs to a known FFL person or explicitly reviewed external contact and has separate, purpose-specific consent for operational notifications and inbound field capture. Consent records capture the grant, language, lawful basis/purpose, source, actor, and revocation; an opt-out takes effect before another outbound send is attempted.
+- The connector verifies inbound webhook authenticity before processing. It persists a minimal immutable envelope keyed by provider message ID, acknowledges only after durable idempotent receipt, and processes media/downloads and operational routing asynchronously. Invalid signatures, malformed payloads, duplicate replays, unsupported content, and processing failures are visible in a quarantine or recovery queue.
+- The event preserves provider, message ID, thread/reference ID, direction, sender/recipient endpoint, received/sent time, media/evidence linkage, declared intent, current processing state, and delivery lifecycle. It stores only the minimum message content needed for the declared operating purpose; raw media follows the evidence-retention and access rules.
+- Outside an open WhatsApp customer-service window, FFL may send only a pre-approved provider template. Template identity, locale, variables, owner, approval state, and operating purpose are versioned. The product does not use promotional or bulk marketing behaviour as a substitute for field operations.
+- Provider delivery states (`accepted`, `sent`, `delivered`, `read`, `failed`, or `unknown`) are operational observability, not proof of human action. A failed time-critical message triggers the configured fallback owner or channel.
+- WhatsApp interactive replies can select an explicit, preconfigured intent. They cannot silently change field facts; the same FFL template validation, entity resolution, evidence rule, and approval rule applies before publication.
 
 ### Configuration governance
 
@@ -74,6 +86,7 @@ It may not:
 - Write or alter operational facts, identity matches, work completion, or approved decisions.
 - Send crop interventions to field users without a responsible human approval.
 - Receive raw lease documents, personal data, precise GPS data, or proprietary buyer terms by default.
+- Access whole WhatsApp threads or use a conversational transcript as hidden context. Any message content admitted for an approved, narrow task is explicitly cited, minimised, and subject to the same approval rules as other evidence.
 
 Every intelligence run retains an auditable envelope: permitted record IDs/data classes, retrieval/template version, cited source IDs, provider output, reviewer, disposition or rejection reason, evaluation cohort, and kill-switch status.
 
@@ -86,10 +99,12 @@ Admission criteria for an intelligence provider are a documented data-processing
 - An ambiguous identity match or invalid row remains visible in a review queue rather than being guessed or discarded.
 - A soil-lab document can be retained as evidence and, when approved, linked to the correct land unit and sampling date.
 - No intelligence provider can publish a farm fact, task completion, or recommendation without the approval path defined by the operating kernel.
+- FFL can prove that replayed webhooks create one communication event, an opt-out suppresses outbound communication, and a delivery failure does not close or hide the affected work.
 
 ## Non-goals
 
 - Generic “upload anything and build the database.”
 - UI scraping of third-party tools.
 - Bidirectional writes, deletion propagation, or unrestricted AI database access.
+- Messaging-list management, WhatsApp group ingestion, contact-graph enrichment, or cross-product conversation sharing.
 - Presenting public weather or market data as a guarantee of farm outcome.

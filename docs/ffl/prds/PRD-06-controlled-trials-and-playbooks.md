@@ -28,6 +28,7 @@ An experiment is a governed operational protocol, not an informal note that a ne
 - A manager can pause or stop a trial when a guardrail is crossed; the reason and all pending work are retained.
 - The product prevents a draft conclusion from becoming a standard playbook without review by the assigned accountable agronomist or operations lead.
 - Conclusions state the confidence level and limitations. They do not claim that a result is causal when important comparison context is missing.
+- A WhatsApp prompt may distribute an already-approved trial work instruction or collect a candidate observation from an opted-in participant, but the event identifies its protocol version and cannot enroll, randomize, alter, pause, or conclude a trial.
 
 ## Success criteria
 

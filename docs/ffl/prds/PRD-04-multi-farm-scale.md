@@ -41,6 +41,7 @@ The commercial and legal terms are configuration and evidence, not assumptions e
 - Data access is scoped to the operating relationship: farm teams, FFL management, partner staff, and any external party receive only the information required for their role.
 - Shared reporting uses aggregation or explicit consent; detailed farm data is not exposed merely because farms belong to the same portfolio.
 - Portfolio-level changes to SOPs and crop programs require named accountable owners and approval history.
+- Communications consent, templates, language, quiet hours, escalation contacts, and sender identity are scoped to the operating relationship. A phone number or conversation from one farm is never implicitly usable by another farm, programme, or commercial arrangement.
 
 ## Success criteria
 
@@ -53,3 +54,4 @@ The commercial and legal terms are configuration and evidence, not assumptions e
 - Franchising the software as an external SaaS product.
 - Assuming all farms, landowners, farmer partners, and buyers use the same commercial terms.
 - Building a global commodity-trading system.
+- Turning WhatsApp reach into an unconsented portfolio broadcast channel or a substitute for role-scoped product access.

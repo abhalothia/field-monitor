@@ -19,6 +19,7 @@ The V0 application currently uses a local SQLite file. Vercel supports FastAPI f
 flowchart LR
   F["Field PWA"] --> API["FFL API on Hetzner"]
   M["Manager Action Centre"] --> API
+  W["WhatsApp Business provider"] --> API
   API --> DB["PostgreSQL: operating record"]
   API --> B["Hetzner bucket: evidence + imports"]
   V["Vercel preview / optional web shell"] --> API
@@ -45,8 +46,17 @@ Store these only in the hosting provider's encrypted environment settings, never
 - `S3_SECRET_ACCESS_KEY`
 - `FFL_PUBLIC_BASE_URL`
 - future model-provider credentials, when a reviewed intelligence adapter is enabled
+- `FFL_WHATSAPP_PROVIDER`
+- `FFL_WHATSAPP_VERIFY_TOKEN`
+- `FFL_WHATSAPP_APP_SECRET`
+- `FFL_WHATSAPP_ACCESS_TOKEN`
+- `FFL_WHATSAPP_PHONE_NUMBER_ID`
 
 The exact Hetzner endpoint, bucket name, production domain, and deployment team are intentionally not guessed. They are operator inputs, not product defaults.
+
+## WhatsApp production gate
+
+WhatsApp is an optional V1 field-communications channel defined in PRD 07. It is not enabled by a preview deployment or by an internal personal-assistant setup. Before the first real inbound event or outbound send, FFL needs a separately reviewed WhatsApp Business account/provider, verified HTTPS webhook, current approved templates, consent/opt-out handling, a data-retention/access review, alerting for failed sends and webhook processing, and a tested fallback to the native field PWA. The endpoint validates signed webhooks, acknowledges only durable idempotent receipt, and stores phone numbers, media, and provider secrets only in the authoritative runtime—not in Vercel or git.
 
 ## AI cost posture
 
