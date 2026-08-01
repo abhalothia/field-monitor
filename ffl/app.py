@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 import sqlite3
+import os
 from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
@@ -33,7 +34,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
@@ -46,6 +47,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
     app.state.manager_api_token = manager_api_token if manager_api_token is not None else configured_manager_token()
     app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
+    app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
 
     @app.get("/health")
     def health() -> dict:

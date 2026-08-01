@@ -16,6 +16,7 @@ def _json(value: Any) -> str:
 
 
 def create_communications_schema(conn: sqlite3.Connection) -> None:
+    _migrate_legacy_events(conn)
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS communication_endpoints (
@@ -96,6 +97,11 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL CHECK (status IN ('unavailable', 'retained', 'failed')),
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS communication_evidence_links (
+            attachment_id TEXT PRIMARY KEY REFERENCES communication_attachments(id),
+            evidence_artifact_id TEXT NOT NULL REFERENCES evidence_artifacts(id),
+            retained_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS communication_candidates (
             id TEXT PRIMARY KEY,
             event_id TEXT NOT NULL UNIQUE REFERENCES communication_events(id),
@@ -136,6 +142,14 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             payload_fingerprint TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS communication_receipts (
+            event_id TEXT PRIMARY KEY REFERENCES communication_events(id),
+            ciphertext TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'processed', 'retryable', 'quarantined')),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     _add_column(conn, "communication_templates", "provider_template_id TEXT")
@@ -151,6 +165,124 @@ def _add_column(conn: sqlite3.Connection, table: str, definition: str) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info({0})".format(table))}
     if column not in columns:
         conn.execute("ALTER TABLE {0} ADD COLUMN {1}".format(table, definition))
+
+
+def _migrate_legacy_events(conn: sqlite3.Connection) -> None:
+    """Atomically replace the raw c5-preview event family with redacted v2 rows.
+
+    The earliest preview used ``contact_address``, ``payload_json``, and public
+    attachment URLs.  We cannot leave those columns in place, but must not lose
+    the operational audit trail.  Child tables are rebuilt with their foreign
+    keys pointing at the replacement parent before the legacy family is dropped.
+    """
+    tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "communication_events" not in tables:
+        return
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(communication_events)")}
+    if "payload_json" not in columns:
+        return
+    conn.execute("""CREATE TABLE IF NOT EXISTS communication_quarantines (
+        id TEXT PRIMARY KEY, provider TEXT NOT NULL, reason TEXT NOT NULL,
+        payload_fingerprint TEXT NOT NULL, created_at TEXT NOT NULL)""")
+    foreign_keys_enabled = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    # SQLite does not permit changing FK enforcement inside a transaction.
+    # Nothing is acknowledged to a provider while app startup performs this
+    # migration, and all subsequent DDL/data conversion is one transaction.
+    conn.commit()
+    if foreign_keys_enabled:
+        conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        legacy_children = [
+            table for table in ("communication_attachments", "communication_evidence_links", "communication_candidates", "communication_receipts")
+            if table in tables
+        ]
+        for table in legacy_children:
+            conn.execute("ALTER TABLE {0} RENAME TO {0}_legacy".format(table))
+        conn.execute("ALTER TABLE communication_events RENAME TO communication_events_legacy")
+        conn.execute("""CREATE TABLE communication_events (
+            id TEXT PRIMARY KEY, provider TEXT NOT NULL, provider_event_id TEXT NOT NULL,
+            provider_message_id TEXT, event_type TEXT NOT NULL, contact_fingerprint TEXT NOT NULL,
+            endpoint_id TEXT, envelope_json TEXT NOT NULL, status TEXT NOT NULL,
+            received_at TEXT NOT NULL, UNIQUE(provider, provider_event_id))""")
+        conn.execute("""CREATE TABLE communication_attachments (
+            id TEXT PRIMARY KEY, event_id TEXT NOT NULL REFERENCES communication_events(id),
+            source_reference TEXT NOT NULL, media_type TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('unavailable', 'retained', 'failed')),
+            created_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE communication_evidence_links (
+            attachment_id TEXT PRIMARY KEY REFERENCES communication_attachments(id),
+            evidence_artifact_id TEXT NOT NULL REFERENCES evidence_artifacts(id), retained_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE communication_candidates (
+            id TEXT PRIMARY KEY, event_id TEXT NOT NULL UNIQUE REFERENCES communication_events(id),
+            prompt_id TEXT REFERENCES communication_prompts(id), allocation_id TEXT REFERENCES crop_allocations(id),
+            work_item_id TEXT REFERENCES work_items(id), endpoint_id TEXT REFERENCES communication_endpoints(id),
+            kind TEXT NOT NULL CHECK (kind IN ('signal', 'exception')),
+            status TEXT NOT NULL CHECK (status IN ('review', 'accepted', 'rejected')),
+            draft_json TEXT NOT NULL, accepted_record_type TEXT, accepted_record_id TEXT,
+            reviewed_by_person_id TEXT REFERENCES people(id), reviewed_at TEXT, created_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE communication_receipts (
+            event_id TEXT PRIMARY KEY REFERENCES communication_events(id), ciphertext TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'processed', 'retryable', 'quarantined')),
+            attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at TEXT NOT NULL)""")
+        rows = conn.execute("SELECT * FROM communication_events_legacy").fetchall()
+        for row in rows:
+            contact = row["contact_address"] if "contact_address" in columns else ""
+            fingerprint = hashlib.sha256((row["provider"] + ":" + contact).encode("utf-8")).hexdigest()
+            envelope = _json({"migrated_from": "c5", "payload_redacted": True})
+            prior_status = row["status"]
+            converted_status = prior_status if prior_status in ("processed", "review_required", "quarantined") else "quarantined"
+            conn.execute("INSERT INTO communication_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (row["id"], row["provider"], row["provider_event_id"], row["provider_message_id"], row["event_type"], fingerprint, row["endpoint_id"], envelope, converted_status, row["received_at"]))
+            if prior_status == "received":
+                identifier, created = _identity()
+                conn.execute("INSERT INTO communication_quarantines VALUES (?, ?, ?, ?, ?)", (identifier, row["provider"], "legacy raw receipt requires re-ingestion", hashlib.sha256(row["payload_json"].encode("utf-8")).hexdigest(), created))
+        if "communication_attachments" in legacy_children:
+            attachment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(communication_attachments_legacy)")}
+            for row in conn.execute("SELECT * FROM communication_attachments_legacy").fetchall():
+                raw_reference = row["source_reference"] if "source_reference" in attachment_columns else row["source_url"]
+                reference = hashlib.sha256((row["event_id"] + ":" + raw_reference).encode("utf-8")).hexdigest()
+                prior_status = row["status"]
+                converted_status = "retained" if prior_status == "retained" else "failed" if prior_status == "failed" else "unavailable"
+                conn.execute("INSERT INTO communication_attachments VALUES (?, ?, ?, ?, ?, ?)", (row["id"], row["event_id"], reference, row["media_type"], converted_status, row["created_at"]))
+        if "communication_candidates" in legacy_children:
+            for row in conn.execute("SELECT * FROM communication_candidates_legacy").fetchall():
+                # Candidate text can have been copied from payload_json.  Keep its
+                # review/audit identity but force a new reviewed submission.
+                draft = _json({"migrated_from": "c5", "content_redacted": True, "requires_reingestion": True, "attachment_ids": []})
+                conn.execute("""INSERT INTO communication_candidates
+                    (id, event_id, prompt_id, allocation_id, work_item_id, endpoint_id, kind, status,
+                     draft_json, accepted_record_type, accepted_record_id, reviewed_by_person_id, reviewed_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    row["id"], row["event_id"], row["prompt_id"], row["allocation_id"], row["work_item_id"],
+                    row["endpoint_id"], row["kind"], row["status"], draft, row["accepted_record_type"],
+                    row["accepted_record_id"], row["reviewed_by_person_id"], row["reviewed_at"], row["created_at"],
+                ))
+        if "communication_evidence_links" in legacy_children:
+            for row in conn.execute("SELECT * FROM communication_evidence_links_legacy").fetchall():
+                conn.execute("INSERT INTO communication_evidence_links VALUES (?, ?, ?)", (row["attachment_id"], row["evidence_artifact_id"], row["retained_at"]))
+        if "communication_receipts" in legacy_children:
+            for row in conn.execute("SELECT * FROM communication_receipts_legacy").fetchall():
+                identifier, created = _identity()
+                conn.execute("INSERT INTO communication_receipts VALUES (?, ?, 'quarantined', ?, ?, ?)", (row["event_id"], row["ciphertext"], row["attempts"], "legacy receipt requires re-ingestion", row["updated_at"]))
+                conn.execute("INSERT INTO communication_quarantines VALUES (?, ?, ?, ?, ?)", (identifier, "loopmessage", "legacy receipt requires re-ingestion", hashlib.sha256(row["ciphertext"].encode("utf-8")).hexdigest(), created))
+        for table in legacy_children:
+            conn.execute("DROP TABLE {0}_legacy".format(table))
+        conn.execute("DROP TABLE communication_events_legacy")
+        # SQLite keeps an index name when its table is renamed.  Recreate the
+        # current-table index explicitly rather than letting IF NOT EXISTS mask
+        # an index that is about to be dropped with the legacy table.
+        conn.execute("DROP INDEX IF EXISTS idx_communication_events_contact")
+        conn.execute("CREATE INDEX idx_communication_events_contact ON communication_events(provider, contact_fingerprint)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if foreign_keys_enabled:
+            conn.execute("PRAGMA foreign_keys = ON")
+    violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if violations:
+        raise RuntimeError("communication migration left foreign-key violations")
 
 
 def _normalize_e164(address: str) -> str:
@@ -258,24 +390,100 @@ def quarantine(conn: sqlite3.Connection, provider: str, reason: str, payload: by
     conn.commit()
 
 
+def pending_receipts(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    return [dict(row) for row in conn.execute("SELECT * FROM communication_receipts WHERE status IN ('queued', 'retryable') ORDER BY updated_at").fetchall()]
+
+
+def release_expired_receipt_claims(conn: sqlite3.Connection, before: str) -> None:
+    """Make work from a crashed worker recoverable after its bounded lease."""
+    conn.execute(
+        "UPDATE communication_receipts SET status = 'retryable', last_error = 'processing lease expired', updated_at = ? "
+        "WHERE status = 'processing' AND updated_at < ?",
+        (datetime.now(timezone.utc).isoformat(), before),
+    )
+    conn.commit()
+
+
+def claim_receipt(conn: sqlite3.Connection, event_id: str) -> bool:
+    """Atomically claim a queued receipt so concurrent workers cannot replay it."""
+    cursor = conn.execute(
+        "UPDATE communication_receipts SET status = 'processing', attempts = attempts + 1, last_error = NULL, updated_at = ? "
+        "WHERE event_id = ? AND status IN ('queued', 'retryable')",
+        (datetime.now(timezone.utc).isoformat(), event_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def complete_receipt(conn: sqlite3.Connection, event_id: str) -> None:
+    conn.execute("UPDATE communication_receipts SET status = 'processed', last_error = NULL, updated_at = ? WHERE event_id = ?", (datetime.now(timezone.utc).isoformat(), event_id))
+    conn.commit()
+
+
+def retry_receipt(conn: sqlite3.Connection, event_id: str, error: str) -> None:
+    conn.execute("UPDATE communication_receipts SET status = 'retryable', last_error = ?, updated_at = ? WHERE event_id = ?", (error[:200], datetime.now(timezone.utc).isoformat(), event_id))
+    conn.commit()
+
+
+def quarantine_receipt(conn: sqlite3.Connection, event_id: str, ciphertext: str, error: str) -> None:
+    """Stop replay of an unreadable protected receipt without exposing it."""
+    now = datetime.now(timezone.utc).isoformat()
+    identifier, created_at = _identity()
+    conn.execute("UPDATE communication_receipts SET status = 'quarantined', last_error = ?, updated_at = ? WHERE event_id = ?", (error[:200], now, event_id))
+    conn.execute("UPDATE communication_events SET status = 'quarantined' WHERE id = ?", (event_id,))
+    conn.execute(
+        "INSERT INTO communication_quarantines VALUES (?, ?, ?, ?, ?)",
+        (identifier, "loopmessage", error[:200], hashlib.sha256(ciphertext.encode("utf-8")).hexdigest(), created_at),
+    )
+    conn.commit()
+
+
 def find_endpoint(conn: sqlite3.Connection, provider: str, address: str) -> Optional[Dict[str, Any]]:
     row = conn.execute("SELECT * FROM communication_endpoints WHERE provider = ? AND address = ? AND status = 'active'", (provider, address)).fetchone()
     return dict(row) if row is not None else None
 
 
-def record_event(conn: sqlite3.Connection, provider: str, event_id: str, message_id: str, event_type: str, contact: str, endpoint_id: Optional[str], envelope: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+def record_event_with_receipt(
+    conn: sqlite3.Connection, provider: str, event_id: str, message_id: str, event_type: str,
+    contact: str, endpoint_id: Optional[str], envelope: Dict[str, Any], ciphertext: str,
+) -> Tuple[Dict[str, Any], bool]:
+    """Persist the redacted event and protected replay receipt before an HTTP ACK."""
     identifier, received_at = _identity()
     fingerprint = hashlib.sha256((provider + ":" + contact).encode("utf-8")).hexdigest()
+    encoded_envelope = _json(envelope)
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("BEGIN IMMEDIATE")
     try:
-        conn.execute("INSERT INTO communication_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)", (identifier, provider, event_id, message_id or None, event_type, fingerprint, endpoint_id, _json(envelope), received_at))
+        try:
+            conn.execute(
+                "INSERT INTO communication_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)",
+                (identifier, provider, event_id, message_id or None, event_type, fingerprint, endpoint_id, encoded_envelope, received_at),
+            )
+            stored = dict(conn.execute("SELECT * FROM communication_events WHERE id = ?", (identifier,)).fetchone())
+            created = True
+        except sqlite3.IntegrityError:
+            stored_row = conn.execute(
+                "SELECT * FROM communication_events WHERE provider = ? AND provider_event_id = ?", (provider, event_id)
+            ).fetchone()
+            if stored_row is None:
+                raise
+            stored = dict(stored_row)
+            created = False
+        conn.execute(
+            "INSERT OR IGNORE INTO communication_receipts VALUES (?, ?, 'queued', 0, NULL, ?)",
+            (stored["id"], ciphertext, now),
+        )
+        # A provider replay also wakes up a receipt whose worker died mid-claim.
+        conn.execute(
+            "UPDATE communication_receipts SET status = 'queued', updated_at = ? "
+            "WHERE event_id = ? AND status IN ('retryable', 'processing')",
+            (now, stored["id"]),
+        )
         conn.commit()
-        return dict(conn.execute("SELECT * FROM communication_events WHERE id = ?", (identifier,)).fetchone()), True
-    except sqlite3.IntegrityError:
+        return stored, created
+    except Exception:
         conn.rollback()
-        existing = conn.execute("SELECT * FROM communication_events WHERE provider = ? AND provider_event_id = ?", (provider, event_id)).fetchone()
-        if existing is None:
-            raise
-        return dict(existing), False
+        raise
 
 
 def update_event_status(conn: sqlite3.Connection, event_id: str, status: str) -> None:
@@ -294,11 +502,33 @@ def single_open_prompt(conn: sqlite3.Connection, endpoint_id: str) -> Optional[D
 
 
 def add_attachment(conn: sqlite3.Connection, event_id: str, source_url: str, media_type: str) -> Dict[str, Any]:
-    identifier, created_at = _identity()
     reference = hashlib.sha256((event_id + ":" + source_url).encode("utf-8")).hexdigest()
+    existing = conn.execute("SELECT * FROM communication_attachments WHERE event_id = ? AND source_reference = ?", (event_id, reference)).fetchone()
+    if existing is not None:
+        return dict(existing)
+    identifier, created_at = _identity()
     conn.execute("INSERT INTO communication_attachments VALUES (?, ?, ?, ?, 'unavailable', ?)", (identifier, event_id, reference, media_type, created_at))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_attachments WHERE id = ?", (identifier,)).fetchone())
+
+
+def link_retained_evidence(conn: sqlite3.Connection, attachment_id: str, evidence_artifact_id: str) -> None:
+    attachment = conn.execute("SELECT 1 FROM communication_attachments WHERE id = ?", (attachment_id,)).fetchone()
+    artifact = conn.execute("SELECT 1 FROM evidence_artifacts WHERE id = ?", (evidence_artifact_id,)).fetchone()
+    if attachment is None or artifact is None:
+        raise ValueError("communication attachment and retained evidence are required")
+    conn.execute("INSERT OR IGNORE INTO communication_evidence_links VALUES (?, ?, ?)", (attachment_id, evidence_artifact_id, datetime.now(timezone.utc).isoformat()))
+    conn.execute("UPDATE communication_attachments SET status = 'retained' WHERE id = ?", (attachment_id,))
+    conn.commit()
+
+
+def evidence_is_linked_to_event(conn: sqlite3.Connection, event_id: str, evidence_artifact_id: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM communication_evidence_links link "
+        "JOIN communication_attachments attachment ON attachment.id = link.attachment_id "
+        "WHERE attachment.event_id = ? AND link.evidence_artifact_id = ? AND attachment.status = 'retained'",
+        (event_id, evidence_artifact_id),
+    ).fetchone() is not None
 
 
 def create_candidate(conn: sqlite3.Connection, event_id: str, prompt_id: Optional[str], allocation_id: Optional[str], work_item_id: Optional[str], endpoint_id: Optional[str], kind: str, draft: Dict[str, Any]) -> Dict[str, Any]:

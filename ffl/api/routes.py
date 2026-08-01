@@ -237,7 +237,7 @@ async def loopmessage_webhook(request: Request) -> dict:
     try:
         raw_body = await request.body()
         payload = json.loads(raw_body.decode("utf-8"))
-        event, created = communications_service.receive_webhook(_connection(request), provider, payload)
+        event, created = communications_service.receive_webhook(_connection(request), provider, payload, request.app.state.communication_receipt_key)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         communications_persistence.quarantine(_connection(request), provider.name, str(error), raw_body if "raw_body" in locals() else b"")
         return {"status": "quarantined"}

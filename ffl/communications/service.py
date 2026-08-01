@@ -1,12 +1,13 @@
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
+from ffl.communications import private
 from ffl.communications.ports import CommunicationsProvider
 from ffl.persistence import repository
-from ffl.services import operations, season
+from ffl.services import evidence, operations, season
 
 
 WORK_PROMPT_PURPOSE = "work_prompt"
@@ -52,22 +53,60 @@ def send_work_prompt(
 
 
 def receive_webhook(
-    conn: sqlite3.Connection, provider: CommunicationsProvider, payload: Dict[str, Any]
+    conn: sqlite3.Connection, provider: CommunicationsProvider, payload: Dict[str, Any], receipt_key: str
 ) -> Tuple[Dict[str, Any], bool]:
+    if not receipt_key:
+        raise ValueError("communications receipt key is not configured")
     event = provider.normalize_webhook(payload)
+    ciphertext = private.seal(receipt_key, payload)
     endpoint = persistence.find_endpoint(conn, provider.name, event["contact"])
-    stored, created = persistence.record_event(
+    stored, created = persistence.record_event_with_receipt(
         conn, provider.name, event["event_id"], event["message_id"], event["event_type"],
         event["contact"], endpoint["id"] if endpoint else None,
-        {"api_version": event["raw"].get("api_version"), "message_type": event["message_type"]},
+        {"api_version": event["raw"].get("api_version"), "message_type": event["message_type"]}, ciphertext,
     )
-    if not created:
-        if stored["status"] != "received":
-            return stored, False
-        existing_candidate = persistence.get_candidate_for_event(conn, stored["id"])
-        if existing_candidate is not None:
-            persistence.update_event_status(conn, stored["id"], "review_required")
-            return {**stored, "candidate_id": existing_candidate["id"]}, False
+    return stored, created
+
+
+def process_pending_communications(
+    conn: sqlite3.Connection, provider: CommunicationsProvider, receipt_key: str,
+    crash_after_receipt: bool = False, processing_lease_seconds: int = 300,
+) -> int:
+    """Recover private webhook receipts without putting their contents in the inbox.
+
+    A receipt is claimed atomically and only marked processed after its candidate
+    and media references are durable.  A provider replay requeues an unfinished
+    receipt immediately; an abandoned claim is recovered after its short lease.
+    """
+    lease_before = (datetime.now(timezone.utc) - timedelta(seconds=processing_lease_seconds)).isoformat()
+    persistence.release_expired_receipt_claims(conn, lease_before)
+    processed = 0
+    for receipt in persistence.pending_receipts(conn):
+        if not persistence.claim_receipt(conn, receipt["event_id"]):
+            continue
+        try:
+            if crash_after_receipt:
+                raise RuntimeError("injected processing crash")
+            try:
+                payload = private.open_receipt(receipt_key, receipt["ciphertext"])
+            except ValueError as error:
+                persistence.quarantine_receipt(conn, receipt["event_id"], receipt["ciphertext"], str(error))
+                continue
+            event = provider.normalize_webhook(payload)
+            stored = conn.execute("SELECT * FROM communication_events WHERE id = ?", (receipt["event_id"],)).fetchone()
+            if stored is None:
+                raise ValueError("communication receipt event is missing")
+            _process_event(conn, provider, event, dict(stored))
+            persistence.complete_receipt(conn, receipt["event_id"])
+            processed += 1
+        except Exception as error:
+            persistence.retry_receipt(conn, receipt["event_id"], str(error))
+    return processed
+
+
+def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, event: Dict[str, Any], stored: Dict[str, Any]) -> None:
+    if stored["status"] != "received":
+        return
 
     if event["event_type"] in ("message_failed", "message_delivered", "message_scheduled", "unknown"):
         prompt = persistence.find_prompt_for_message(conn, event["message_id"])
@@ -80,10 +119,27 @@ def receive_webhook(
             if event["event_type"] == "message_failed" and event["raw"].get("error_code") == 500:
                 persistence.set_consent(conn, prompt["endpoint_id"], WORK_PROMPT_PURPOSE, False, "LoopMessage error_code 500")
         persistence.update_event_status(conn, stored["id"], "processed")
-        return stored, True
+        return
     if event["event_type"] != "message_inbound":
         persistence.update_event_status(conn, stored["id"], "processed")
-        return stored, True
+        return
+
+    endpoint = None
+    if stored["endpoint_id"]:
+        endpoint_row = conn.execute("SELECT * FROM communication_endpoints WHERE id = ? AND provider = ?", (stored["endpoint_id"], provider.name)).fetchone()
+        endpoint = dict(endpoint_row) if endpoint_row is not None else None
+    existing_candidate = persistence.get_candidate_for_event(conn, stored["id"])
+    if existing_candidate is not None:
+        # A crash may have happened after candidate persistence but before its
+        # prompt/event status updates.  Do not create duplicate evidence rows.
+        prompt = None
+        if existing_candidate["prompt_id"]:
+            prompt_row = conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (existing_candidate["prompt_id"],)).fetchone()
+            prompt = dict(prompt_row) if prompt_row is not None else None
+        if prompt is not None and prompt["status"] in ("accepted", "scheduled", "delivered"):
+            persistence.update_prompt(conn, prompt["id"], "responded")
+        persistence.update_event_status(conn, stored["id"], "review_required")
+        return
 
     attachments = [
         persistence.add_attachment(conn, stored["id"], url, event["message_type"])
@@ -92,7 +148,7 @@ def receive_webhook(
     prompt = persistence.single_open_prompt(conn, endpoint["id"]) if endpoint else None
     intent = event["text"].strip().upper()
     kind = "exception" if intent == "REPORT_DEVIATION" else "signal"
-    candidate = persistence.create_candidate(
+    persistence.create_candidate(
         conn, stored["id"], prompt["id"] if prompt else None,
         prompt["allocation_id"] if prompt else None, prompt["work_item_id"] if prompt else None,
         endpoint["id"] if endpoint else None, kind,
@@ -105,14 +161,38 @@ def receive_webhook(
     )
     if prompt is not None:
         persistence.update_prompt(conn, prompt["id"], "responded")
-        persistence.update_event_status(conn, stored["id"], "review_required")
-    else:
-        persistence.update_event_status(conn, stored["id"], "review_required")
-    return {**stored, "candidate_id": candidate["id"]}, True
+    persistence.update_event_status(conn, stored["id"], "review_required")
+    return
 
 
 def _candidate_draft(candidate: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(candidate["draft_json"])
+
+
+def retain_inbound_attachment(
+    conn: sqlite3.Connection, attachment_id: str, content: bytes, media_type: str, directory: Optional[str] = None,
+) -> str:
+    """Private media-worker entry point; it never persists a provider URL.
+
+    The worker obtains the bytes through an approved provider-specific media
+    retrieval flow, passes them here, and this function creates the immutable
+    FFL evidence artifact plus the attachment-to-artifact proof link.
+    """
+    row = conn.execute(
+        "SELECT attachment.id, endpoint.person_id FROM communication_attachments attachment "
+        "JOIN communication_events event ON event.id = attachment.event_id "
+        "LEFT JOIN communication_endpoints endpoint ON endpoint.id = event.endpoint_id "
+        "WHERE attachment.id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if row is None or row["person_id"] is None:
+        raise ValueError("communication attachment has no resolved endpoint")
+    artifact = evidence.retain_evidence(
+        conn, content, media_type, original_filename=None, source_uri=None,
+        created_by_person_id=row["person_id"], directory=directory,
+    )
+    persistence.link_retained_evidence(conn, attachment_id, artifact.id)
+    return artifact.id
 
 
 def accept_candidate(
@@ -144,8 +224,9 @@ def accept_candidate(
         raise ValueError("signal acceptance requires template id and version")
     if signal_values is None:
         raise ValueError("signal acceptance requires reviewed signal values")
-    if draft.get("attachment_ids") and evidence_artifact_id is None:
-        raise ValueError("unavailable communication attachment requires retained evidence before signal acceptance")
+    if draft.get("attachment_ids"):
+        if evidence_artifact_id is None or not persistence.evidence_is_linked_to_event(conn, candidate["event_id"], evidence_artifact_id):
+            raise ValueError("communication attachment requires retained evidence linked to this communication")
     record = season.record_field_signal(
         conn, candidate["allocation_id"], signal_template_id, signal_template_version, observed_at,
         endpoint["person_id"], signal_values, evidence_artifact_id=evidence_artifact_id, status="submitted",
