@@ -384,6 +384,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON import_batches (purpose, received_at);
         CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial
             ON trial_allocations (trial_id);
+        CREATE INDEX IF NOT EXISTS idx_trials_owner_created
+            ON trials (owner_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_trial_confounders_trial
             ON trial_confounders (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trial_conclusions_trial
