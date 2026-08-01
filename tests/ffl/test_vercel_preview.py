@@ -33,7 +33,6 @@ def test_vercel_function_bundle_includes_runtime_static_assets_and_postgres_cont
     project_root = Path(__file__).resolve().parents[2]
     config_payload = json.loads((project_root / "vercel.json").read_text(encoding="utf-8"))
 
-    assert config_payload["functions"]["api/index.py"]["includeFiles"] == [
-        "ffl/static/**",
-        "db/postgres/0001_agro_private_schema.sql",
-    ]
+    assert config_payload["functions"]["api/index.py"]["includeFiles"] == (
+        "{ffl/static/**,db/postgres/0001_agro_private_schema.sql}"
+    )
