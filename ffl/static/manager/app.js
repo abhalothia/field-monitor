@@ -21,7 +21,7 @@
   }
 
   function isOpenException(exceptionRecord) {
-    return ["resolved", "closed", "dismissed"].indexOf(exceptionRecord.status) === -1;
+    return ["resolved", "accepted_risk"].indexOf(exceptionRecord.status) === -1;
   }
 
   function isOpenWork(workItem) {
@@ -34,12 +34,14 @@
 
   function nextAction(exceptionRecord) {
     var actions = {
-      reported: "Triage and assign an owner.",
-      triaged: "Confirm containment and move it forward.",
-      assigned: "Owner to investigate and update the record.",
-      in_progress: "Owner to resolve or escalate.",
-      escalated: "Fallback owner to take action.",
-      resolved: "Confirm resolution and close the record."
+      reported: "Triage the exception and record the assessment.",
+      triaged: "Assign an accountable owner or accept the risk.",
+      owned: "Owner to mitigate the exception and record progress.",
+      mitigated: "Start monitoring to verify the mitigation.",
+      monitoring: "Verify the outcome and resolve, or reopen if it recurs.",
+      resolved: "Review the outcome; reopen if conditions recur.",
+      accepted_risk: "Review the accepted risk; reopen if conditions change.",
+      reopened: "Return the exception to triage and reassess ownership."
     };
     return actions[exceptionRecord.status] || "Review the record and assign the next action.";
   }
@@ -67,7 +69,8 @@
 
     element("allocation-count").textContent = allocations.length;
     setHtml("allocation-list", allocations.length ? allocations.map(function (allocation) {
-      return "<span>" + escapeHtml(allocation.crop) + " · " + escapeHtml(allocation.variety) + "</span>";
+      return "<span>" + escapeHtml(allocation.crop_name) +
+        (allocation.cultivar ? " · " + escapeHtml(allocation.cultivar) : "") + "</span>";
     }).join("") : "<span>No active allocation.</span>");
     element("active-work-count").textContent = activeWork.length;
     setHtml("active-work-summary", "<span>" + activeWork.filter(isOverdue).length + " overdue</span>");
