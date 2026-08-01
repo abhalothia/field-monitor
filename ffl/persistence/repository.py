@@ -912,6 +912,60 @@ def list_import_rows(conn: sqlite3.Connection, import_batch_id: str) -> List[Imp
     ).fetchall()]
 
 
+def review_import_batch(
+    conn: sqlite3.Connection, import_batch_id: str, reviewed_at: str
+) -> ImportBatch:
+    """Move a profiled import into the human-review state without changing its rows."""
+    batch = get_import_batch(conn, import_batch_id)
+    if batch is None:
+        raise ValueError("import batch does not exist")
+    if batch.status == "review":
+        return batch
+    if batch.status != "profiled":
+        raise ValueError("only profiled imports can be reviewed")
+    conn.execute(
+        "UPDATE import_batches SET status = ?, reviewed_at = ? WHERE id = ?",
+        ("review", reviewed_at, import_batch_id),
+    )
+    conn.commit()
+    return get_import_batch(conn, import_batch_id)  # type: ignore[return-value]
+
+
+def publish_import_batch(
+    conn: sqlite3.Connection, import_batch_id: str, published_at: str
+) -> ImportBatch:
+    """Publish reviewed, wholly-valid rows atomically; no operating record is mutated here."""
+    batch = get_import_batch(conn, import_batch_id)
+    if batch is None:
+        raise ValueError("import batch does not exist")
+    if batch.status == "published":
+        return batch
+    if batch.status != "review":
+        raise ValueError("only reviewed imports can be published")
+    bad_rows = conn.execute(
+        "SELECT COUNT(*) AS count FROM import_rows WHERE import_batch_id = ? AND status != 'valid'",
+        (import_batch_id,),
+    ).fetchone()["count"]
+    if bad_rows:
+        raise ValueError("imports with invalid or quarantined rows cannot be published")
+    if not list_import_rows(conn, import_batch_id):
+        raise ValueError("imports without rows cannot be published")
+    try:
+        conn.execute(
+            "UPDATE import_rows SET status = 'published' WHERE import_batch_id = ? AND status = 'valid'",
+            (import_batch_id,),
+        )
+        conn.execute(
+            "UPDATE import_batches SET status = ?, published_at = ? WHERE id = ?",
+            ("published", published_at, import_batch_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return get_import_batch(conn, import_batch_id)  # type: ignore[return-value]
+
+
 def create_playbook(
     conn: sqlite3.Connection, name: str, version: int, owner_id: str, protocol: Any,
     status: str = "draft", effective_from: Optional[str] = None,
