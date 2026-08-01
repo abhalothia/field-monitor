@@ -5,14 +5,12 @@ phase chooses the authenticated manager surface that owns it.
 """
 
 import base64
-import hashlib
 from dataclasses import asdict
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
-from ffl.persistence import repository
 from ffl.services import evidence, imports
 
 
@@ -32,7 +30,10 @@ class CsvImportRequest(BaseModel):
     purpose: str
     owner_id: str
     original_filename: Optional[str] = None
-    reviewed_by: Optional[str] = None
+
+
+class ImportReviewRequest(BaseModel):
+    reviewer_id: str
 
 
 def _connection(request: Request):
@@ -58,16 +59,13 @@ def _result(value: dict) -> dict:
 def create_evidence(payload: EvidenceCreateRequest, request: Request, response: Response) -> dict:
     try:
         content = _content(payload.content_base64)
-        existing = repository.get_evidence_artifact_by_hash(
-            _connection(request), hashlib.sha256(content).hexdigest()
-        )
-        artifact = evidence.retain_evidence(
+        artifact, created = evidence.retain_evidence_result(
             _connection(request), content, payload.media_type, payload.original_filename,
             payload.source_uri, payload.created_by_person_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
-    if existing is not None:
+    if not created:
         response.status_code = status.HTTP_200_OK
     return asdict(artifact)
 
@@ -77,7 +75,7 @@ def create_csv_import(payload: CsvImportRequest, request: Request, response: Res
     try:
         result = imports.register_csv_import(
             _connection(request), _content(payload.content_base64), payload.purpose, payload.owner_id,
-            payload.original_filename, payload.reviewed_by,
+            payload.original_filename,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
@@ -92,6 +90,17 @@ def get_csv_import(import_batch_id: str, request: Request) -> dict:
         return _result(imports.get_import(_connection(request), import_batch_id))
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+
+
+@router.post("/imports/{import_batch_id}/review")
+def review_csv_import(import_batch_id: str, payload: ImportReviewRequest, request: Request) -> dict:
+    try:
+        batch = imports.review_import(_connection(request), import_batch_id, payload.reviewer_id)
+    except ValueError as error:
+        if str(error) == "import batch does not exist":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import batch not found")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+    return _result({"batch": batch, "counters": imports.get_import(_connection(request), batch.id)["counters"]})
 
 
 @router.post("/imports/{import_batch_id}/publish")

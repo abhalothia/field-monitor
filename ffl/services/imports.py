@@ -2,6 +2,8 @@
 
 import csv
 import io
+import sqlite3
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -18,6 +20,7 @@ PURPOSE_COLUMNS = {
     "soil_measurement": ("land_parcel_id", "sampled_on", "measurement", "value", "unit"),
 }
 IDENTITY_LIKE_COLUMNS = {"name", "phone", "plot", "plot_name", "parcel", "farmer_name"}
+_IMPORT_LOCK = threading.RLock()
 
 
 def _now() -> str:
@@ -145,7 +148,7 @@ def review_import(conn, import_batch_id: str, reviewer_id: str) -> ImportBatch:
     """Explicitly record that a known FFL user reviewed the retained rows."""
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (reviewer_id,)).fetchone() is None:
         raise ValueError("reviewer does not exist")
-    return repository.review_import_batch(conn, import_batch_id, _now())
+    return repository.review_import_batch(conn, import_batch_id, reviewer_id, _now())
 
 
 def register_csv_import(
@@ -154,7 +157,6 @@ def register_csv_import(
     purpose: str,
     owner_id: str,
     original_filename: Optional[str] = None,
-    reviewed_by: Optional[str] = None,
     evidence_directory: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retain and profile CSV rows.  It never creates or overwrites farm records."""
@@ -166,24 +168,49 @@ def register_csv_import(
         conn, content, "text/csv", original_filename=original_filename,
         created_by_person_id=owner_id, directory=evidence_directory,
     )
-    existing = repository.get_import_batch_by_content_hash(conn, artifact.content_hash)
-    if existing is not None:
-        if existing.purpose != purpose:
-            raise ValueError("content is already registered under a different import purpose")
-        return _summary(conn, existing, idempotent=True)
     headers, rows, parse_errors = _parse_csv(content)
     profile = _profile(headers, rows, parse_errors)
-    batch = repository.create_import_batch(
-        conn, purpose, artifact.content_hash, artifact.id, "csv-v1", owner_id, profile, status="profiled"
-    )
     normalized_headers = profile["normalized_headers"]
     header_problems = bool(profile["blank_headers"] or profile["duplicate_headers"] or parse_errors)
-    for row_number, row in rows:
-        mapped, row_status, errors = _validate_row(conn, purpose, normalized_headers, row, header_problems)
-        raw = {"headers": headers, "cells": row}
-        repository.create_import_row(conn, batch.id, row_number, raw, mapped, errors, status=row_status)
-    if reviewed_by is not None:
-        batch = review_import(conn, batch.id, reviewed_by)
+    # A FastAPI app uses a shared pilot SQLite connection.  The process lock
+    # protects same-process requests; BEGIN IMMEDIATE serializes separate local
+    # processes.  Batch and row writes deliberately share one transaction.
+    with _IMPORT_LOCK:
+        existing = repository.get_import_batch_by_content_hash(conn, artifact.content_hash)
+        if existing is not None:
+            if existing.purpose != purpose:
+                raise ValueError("content is already registered under a different import purpose")
+            return _summary(conn, existing, idempotent=True)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = repository.get_import_batch_by_content_hash(conn, artifact.content_hash)
+            if existing is not None:
+                conn.rollback()
+                if existing.purpose != purpose:
+                    raise ValueError("content is already registered under a different import purpose")
+                return _summary(conn, existing, idempotent=True)
+            batch = repository.create_import_batch(
+                conn, purpose, artifact.content_hash, artifact.id, "csv-v1", owner_id, profile,
+                status="profiled", commit=False,
+            )
+            for row_number, row in rows:
+                mapped, row_status, errors = _validate_row(conn, purpose, normalized_headers, row, header_problems)
+                raw = {"headers": headers, "cells": row}
+                repository.create_import_row(
+                    conn, batch.id, row_number, raw, mapped, errors, status=row_status, commit=False
+                )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            established = repository.get_import_batch_by_content_hash(conn, artifact.content_hash)
+            if established is None:
+                raise
+            if established.purpose != purpose:
+                raise ValueError("content is already registered under a different import purpose")
+            return _summary(conn, established, idempotent=True)
+        except Exception:
+            conn.rollback()
+            raise
     return _summary(conn, batch)
 
 

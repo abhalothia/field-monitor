@@ -72,14 +72,14 @@ def _require_published_template(conn: sqlite3.Connection, template_id: str, temp
 
 
 def _validate_import_lifecycle(
-    status: str, reviewed_at: Optional[str], published_at: Optional[str]
+    status: str, reviewed_at: Optional[str], reviewed_by_id: Optional[str], published_at: Optional[str]
 ) -> None:
-    if status in ("received", "profiled") and (reviewed_at is not None or published_at is not None):
+    if status in ("received", "profiled") and any((reviewed_at, reviewed_by_id, published_at)):
         raise ValueError("received and profiled imports cannot have review or publish timestamps")
-    if status == "review" and (reviewed_at is None or published_at is not None):
-        raise ValueError("review imports require reviewed_at and cannot have published_at")
-    if status == "published" and (reviewed_at is None or published_at is None):
-        raise ValueError("published imports require reviewed_at and published_at")
+    if status == "review" and (reviewed_at is None or reviewed_by_id is None or published_at is not None):
+        raise ValueError("review imports require reviewed_at and reviewed_by_id and cannot have published_at")
+    if status == "published" and (reviewed_at is None or reviewed_by_id is None or published_at is None):
+        raise ValueError("published imports require reviewed_at, reviewed_by_id, and published_at")
     if status in ("quarantined", "failed") and published_at is not None:
         raise ValueError("quarantined and failed imports cannot have published_at")
 
@@ -234,7 +234,8 @@ def _import_batch(row: sqlite3.Row) -> ImportBatch:
     return ImportBatch(
         row["id"], row["purpose"], row["status"], row["content_hash"], row["evidence_artifact_id"],
         row["mapping_version"], row["source_id"], row["owner_id"], row["received_at"],
-        row["reviewed_at"], row["published_at"], json.loads(row["profile_json"]), row["created_at"],
+        row["reviewed_at"], row["reviewed_by_id"], row["published_at"], json.loads(row["profile_json"]),
+        row["created_at"],
     )
 
 
@@ -568,6 +569,29 @@ def create_evidence_artifact(
                             size_bytes, source_uri, created_by_person_id, created_at)
 
 
+def create_evidence_artifact_if_absent(
+    conn: sqlite3.Connection, content_hash: str, media_type: str, storage_reference: str,
+    original_filename: Optional[str] = None, size_bytes: Optional[int] = None,
+    source_uri: Optional[str] = None, created_by_person_id: Optional[str] = None,
+) -> Tuple[EvidenceArtifact, bool]:
+    """Atomically insert a content-addressed artifact and report whether this call won."""
+    _validate_content_hash(content_hash)
+    identifier, created_at = _new_identity()
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO evidence_artifacts
+           (id, content_hash, media_type, storage_reference, original_filename, size_bytes, source_uri,
+            created_by_person_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (identifier, content_hash, media_type, storage_reference, original_filename, size_bytes,
+         source_uri, created_by_person_id, created_at),
+    )
+    conn.commit()
+    artifact = get_evidence_artifact_by_hash(conn, content_hash)
+    if artifact is None:
+        raise RuntimeError("evidence artifact insert did not return a record")
+    return artifact, cursor.rowcount == 1
+
+
 def get_evidence_artifact(conn: sqlite3.Connection, artifact_id: str) -> Optional[EvidenceArtifact]:
     row = conn.execute("SELECT * FROM evidence_artifacts WHERE id = ?", (artifact_id,)).fetchone()
     return _evidence_artifact(row) if row is not None else None
@@ -840,6 +864,7 @@ def create_import_batch(
     mapping_version: str, owner_id: str, profile: Any, status: str = "received",
     source_id: Optional[str] = None, received_at: Optional[str] = None,
     reviewed_at: Optional[str] = None, published_at: Optional[str] = None,
+    reviewed_by_id: Optional[str] = None, commit: bool = True,
 ) -> ImportBatch:
     _validate_content_hash(content_hash)
     artifact = get_evidence_artifact(conn, evidence_artifact_id)
@@ -847,17 +872,23 @@ def create_import_batch(
         raise ValueError("evidence artifact does not exist")
     if artifact.content_hash != content_hash:
         raise ValueError("import content_hash must match its evidence artifact")
-    _validate_import_lifecycle(status, reviewed_at, published_at)
+    _validate_import_lifecycle(status, reviewed_at, reviewed_by_id, published_at)
     identifier, created_at = _new_identity()
     received_at = received_at or created_at
     try:
         conn.execute(
-            "INSERT INTO import_batches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            """INSERT INTO import_batches
+               (id, purpose, status, content_hash, evidence_artifact_id, mapping_version, source_id, owner_id,
+                received_at, reviewed_at, reviewed_by_id, published_at, profile_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (identifier, purpose, status, content_hash, evidence_artifact_id, mapping_version, source_id, owner_id,
-             received_at, reviewed_at, published_at, _json_value(profile), created_at),
+             received_at, reviewed_at, reviewed_by_id, published_at, _json_value(profile), created_at),
         )
-        conn.commit()
+        if commit:
+            conn.commit()
     except sqlite3.IntegrityError:
+        if not commit:
+            raise
         conn.rollback()
         existing = get_import_batch_by_content_hash(conn, content_hash)
         if existing is None:
@@ -889,7 +920,7 @@ def list_import_batches(conn: sqlite3.Connection, purpose: Optional[str] = None)
 def create_import_row(
     conn: sqlite3.Connection, import_batch_id: str, row_number: int, raw: Any, mapped: Any,
     validation_errors: Any, status: str = "pending", target_entity_type: Optional[str] = None,
-    target_entity_id: Optional[str] = None, published_record_id: Optional[str] = None,
+    target_entity_id: Optional[str] = None, published_record_id: Optional[str] = None, commit: bool = True,
 ) -> ImportRow:
     identifier, created_at = _new_identity()
     conn.execute(
@@ -897,7 +928,8 @@ def create_import_row(
         (identifier, import_batch_id, row_number, _json_value(raw), _json_value(mapped), status,
          _json_value(validation_errors), target_entity_type, target_entity_id, published_record_id, created_at),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return get_import_row(conn, identifier)  # type: ignore[return-value]
 
 
@@ -913,19 +945,21 @@ def list_import_rows(conn: sqlite3.Connection, import_batch_id: str) -> List[Imp
 
 
 def review_import_batch(
-    conn: sqlite3.Connection, import_batch_id: str, reviewed_at: str
+    conn: sqlite3.Connection, import_batch_id: str, reviewed_by_id: str, reviewed_at: str
 ) -> ImportBatch:
     """Move a profiled import into the human-review state without changing its rows."""
     batch = get_import_batch(conn, import_batch_id)
     if batch is None:
         raise ValueError("import batch does not exist")
     if batch.status == "review":
+        if batch.reviewed_by_id != reviewed_by_id:
+            raise ValueError("import batch was already reviewed by a different reviewer")
         return batch
     if batch.status != "profiled":
         raise ValueError("only profiled imports can be reviewed")
     conn.execute(
-        "UPDATE import_batches SET status = ?, reviewed_at = ? WHERE id = ?",
-        ("review", reviewed_at, import_batch_id),
+        "UPDATE import_batches SET status = ?, reviewed_at = ?, reviewed_by_id = ? WHERE id = ?",
+        ("review", reviewed_at, reviewed_by_id, import_batch_id),
     )
     conn.commit()
     return get_import_batch(conn, import_batch_id)  # type: ignore[return-value]
@@ -942,6 +976,8 @@ def publish_import_batch(
         return batch
     if batch.status != "review":
         raise ValueError("only reviewed imports can be published")
+    if batch.reviewed_by_id is None:
+        raise ValueError("reviewed imports require a reviewer")
     bad_rows = conn.execute(
         "SELECT COUNT(*) AS count FROM import_rows WHERE import_batch_id = ? AND status != 'valid'",
         (import_batch_id,),

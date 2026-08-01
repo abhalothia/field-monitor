@@ -274,6 +274,7 @@ class ImportBatch:
     owner_id: str
     received_at: str
     reviewed_at: Optional[str]
+    reviewed_by_id: Optional[str]
     published_at: Optional[str]
     profile: Any
     created_at: str

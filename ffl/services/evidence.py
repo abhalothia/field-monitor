@@ -85,6 +85,22 @@ def retain_evidence(
     This function never parses a PDF, DOCX, or image and never creates an
     operating record from its contents.
     """
+    artifact, _ = retain_evidence_result(
+        conn, content, media_type, original_filename, source_uri, created_by_person_id, directory
+    )
+    return artifact
+
+
+def retain_evidence_result(
+    conn,
+    content: bytes,
+    media_type: str,
+    original_filename: Optional[str] = None,
+    source_uri: Optional[str] = None,
+    created_by_person_id: Optional[str] = None,
+    directory: Optional[str] = None,
+) -> tuple[EvidenceArtifact, bool]:
+    """Retain evidence and report whether this call established the database record."""
     if not isinstance(content, bytes) or not content:
         raise ValueError("evidence content must be non-empty bytes")
     _validate_media_type(media_type)
@@ -93,12 +109,9 @@ def retain_evidence(
     ).fetchone() is None:
         raise ValueError("evidence creator does not exist")
     content_hash = hashlib.sha256(content).hexdigest()
-    existing = repository.get_evidence_artifact_by_hash(conn, content_hash)
     root = evidence_directory(directory)
     _write_content_once(root / content_hash, content)
-    if existing is not None:
-        return existing
-    return repository.create_evidence_artifact(
+    return repository.create_evidence_artifact_if_absent(
         conn,
         content_hash=content_hash,
         media_type=media_type,

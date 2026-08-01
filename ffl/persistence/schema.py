@@ -271,6 +271,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             owner_id TEXT NOT NULL REFERENCES people(id),
             received_at TEXT NOT NULL,
             reviewed_at TEXT,
+            reviewed_by_id TEXT REFERENCES people(id),
             published_at TEXT,
             profile_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
@@ -392,4 +393,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trial_conclusions (trial_id);
         """
     )
+    # ``CREATE TABLE IF NOT EXISTS`` cannot add columns to V1 pilot databases
+    # already opened before this lifecycle field existed.  Keep this migration
+    # idempotent and deliberately narrow.
+    import_batch_columns = {row[1] for row in conn.execute("PRAGMA table_info(import_batches)").fetchall()}
+    if "reviewed_by_id" not in import_batch_columns:
+        conn.execute("ALTER TABLE import_batches ADD COLUMN reviewed_by_id TEXT")
     conn.commit()
