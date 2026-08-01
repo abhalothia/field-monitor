@@ -1,10 +1,10 @@
 # FFL PostgreSQL bootstrap
 
-`0001_ffl_private_schema.sql` is the target relational contract for a future
+`0001_agro_private_schema.sql` is the target relational contract for a future
 FFL Postgres adapter. It is intentionally **not** run by the API or worker.
 
 Before applying it, confirm the exact project and use a reviewed migration role.
-The migration creates the private `ffl` schema; it must not be exposed through
+The migration creates the private `agro` schema; it must not be exposed through
 Supabase's Data API. Create a dedicated, least-privilege server/worker role
 afterward. Never put its connection string or a Supabase service-role key in
 browser code, Vercel previews, fixtures, or git.

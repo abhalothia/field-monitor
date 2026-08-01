@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 
 POSTGRES_BOOTSTRAP_PATH = (
-    Path(__file__).resolve().parents[2] / "db" / "postgres" / "0001_ffl_private_schema.sql"
+    Path(__file__).resolve().parents[2] / "db" / "postgres" / "0001_agro_private_schema.sql"
 )
 _SCHEMA_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
@@ -33,11 +33,11 @@ class DatabaseTarget:
     dialect: str
     sqlite_path: Optional[str] = None
     dsn: Optional[str] = None
-    schema: str = "ffl"
+    schema: str = "agro"
 
 
 def _private_schema(value: Optional[str]) -> str:
-    schema = value or "ffl"
+    schema = value or "agro"
     if _SCHEMA_PATTERN.fullmatch(schema) is None:
         raise DatabaseConfigurationError("FFL_POSTGRES_SCHEMA must be a lowercase SQL identifier")
     return schema
@@ -106,7 +106,7 @@ def open_connection(
     if resolved.dialect == "postgres":
         raise DatabaseConfigurationError(
             "PostgreSQL is configured but the FFL Postgres repository adapter is not enabled. "
-            "Apply db/postgres/0001_ffl_private_schema.sql only with a reviewed private role, "
+            "Apply db/postgres/0001_agro_private_schema.sql only with a reviewed private role, "
             "then enable the adapter in a dedicated migration."
         )
     raise DatabaseConfigurationError("Unsupported FFL database dialect")
