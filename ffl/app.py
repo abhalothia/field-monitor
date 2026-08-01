@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ffl.api.import_routes import router as import_router
+from ffl.api.portfolio_routes import router as portfolio_router
 from ffl.api.routes import router
 from ffl.api.season_routes import router as season_router
 from ffl.api.source_routes import router as source_router
@@ -56,6 +57,7 @@ def create_app(database_path: Optional[str] = None) -> FastAPI:
     app.include_router(import_router)
     app.include_router(trial_router)
     app.include_router(source_router)
+    app.include_router(portfolio_router)
     return app
 
 

@@ -1,4 +1,4 @@
-"""Read-only portfolio endpoint; mounted by the final integration step."""
+"""Read-only FFL portfolio endpoint."""
 
 from typing import Optional
 

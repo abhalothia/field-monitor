@@ -12,7 +12,7 @@ def test_health_endpoint_reports_ffl_service():
     assert response.json() == {"service": "ffl-operating-kernel", "status": "ok"}
 
 
-def test_v1_season_evidence_trials_and_sources_routes_are_mounted_on_the_operating_app():
+def test_v1_operating_routes_are_mounted_on_the_app():
     client = TestClient(create_app())
 
     evidence = client.post(
@@ -21,8 +21,10 @@ def test_v1_season_evidence_trials_and_sources_routes_are_mounted_on_the_operati
     calendar = client.get("/api/v1/allocations/not-a-real-allocation/calendar")
     trial = client.post("/api/v1/trials", json={})
     candidates = client.get("/api/v1/sources/india-candidates")
+    portfolio = client.get("/api/v1/portfolio")
 
     assert evidence.status_code == 422
     assert calendar.status_code == 422
     assert trial.status_code == 422
     assert candidates.status_code == 200
+    assert portfolio.status_code == 200
