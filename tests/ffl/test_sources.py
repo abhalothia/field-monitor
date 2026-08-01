@@ -404,6 +404,24 @@ def test_india_candidates_are_discovery_only_and_do_not_claim_unverified_access(
 
     assert by_key["imd-weather"]["onboarding_status"] == "access_review_and_ip_whitelisting_required"
     assert by_key["agmarknet-market-context"]["onboarding_status"] == "programmatic_access_unverified"
+    assert by_key["copernicus-sentinel-2-context"]["onboarding_status"] == "account_and_processing_design_review_required"
+    assert by_key["nasa-power-weather-context"]["onboarding_status"] == "parameter_and_validation_review_required"
+    assert by_key["soilgrids-baseline-context"]["onboarding_status"] == "licence_resolution_and_validation_review_required"
+    assert set(by_key) == {
+        "imd-weather",
+        "agmarknet-market-context",
+        "copernicus-sentinel-2-context",
+        "nasa-power-weather-context",
+        "soilgrids-baseline-context",
+    }
+    for candidate in candidates:
+        assert candidate["purpose"]
+        assert candidate["authority_level"]
+        assert candidate["authority_notes"]
+        assert candidate["access_notes"]
+        assert candidate["limitations"]
+        assert candidate["documentation_url"].startswith("https://")
+        assert candidate["allowed_data_classes"]
     assert all("endpoint" not in candidate for candidate in candidates)
 
 

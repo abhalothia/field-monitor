@@ -35,10 +35,13 @@ _SIGNAL_KINDS = {
 _SOURCE_REGISTRY_LOCK = threading.RLock()
 
 
-# These are discovery/onboarding candidates, not pre-enabled sources.  IMD's
-# official API page explicitly directs users to API documentation and IP
-# whitelisting; AGMARKNET's official material establishes its market-price
-# role, but this product has not verified an approved programmatic feed yet.
+# These are discovery/onboarding candidates, not pre-enabled sources.  They
+# make a useful source visible to an operator without claiming that FFL has
+# current access, an installed adapter, or a field-level truth signal.  Each
+# entry names its intended use, authority, access condition, and the boundary
+# beyond which it must not be trusted.  In particular, broad-area satellite,
+# reanalysis, and soil-model products are context for a human decision; they
+# are not a substitute for attributable field evidence or laboratory results.
 INDIA_SOURCE_CANDIDATES = (
     {
         "source_key": "imd-weather",
@@ -47,6 +50,9 @@ INDIA_SOURCE_CANDIDATES = (
         "purpose": "regional weather context",
         "documentation_url": "https://mausam.imd.gov.in/responsive/apis.php",
         "onboarding_status": "access_review_and_ip_whitelisting_required",
+        "access_notes": "Official API access and IP whitelisting must be reviewed before any adapter is installed.",
+        "authority_notes": "India's national meteorological service; use the provider issue time and geographic coverage on every retained signal.",
+        "limitations": "Regional forecasts and warnings are not proof of conditions in a specific plot or of field work completed.",
         "allowed_data_classes": ("forecast", "warning", "observation"),
     },
     {
@@ -56,7 +62,46 @@ INDIA_SOURCE_CANDIDATES = (
         "purpose": "regional market context",
         "documentation_url": "https://agmarknet.gov.in/doc/Final%20_RFP_Agmarknet_2.0_v0.8.pdf",
         "onboarding_status": "programmatic_access_unverified",
+        "access_notes": "No FFL programmatic feed is approved; validate an official access route, licence, market mapping, and freshness before installation.",
+        "authority_notes": "Government market-information programme; preserve the named market, commodity, grade, unit, and published date on any signal.",
+        "limitations": "Published mandi context is not a buyer offer, a realised farm price, or a guarantee of local liquidity.",
         "allowed_data_classes": ("market_price", "arrival"),
+    },
+    {
+        "source_key": "copernicus-sentinel-2-context",
+        "display_name": "Copernicus Sentinel-2 optical remote-sensing context",
+        "authority_level": "official",
+        "purpose": "vegetation and surface-condition context for reviewed field follow-up",
+        "documentation_url": "https://documentation.dataspace.copernicus.eu/Data/SentinelMissions/Sentinel2.html",
+        "onboarding_status": "account_and_processing_design_review_required",
+        "access_notes": "Access requires a reviewed Copernicus Data Space account and a bounded processing design; no imagery or coordinates are fetched by the catalog.",
+        "authority_notes": "Copernicus mission data can support attributable observation context when product, acquisition time, processing method, cloud handling, and coverage are retained.",
+        "limitations": "Cloud, revisit cadence, mixed pixels, crop stage, and model choices limit interpretation; imagery cannot diagnose a crop, prescribe an intervention, or prove execution.",
+        "allowed_data_classes": ("surface_reflectance", "vegetation_index", "cloud_mask"),
+    },
+    {
+        "source_key": "nasa-power-weather-context",
+        "display_name": "NASA POWER weather and agroclimate fallback context",
+        "authority_level": "official",
+        "purpose": "regional weather and agroclimate fallback context",
+        "documentation_url": "https://power.larc.nasa.gov/docs/services/api/",
+        "onboarding_status": "parameter_and_validation_review_required",
+        "access_notes": "Public API capability still requires an approved parameter set, geographic aggregation rule, rate-limit handling, and local validation before installation.",
+        "authority_notes": "NASA POWER distributes analysis-ready meteorological and solar-data products; retain the selected parameter, temporal product, location rule, and source timestamp.",
+        "limitations": "Modelled and gridded products are a fallback context, not a local station reading, weather guarantee, or automatic irrigation or spray instruction.",
+        "allowed_data_classes": ("weather_estimate", "agroclimate_estimate"),
+    },
+    {
+        "source_key": "soilgrids-baseline-context",
+        "display_name": "ISRIC SoilGrids baseline soil context",
+        "authority_level": "first_party",
+        "purpose": "baseline soil-context hypothesis and sampling-plan support",
+        "documentation_url": "https://docs.isric.org/globaldata/soilgrids/",
+        "onboarding_status": "licence_resolution_and_validation_review_required",
+        "access_notes": "Use only after licence, resolution, depth interval, uncertainty handling, and field-boundary aggregation are reviewed; no data is fetched by the catalog.",
+        "authority_notes": "ISRIC's global gridded soil-information product can inform a baseline hypothesis when version, depth, uncertainty, and spatial resolution are explicit.",
+        "limitations": "Predicted gridded soil properties do not replace current, attributable laboratory soil tests or a farm-specific soil-management decision.",
+        "allowed_data_classes": ("soil_property_prediction", "soil_uncertainty", "soil_depth_interval"),
     },
 )
 
