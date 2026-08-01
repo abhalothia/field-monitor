@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -11,8 +12,13 @@ from ffl.seed import seed_pilot
 @pytest.fixture
 def seeded_client(tmp_path: Path):
     app = create_app(str(tmp_path / "ffl.db"))
-    seed = seed_pilot(app.state.conn)
-    return SimpleNamespace(client=TestClient(app), seed=seed)
+    connection = app.state.conn
+    with TestClient(app) as client:
+        seed = seed_pilot(connection)
+        yield SimpleNamespace(client=client, seed=seed)
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        connection.execute("SELECT 1")
 
 
 def test_runtime_returns_seeded_pilot_state(seeded_client):

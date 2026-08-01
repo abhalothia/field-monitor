@@ -71,7 +71,7 @@ def transition_work_item(work_item_id: str, payload: TransitionRequest, request:
             _connection(request), work_item_id, payload.status, payload.actor_id, payload.reason
         )
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     return asdict(work_item)
 
 
@@ -95,7 +95,7 @@ def create_exception(payload: ExceptionCreateRequest, request: Request, response
             payload.idempotency_key,
         )
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     return asdict(exception)
 
 
@@ -120,5 +120,5 @@ def transition_exception(exception_id: str, payload: TransitionRequest, request:
             _connection(request), exception_id, payload.status, payload.actor_id, payload.reason
         )
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     return asdict(exception)
