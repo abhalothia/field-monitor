@@ -1,6 +1,7 @@
+-r requirements.txt
+
 # Archived satellite/dashboard prototype dependencies.
 # Install this file explicitly only when working on the archived prototype.
--r requirements.txt
 
 # Core
 requests>=2.31.0

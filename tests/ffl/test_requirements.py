@@ -20,12 +20,14 @@ def test_ffl_runtime_requirements_exclude_archived_heavy_packages():
 
 
 def test_legacy_and_dev_requirements_keep_their_explicit_opt_ins():
-    legacy = (PROJECT_ROOT / "requirements-legacy.txt").read_text()
+    legacy_split_lines = (
+        PROJECT_ROOT / "requirements-legacy.txt"
+    ).read_text().splitlines()
     legacy_packages = _requirement_names("requirements-legacy.txt")
-    dev = (PROJECT_ROOT / "requirements-dev.txt").read_text()
+    dev_split_lines = (PROJECT_ROOT / "requirements-dev.txt").read_text().splitlines()
     dev_packages = _requirement_names("requirements-dev.txt")
 
-    assert "-r requirements.txt" in legacy
+    assert legacy_split_lines[0] == "-r requirements.txt"
     assert {"numpy", "pandas", "scipy", "streamlit", "plotly", "folium"} <= legacy_packages
-    assert "-r requirements.txt" in dev
+    assert dev_split_lines[0] == "-r requirements.txt"
     assert {"pytest", "pytest-cov", "responses"} <= dev_packages
