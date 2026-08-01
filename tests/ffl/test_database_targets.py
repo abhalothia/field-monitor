@@ -82,6 +82,47 @@ def test_postgres_bootstrap_is_checked_in_private_schema_contract():
     assert all(name.startswith("agro_") for name in reference_targets)
 
 
+def test_postgres_bootstrap_indexes_every_foreign_key_reference():
+    sql = POSTGRES_BOOTSTRAP_PATH.read_text()
+
+    # The referencing side of a PostgreSQL FK is not indexed automatically.
+    # These are deliberately the only exceptions: each is already the leading
+    # column of a primary/unique key, which supplies the required B-tree index.
+    composite_key_coverage = {
+        ("agro_block_parcels", "operational_block_id"),
+        ("agro_trial_allocations", "trial_id"),
+        ("agro_communication_evidence_links", "attachment_id"),
+        ("agro_communication_candidates", "event_id"),
+        ("agro_communication_receipts", "event_id"),
+    }
+    # Index names can contain underscores, so infer coverage from the indexed
+    # relation/first column, not from an index-name split.
+    explicit_index_coverage = {
+        (relation, first_column.strip())
+        for relation, first_column in re.findall(
+            r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS agro_[a-z0-9_]+ ON "
+            r"(agro_[a-z0-9_]+) \(([^,)]+)",
+            sql,
+        )
+    }
+
+    table_definitions = re.findall(
+        r"CREATE TABLE IF NOT EXISTS (agro_[a-z0-9_]+) \((.*?)(?=\n\);)", sql, re.DOTALL
+    )
+    foreign_keys = {
+        (table, column)
+        for table, definition in table_definitions
+        for column in re.findall(
+            r"(?:^|,)\s*([a-z_][a-z0-9_]*)\s+[^,\n]*?\s+REFERENCES\s+agro_[a-z0-9_]+\(id\)",
+            definition,
+        )
+    }
+
+    assert foreign_keys
+    assert len(foreign_keys) == len(re.findall(r"REFERENCES\s+agro_[a-z0-9_]+\(id\)", sql))
+    assert foreign_keys <= explicit_index_coverage | composite_key_coverage
+
+
 def test_postgres_defaults_to_the_private_agro_schema():
     target = database_target(database_url="postgresql://runtime@db.example.test/ffl")
 

@@ -299,6 +299,73 @@ CREATE UNIQUE INDEX IF NOT EXISTS agro_idx_communication_prompts_logical_action
 CREATE INDEX IF NOT EXISTS agro_idx_communication_events_contact ON agro_communication_events (provider, contact_fingerprint);
 CREATE INDEX IF NOT EXISTS agro_idx_communication_reconciliations_prompt ON agro_communication_reconciliations (prompt_id, created_at);
 
+-- PostgreSQL does not automatically index the referencing side of foreign
+-- keys. These indexes keep the ordinary farm-operating joins fast and avoid
+-- expensive parent-row checks on deletes/updates. A few references are
+-- already covered by a leading composite primary/unique key; those are noted
+-- in the migration contract test rather than duplicated here.
+CREATE INDEX IF NOT EXISTS agro_idx_land_parcels_operating_unit ON agro_land_parcels (operating_unit_id);
+CREATE INDEX IF NOT EXISTS agro_idx_operational_blocks_operating_unit ON agro_operational_blocks (operating_unit_id);
+CREATE INDEX IF NOT EXISTS agro_idx_block_parcels_land_parcel ON agro_block_parcels (land_parcel_id);
+CREATE INDEX IF NOT EXISTS agro_idx_rights_to_operate_land_parcel ON agro_rights_to_operate (land_parcel_id);
+CREATE INDEX IF NOT EXISTS agro_idx_seasons_operating_unit ON agro_seasons (operating_unit_id);
+CREATE INDEX IF NOT EXISTS agro_idx_crop_allocations_operating_unit ON agro_crop_allocations (operating_unit_id);
+CREATE INDEX IF NOT EXISTS agro_idx_crop_allocations_operational_block ON agro_crop_allocations (operational_block_id);
+CREATE INDEX IF NOT EXISTS agro_idx_crop_allocations_season ON agro_crop_allocations (season_id);
+CREATE INDEX IF NOT EXISTS agro_idx_signal_templates_owner ON agro_signal_templates (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_work_items_allocation ON agro_work_items (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_work_items_owner ON agro_work_items (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_exception_records_allocation ON agro_exception_records (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_exception_records_owner ON agro_exception_records (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_exception_records_fallback_owner ON agro_exception_records (fallback_owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_decisions_allocation ON agro_decisions (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_decisions_owner ON agro_decisions (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_audit_events_actor ON agro_audit_events (actor_id);
+CREATE INDEX IF NOT EXISTS agro_idx_evidence_artifacts_created_by_person ON agro_evidence_artifacts (created_by_person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_field_signals_template ON agro_field_signals (template_id);
+CREATE INDEX IF NOT EXISTS agro_idx_field_signals_actor ON agro_field_signals (actor_id);
+CREATE INDEX IF NOT EXISTS agro_idx_field_signals_evidence_artifact ON agro_field_signals (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_field_signals_supersedes_signal ON agro_field_signals (supersedes_signal_id);
+CREATE INDEX IF NOT EXISTS agro_idx_crop_stage_checkpoints_template ON agro_crop_stage_checkpoints (template_id);
+CREATE INDEX IF NOT EXISTS agro_idx_crop_stage_checkpoints_supersedes_checkpoint ON agro_crop_stage_checkpoints (supersedes_checkpoint_id);
+CREATE INDEX IF NOT EXISTS agro_idx_harvest_records_evidence_artifact ON agro_harvest_records (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_harvest_records_correction_of ON agro_harvest_records (correction_of_id);
+CREATE INDEX IF NOT EXISTS agro_idx_harvest_records_corrected_by_person ON agro_harvest_records (corrected_by_person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_season_reviews_owner ON agro_season_reviews (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_source_registry_owner ON agro_source_registry (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_regional_signals_source ON agro_regional_signals (source_id);
+CREATE INDEX IF NOT EXISTS agro_idx_regional_signals_source_run ON agro_regional_signals (source_run_id);
+CREATE INDEX IF NOT EXISTS agro_idx_import_batches_evidence_artifact ON agro_import_batches (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_import_batches_source ON agro_import_batches (source_id);
+CREATE INDEX IF NOT EXISTS agro_idx_import_batches_owner ON agro_import_batches (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_import_batches_reviewed_by ON agro_import_batches (reviewed_by_id);
+CREATE INDEX IF NOT EXISTS agro_idx_playbooks_owner ON agro_playbooks (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_playbooks_approved_by_person ON agro_playbooks (approved_by_person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_allocations_allocation ON agro_trial_allocations (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_confounders_allocation ON agro_trial_confounders (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_confounders_evidence_artifact ON agro_trial_confounders (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_confounders_actor ON agro_trial_confounders (actor_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_conclusions_reviewer ON agro_trial_conclusions (reviewer_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_conclusions_evidence_artifact ON agro_trial_conclusions (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_trial_conclusions_playbook ON agro_trial_conclusions (playbook_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_endpoints_person ON agro_communication_endpoints (person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_consents_endpoint ON agro_communication_consents (endpoint_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_consent_events_endpoint ON agro_communication_consent_events (endpoint_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_templates_owner ON agro_communication_templates (owner_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_prompts_work_item ON agro_communication_prompts (work_item_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_prompts_allocation ON agro_communication_prompts (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_prompts_template ON agro_communication_prompts (template_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_prompts_initiated_by_person ON agro_communication_prompts (initiated_by_person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_events_endpoint ON agro_communication_events (endpoint_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_attachments_event ON agro_communication_attachments (event_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_evidence_links_evidence_artifact ON agro_communication_evidence_links (evidence_artifact_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_candidates_prompt ON agro_communication_candidates (prompt_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_candidates_allocation ON agro_communication_candidates (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_candidates_work_item ON agro_communication_candidates (work_item_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_candidates_endpoint ON agro_communication_candidates (endpoint_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_candidates_reviewed_by_person ON agro_communication_candidates (reviewed_by_person_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_deliveries_prompt ON agro_communication_deliveries (prompt_id);
+
 REVOKE ALL ON ALL TABLES IN SCHEMA agro FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA agro FROM PUBLIC;
 
