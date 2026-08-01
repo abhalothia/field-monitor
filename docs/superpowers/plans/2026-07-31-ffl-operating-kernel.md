@@ -30,14 +30,14 @@ The first two tasks freeze the data and API contract; they are deliberately sequ
 | Wave | Workstream | Tasks | Ownership boundary |
 |---|---|---|---|
 | 0 | Platform contract | 1, 2 | `ffl/domain/`, `ffl/persistence/` |
-| 1A | Operating rules | 3 | `ffl/services/` and service tests |
-| 1B | Configured pilot | 4 | `ffl/seed.py`, template service, seed tests |
-| 2A | API | 5 | `ffl/api/`, `ffl/app.py`, API tests |
-| 2B | Field PWA | 6 | `ffl/static/field/` only |
-| 2C | Manager runtime | 7 | `ffl/static/manager/` only |
-| 3 | Full-path verification | 8 | `tests/ffl/test_e2e.py`, runbook |
+| 1 | Operating rules | 3 | `ffl/services/` and shared persistence extensions |
+| 2 | Configured pilot | 4 | `ffl/seed.py`, template service, seed tests; requires Task 3's work-item contract |
+| 3 | API | 5 | `ffl/api/`, `ffl/app.py`, API tests; requires Tasks 3 and 4 |
+| 4A | Field PWA | 6 | `ffl/static/field/` only |
+| 4B | Manager runtime | 7 | `ffl/static/manager/` only |
+| 5 | Full-path verification | 8 | `tests/ffl/test_e2e.py`, runbook |
 
-Tasks in the same wave may run in separate worktrees after their shared interfaces are committed. Integrate each task only after its scoped review passes. Task 8 is sequential because it validates the integrated product.
+Tasks 1–5 are deliberately sequential: they extend the same persistence and API contracts. After Task 5 is committed and reviewed, Tasks 6 and 7 can run in separate worktrees in parallel because their only shared dependency is the frozen JSON API and their files do not overlap. Integrate each task only after its scoped review passes. Task 8 is sequential because it validates the integrated product.
 
 ### Task 1: Bootstrap the Clean FFL Application
 
