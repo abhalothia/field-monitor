@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderRejectedError, SendResult
+from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderAmbiguousError, ProviderRejectedError, SendResult
 
 
 MAX_INBOUND_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -21,12 +21,15 @@ class LoopMessageProvider:
     def __init__(
         self, organization_api_key: Optional[str] = None, webhook_authorization: Optional[str] = None,
         sender_id: Optional[str] = None, api_base_url: Optional[str] = None, whatsapp_channel_enabled: bool = False,
+        whatsapp_capability_proof: Optional[str] = None, whatsapp_capability_proof_ref: Optional[str] = None,
     ) -> None:
         self.organization_api_key = organization_api_key
         self.webhook_authorization = webhook_authorization
         self.sender_id = sender_id
         self.api_base_url = (api_base_url or "https://a.loopmessage.com").rstrip("/")
         self.whatsapp_channel_enabled = whatsapp_channel_enabled
+        self.whatsapp_capability_proof = whatsapp_capability_proof
+        self.whatsapp_capability_proof_ref = whatsapp_capability_proof_ref
 
     @classmethod
     def from_environment(cls) -> "LoopMessageProvider":
@@ -36,6 +39,19 @@ class LoopMessageProvider:
             sender_id=os.environ.get("FFL_LOOPMESSAGE_SENDER_ID"),
             api_base_url=os.environ.get("FFL_LOOPMESSAGE_API_BASE_URL"),
             whatsapp_channel_enabled=os.environ.get("FFL_LOOPMESSAGE_WHATSAPP_CHANNEL_ENABLED") == "true",
+            whatsapp_capability_proof=os.environ.get("FFL_LOOPMESSAGE_WHATSAPP_CAPABILITY_PROOF"),
+            whatsapp_capability_proof_ref=os.environ.get("FFL_LOOPMESSAGE_WHATSAPP_CAPABILITY_PROOF_REF"),
+        )
+
+    @property
+    def whatsapp_capability_enabled(self) -> bool:
+        return bool(
+            self.organization_api_key
+            and self.webhook_authorization
+            and self.whatsapp_channel_enabled
+            and self.sender_id
+            and self.whatsapp_capability_proof == "sandbox-verified"
+            and self.whatsapp_capability_proof_ref
         )
 
     def verify_webhook(self, authorization: Optional[str]) -> bool:
@@ -46,6 +62,8 @@ class LoopMessageProvider:
     def send_message(self, contact: str, text: str, sender: Optional[str], passthrough: str) -> SendResult:
         if not self.organization_api_key:
             raise RuntimeError("LoopMessage credentials are not configured")
+        if not self.whatsapp_capability_enabled:
+            raise RuntimeError("validated WhatsApp capability is not configured")
         payload = self.build_send_payload(contact, text, sender, passthrough)
         response = httpx.post(
             self.api_base_url + "/api/v1/message/send/",
@@ -53,8 +71,18 @@ class LoopMessageProvider:
             json=payload, timeout=15.0,
         )
         body = _json_body(response)
-        if not response.is_success or body.get("success") is False:
+        # A 5xx can occur after the provider accepted the request.  It must be
+        # reconciled, not converted into a decisive rejection and re-sent.
+        if 500 <= response.status_code <= 599:
+            raise ProviderAmbiguousError("LoopMessage send response was ambiguous")
+        # Only a client-side HTTP rejection, or a structured rejection in an
+        # otherwise successful response, is decisive.  Redirects and other
+        # unusual non-2xx outcomes do not prove that LoopMessage did not
+        # accept the send, so they enter the no-resend reconciliation path.
+        if 400 <= response.status_code <= 499 or body.get("success") is False:
             raise ProviderRejectedError(_error_code(body))
+        if not response.is_success:
+            raise ProviderAmbiguousError("LoopMessage send response was ambiguous")
         if not body.get("message_id"):
             raise RuntimeError("LoopMessage did not accept the send request")
         return SendResult(provider_message_id=str(body["message_id"]), status="accepted")
@@ -103,13 +131,14 @@ class LoopMessageProvider:
         return AttachmentContent(bytes(content), media_type)
 
     def build_send_payload(self, contact: str, text: str, sender: Optional[str], passthrough: str) -> Dict[str, Any]:
+        if not self.whatsapp_capability_enabled:
+            raise RuntimeError("validated WhatsApp capability is not configured")
         payload: Dict[str, Any] = {
             "contact": contact,
             "text": text,
             "passthrough": passthrough,
+            "channel": "whatsapp",
         }
-        if self.whatsapp_channel_enabled:
-            payload["channel"] = "whatsapp"
         selected_sender = sender or self.sender_id
         if selected_sender:
             payload["sender"] = selected_sender
@@ -124,6 +153,9 @@ class LoopMessageProvider:
         attachments = payload.get("attachments") or []
         if not isinstance(attachments, list) or not all(isinstance(item, str) for item in attachments):
             raise ValueError("LoopMessage attachments must be URL strings")
+        channel = payload.get("channel")
+        if channel is not None and channel != "whatsapp":
+            raise ValueError("LoopMessage inbound channel is not WhatsApp")
         return {
             "event_id": webhook_id,
             "message_id": str(payload.get("message_id", "")),
@@ -132,6 +164,7 @@ class LoopMessageProvider:
             "text": str(payload.get("text", "")),
             "message_type": str(payload.get("message_type", "text")),
             "attachments": attachments,
+            "channel": channel,
             "passthrough": payload.get("passthrough") if isinstance(payload.get("passthrough"), str) else None,
             "raw": payload,
         }

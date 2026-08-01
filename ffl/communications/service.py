@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
 from ffl.communications import private
-from ffl.communications.ports import CommunicationsProvider, ProviderRejectedError
+from ffl.communications.ports import CommunicationsProvider, ProviderAmbiguousError, ProviderRejectedError
 from ffl.persistence import repository
 from ffl.services import evidence, operations, season
 
@@ -31,10 +31,12 @@ def send_work_prompt(
         raise ValueError("work prompt endpoint must belong to the assigned work owner")
     if template["status"] != "published" or template["purpose"] != WORK_PROMPT_PURPOSE:
         raise ValueError("work prompt requires a published work_prompt template")
-    if getattr(provider, "whatsapp_channel_enabled", False) and (
-        not template["provider_template_id"] or template["provider_approval_state"] != "approved"
-    ):
-        raise ValueError("approved external WhatsApp template is required for configured WhatsApp delivery")
+    if not getattr(provider, "whatsapp_capability_enabled", False):
+        raise ValueError("validated WhatsApp capability gate is required for work-prompt delivery")
+    if not getattr(provider, "sender_id", None):
+        raise ValueError("a dedicated WhatsApp sender id is required for work-prompt delivery")
+    if not template["provider_template_id"] or template["provider_approval_state"] != "approved":
+        raise ValueError("approved external WhatsApp template is required for work-prompt delivery")
     if not persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
         raise ValueError("work prompt consent is not active")
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (initiated_by_person_id,)).fetchone() is None:
@@ -48,7 +50,7 @@ def send_work_prompt(
     persistence.create_delivery_attempt(conn, prompt["id"], "attempting")
     try:
         result = provider.send_message(
-            endpoint["address"], template["body"], None, prompt["id"]
+            endpoint["address"], template["body"], provider.sender_id, prompt["id"]
         )
     except ProviderRejectedError as error:
         if error.error_code == 500:
@@ -57,6 +59,9 @@ def send_work_prompt(
             conn, prompt["id"], "failed", error_summary="LoopMessage error_code {0}".format(error.error_code or "unknown"),
         )
         return persistence.update_prompt(conn, prompt["id"], "failed")
+    except ProviderAmbiguousError:
+        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="provider send outcome ambiguous")
+        return persistence.update_prompt(conn, prompt["id"], "unknown")
     except Exception as error:
         # The provider may have accepted a request before a transport timeout;
         # mark it unknown and reconcile, never blindly issue a second send.
@@ -71,6 +76,13 @@ def receive_webhook(
 ) -> Tuple[Dict[str, Any], bool]:
     if not receipt_key:
         raise ValueError("communications receipt key is not configured")
+    # LoopMessage's documented webhook channel list does not yet establish a
+    # WhatsApp callback contract.  Until the account-level sandbox proof is
+    # present, no inbound payload is eligible to enter the FFL workflow.  If
+    # the provider does supply a channel, normalize_webhook also requires it
+    # to be exactly whatsapp.
+    if not getattr(provider, "whatsapp_capability_enabled", False):
+        raise ValueError("validated WhatsApp capability gate is required for inbound delivery")
     event = provider.normalize_webhook(payload)
     ciphertext = private.seal(receipt_key, payload)
     endpoint = persistence.find_endpoint(conn, provider.name, event["contact"])

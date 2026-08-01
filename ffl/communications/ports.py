@@ -29,6 +29,10 @@ class ProviderRejectedError(RuntimeError):
         super().__init__("provider rejected message" if error_code is None else "provider rejected message ({0})".format(error_code))
 
 
+class ProviderAmbiguousError(RuntimeError):
+    """The provider might have accepted a request, but FFL cannot prove it."""
+
+
 class CommunicationsProvider(Protocol):
     name: str
 

@@ -10,7 +10,7 @@ from ffl.communications import persistence
 from ffl.communications.fake import FakeLoopMessageProvider
 from ffl.communications import loopmessage as loopmessage_module
 from ffl.communications.loopmessage import LoopMessageProvider
-from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderRejectedError
+from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderAmbiguousError, ProviderRejectedError
 from ffl.communications.service import (
     process_pending_communications, reconcile_outbound_messages, retain_inbound_attachment, send_work_prompt,
 )
@@ -39,6 +39,7 @@ def _setup(tmp_path: Path):
         template = persistence.create_template(
             app.state.conn, "irrigation_check", 1, "hi-IN", "work_prompt",
             "FFL: सिंचाई जांच / Inspect irrigation. Reply REPORT_DEVIATION if needed.", seed["manager_id"],
+            provider_template_id="fake-whatsapp-template-v1", provider_approval_state="approved",
         )
         template = persistence.publish_template(app.state.conn, template["id"], seed["manager_id"])
         yield client, app.state.conn, provider, seed, work, endpoint, consent, template
@@ -209,13 +210,26 @@ def test_admin_communications_paths_redact_endpoints_and_publish_templates(tmp_p
 
 
 def test_loopmessage_adapter_builds_documented_payload_without_a_network_call():
-    provider = LoopMessageProvider("organization-key", "webhook-token", "sender-1")
+    provider = LoopMessageProvider(
+        "organization-key", "webhook-token", "sender-1", whatsapp_channel_enabled=True,
+        whatsapp_capability_proof="sandbox-verified", whatsapp_capability_proof_ref="test-sandbox-proof",
+    )
     payload = provider.build_send_payload("+15550000001", "FFL work prompt", None, "ffl-prompt-1")
 
     assert provider.verify_webhook("webhook-token")
     assert not provider.verify_webhook("wrong")
-    assert payload == {"contact": "+15550000001", "text": "FFL work prompt", "passthrough": "ffl-prompt-1", "sender": "sender-1"}
-    assert LoopMessageProvider("key", "token", whatsapp_channel_enabled=True).build_send_payload("+15550000001", "prompt", None, "id")["channel"] == "whatsapp"
+    assert payload == {
+        "contact": "+15550000001", "text": "FFL work prompt", "passthrough": "ffl-prompt-1",
+        "channel": "whatsapp", "sender": "sender-1",
+    }
+    assert not LoopMessageProvider(
+        "organization-key", None, "sender-1", whatsapp_channel_enabled=True,
+        whatsapp_capability_proof="sandbox-verified", whatsapp_capability_proof_ref="test-sandbox-proof",
+    ).whatsapp_capability_enabled
+    with pytest.raises(RuntimeError, match="validated WhatsApp capability"):
+        LoopMessageProvider("key", "token", whatsapp_channel_enabled=True).build_send_payload(
+            "+15550000001", "prompt", None, "id"
+        )
 
 
 def test_webhook_receipt_recovers_after_crash_and_replay_creates_one_candidate_and_attachment(tmp_path):
@@ -452,6 +466,76 @@ def test_outbound_unknown_with_message_id_uses_status_lookup_without_a_resend(tm
         assert conn.execute("SELECT count(*) FROM communication_reconciliations WHERE outcome = 'reconciled'").fetchone()[0] == 1
 
 
+def test_ambiguous_send_after_provider_acceptance_never_resends_the_logical_prompt(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        provider.ambiguous_after_accept = True
+        prompt = _send_prompt(client, work, endpoint, template, seed)
+        assert prompt["status"] == "unknown"
+        assert len(provider.sent) == 1
+
+        replayed = _send_prompt(client, work, endpoint, template, seed)
+        assert replayed["id"] == prompt["id"]
+        assert replayed["status"] == "unknown"
+        assert len(provider.sent) == 1
+
+        provider.ambiguous_after_accept = False
+        assert reconcile_outbound_messages(conn, provider) == 1
+        assert len(provider.sent) == 1
+        assert conn.execute("SELECT count(*) FROM communication_deliveries WHERE status = 'unknown'").fetchone()[0] >= 1
+
+
+def test_work_prompt_rejects_enabled_flag_without_capability_proof_or_approved_provider_template(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        # An operator cannot make the enabled flag sufficient by itself.
+        provider.whatsapp_capability_proof = None
+        unproven = client.post(
+            "/api/v1/work-items/{}/communication-prompts".format(work.id),
+            json={"endpoint_id": endpoint["id"], "template_id": template["id"],
+                  "idempotency_key": "unproven:" + work.id},
+        )
+        assert unproven.status_code == 422
+        assert "capability" in unproven.json()["detail"]
+        assert len(provider.sent) == 0
+
+        provider.whatsapp_capability_proof = "sandbox-verified"
+        missing_provider_template = persistence.create_template(
+            conn, "missing_provider_template", 1, "hi-IN", "work_prompt", "Check field.", seed["manager_id"],
+        )
+        missing_provider_template = persistence.publish_template(conn, missing_provider_template["id"], seed["manager_id"])
+        unapproved = client.post(
+            "/api/v1/work-items/{}/communication-prompts".format(work.id),
+            json={"endpoint_id": endpoint["id"], "template_id": missing_provider_template["id"],
+                  "idempotency_key": "unapproved:" + work.id},
+        )
+        assert unapproved.status_code == 422
+        assert "approved external WhatsApp template" in unapproved.json()["detail"]
+        assert len(provider.sent) == 0
+
+
+def test_inbound_requires_proven_whatsapp_capability_and_rejects_supplied_other_channel(tmp_path):
+    for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
+        non_whatsapp = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
+                  "message_id": "other-channel", "webhook_id": "other-channel-event", "channel": "imessage"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert non_whatsapp.status_code == 200
+        assert non_whatsapp.json()["status"] == "quarantined"
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 0
+
+        provider.whatsapp_capability_proof = None
+        unproven = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
+                  "message_id": "unproven", "webhook_id": "unproven-event"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert unproven.status_code == 200
+        assert unproven.json()["status"] == "quarantined"
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 0
+
+
 def test_healthy_receipt_claim_cannot_be_stolen_by_replay_or_competing_worker(tmp_path):
     for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
         payload = {"event": "message_inbound", "contact": "+15550000001", "text": "claimed",
@@ -477,6 +561,7 @@ def test_healthy_receipt_claim_cannot_be_stolen_by_replay_or_competing_worker(tm
 
 def test_synchronous_loopmessage_opt_out_revokes_consent_and_adapter_parses_error_before_raise(tmp_path, monkeypatch):
     class RejectedResponse:
+        status_code = 400
         is_success = False
 
         def json(self):
@@ -484,7 +569,10 @@ def test_synchronous_loopmessage_opt_out_revokes_consent_and_adapter_parses_erro
 
     monkeypatch.setattr(loopmessage_module.httpx, "post", lambda *args, **kwargs: RejectedResponse())
     with pytest.raises(ProviderRejectedError) as rejected:
-        LoopMessageProvider("organization-key", "webhook-token").send_message("+15550000001", "prompt", None, "passthrough")
+        LoopMessageProvider(
+            "organization-key", "webhook-token", "sender-1", whatsapp_channel_enabled=True,
+            whatsapp_capability_proof="sandbox-verified", whatsapp_capability_proof_ref="test-sandbox-proof",
+        ).send_message("+15550000001", "prompt", None, "passthrough")
     assert rejected.value.error_code == 500
 
     for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
@@ -493,6 +581,23 @@ def test_synchronous_loopmessage_opt_out_revokes_consent_and_adapter_parses_erro
         assert rejected_prompt["status"] == "failed"
         assert persistence.has_active_consent(conn, endpoint["id"], "work_prompt") is False
         assert len(provider.sent) == 0
+
+
+def test_loopmessage_http_5xx_is_ambiguous_and_not_a_rejection(monkeypatch):
+    class AmbiguousResponse:
+        status_code = 503
+        is_success = False
+
+        def json(self):
+            return {"success": False, "error_code": 500}
+
+    monkeypatch.setattr(loopmessage_module.httpx, "post", lambda *args, **kwargs: AmbiguousResponse())
+    provider = LoopMessageProvider(
+        "organization-key", "webhook-token", "sender-1", whatsapp_channel_enabled=True,
+        whatsapp_capability_proof="sandbox-verified", whatsapp_capability_proof_ref="test-sandbox-proof",
+    )
+    with pytest.raises(ProviderAmbiguousError):
+        provider.send_message("+15550000001", "prompt", None, "passthrough")
 
 
 def test_manager_candidate_detail_is_narrow_redacted_and_not_an_archive(tmp_path):

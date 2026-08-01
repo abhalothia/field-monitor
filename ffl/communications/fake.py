@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 
 from ffl.communications.loopmessage import LoopMessageProvider
-from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderRejectedError, SendResult
+from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderAmbiguousError, ProviderRejectedError, SendResult
 
 
 class FakeLoopMessageProvider(LoopMessageProvider):
@@ -9,12 +9,19 @@ class FakeLoopMessageProvider(LoopMessageProvider):
 
     name = "loopmessage"
 
-    def __init__(self, webhook_authorization: str = "test-loopmessage-webhook") -> None:
-        super().__init__(organization_api_key=None, webhook_authorization=webhook_authorization)
+    def __init__(self, webhook_authorization: str = "test-loopmessage-webhook", whatsapp_capability_enabled: bool = True) -> None:
+        super().__init__(
+            organization_api_key="fake-loopmessage-organization-key", webhook_authorization=webhook_authorization,
+            sender_id="fake-whatsapp-sender" if whatsapp_capability_enabled else None,
+            whatsapp_channel_enabled=whatsapp_capability_enabled,
+            whatsapp_capability_proof="sandbox-verified" if whatsapp_capability_enabled else None,
+            whatsapp_capability_proof_ref="fake-sandbox-proof" if whatsapp_capability_enabled else None,
+        )
         self.sent: list[Dict[str, str]] = []
         self.statuses: Dict[str, Optional[MessageStatus]] = {}
         self.attachments: Dict[str, AttachmentContent] = {}
         self.crash_after_accept = False
+        self.ambiguous_after_accept = False
         self.synchronous_error_code: Optional[int] = None
 
     def send_message(self, contact: str, text: str, sender: Optional[str], passthrough: str) -> SendResult:
@@ -25,6 +32,8 @@ class FakeLoopMessageProvider(LoopMessageProvider):
         self.statuses[message_id] = MessageStatus(message_id, "processing")
         if self.crash_after_accept:
             raise KeyboardInterrupt("injected process crash after provider acceptance")
+        if self.ambiguous_after_accept:
+            raise ProviderAmbiguousError("injected ambiguous outcome after provider acceptance")
         return SendResult(provider_message_id=message_id, status="accepted")
 
     def get_message_status(self, provider_message_id: str) -> Optional[MessageStatus]:
