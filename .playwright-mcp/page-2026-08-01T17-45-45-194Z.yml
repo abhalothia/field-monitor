@@ -1,0 +1,61 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content":
+    - /url: "#geist-skip-nav"
+  - alert [ref=e2]
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - link "Vercel logo":
+        - /url: /home
+        - button "Vercel Logo":
+          - img "Vercel Logo"
+      - navigation [ref=e6]:
+        - navigation [ref=e7]:
+          - link "Sign Up" [ref=e8] [cursor=pointer]:
+            - /url: /signup?next=%2Fsso-api%3Furl%3Dhttps%253A%252F%252Fagro-lqo6iyyyd-dakshbhatia1s-projects.vercel.app%252F%253F_vercel_share%253DjfNDTuC5gWsDtQ7wwtxDv58I40M2yqdJ%26nonce%3D5937b1cab28eb6a4e92ed24ae566b2738d16f6fe47d82a62101419db6afddee6
+            - paragraph [ref=e10]: Sign Up
+    - main [ref=e11]:
+      - generic [ref=e13]:
+        - heading "Log in to Vercel" [level=1] [ref=e16]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - textbox "Email Address" [ref=e20]
+            - button "Continue with Email" [ref=e21] [cursor=pointer]:
+              - generic [ref=e22]: Continue with Email
+          - generic [ref=e24]:
+            - button "Continue with Google" [ref=e25] [cursor=pointer]:
+              - img [ref=e27]
+              - generic [ref=e29]:
+                - generic [ref=e30]: Continue with
+                - text: Google
+            - button "Continue with GitHub" [ref=e31] [cursor=pointer]:
+              - img [ref=e33]
+              - generic [ref=e35]:
+                - generic [ref=e36]: Continue with
+                - text: GitHub
+            - button "Continue with ChatGPT" [ref=e37] [cursor=pointer]:
+              - img [ref=e39]
+              - generic [ref=e41]:
+                - generic [ref=e42]: Continue with
+                - text: ChatGPT
+            - button "Continue with SAML SSO" [ref=e44] [cursor=pointer]:
+              - img [ref=e46]
+              - generic [ref=e48]: Continue with SAML SSO
+            - button "Continue with Passkey" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+              - generic [ref=e53]: Continue with Passkey
+            - button "Show other options" [ref=e54] [cursor=pointer]:
+              - generic [ref=e55]: Show other options
+        - paragraph [ref=e57]:
+          - text: Don't have an account?
+          - link "Sign Up" [ref=e58] [cursor=pointer]:
+            - /url: /signup?next=%2Fsso-api%3Furl%3Dhttps%253A%252F%252Fagro-lqo6iyyyd-dakshbhatia1s-projects.vercel.app%252F%253F_vercel_share%253DjfNDTuC5gWsDtQ7wwtxDv58I40M2yqdJ%26nonce%3D5937b1cab28eb6a4e92ed24ae566b2738d16f6fe47d82a62101419db6afddee6
+      - generic [ref=e61]:
+        - link "Terms" [ref=e62] [cursor=pointer]:
+          - /url: /legal/terms
+        - link "Privacy Policy" [ref=e63] [cursor=pointer]:
+          - /url: /legal/privacy-policy
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - img

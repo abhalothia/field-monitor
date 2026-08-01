@@ -1,0 +1,16 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #173b2b; background: #f6f2e9; }
+* { box-sizing: border-box; }
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top right, #dcebd6, transparent 36rem), #f6f2e9; }
+.login-shell { width: min(100%, 440px); }
+.login-card { background: #fffdf8; border: 1px solid #d9d4c8; border-radius: 18px; box-shadow: 0 18px 50px rgb(38 65 46 / 12%); padding: 34px; }
+.eyebrow { margin: 0 0 9px; color: #2d7650; font-size: .78rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(2rem, 7vw, 2.7rem); line-height: 1.05; }
+.subtle, .hindi { color: #5f675f; line-height: 1.5; }
+form { display: grid; gap: 9px; margin-top: 28px; }
+label { font-size: .92rem; font-weight: 700; }
+input { width: 100%; border: 1px solid #a7b5a4; border-radius: 9px; padding: 12px; font: inherit; }
+input:focus { outline: 3px solid #bad9b9; border-color: #317549; }
+button { margin-top: 5px; border: 0; border-radius: 9px; background: #195c46; color: white; cursor: pointer; font: inherit; font-weight: 750; padding: 12px 16px; }
+button:disabled { cursor: wait; opacity: .7; }
+#status { min-height: 1.25rem; margin: 2px 0 0; color: #a23f29; }
+.hindi { border-top: 1px solid #e8e2d7; margin: 27px 0 0; padding-top: 18px; }

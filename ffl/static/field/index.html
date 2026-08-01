@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101716" />
+    <title>Fortune Farms Field</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="stylesheet" href="/static/field/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <p class="eyebrow">FFL • Field log</p>
+        <h1>Today’s work <span lang="hi">/ आज का काम</span></h1>
+        <p class="work-placeholder">No work assigned yet. Your next assignment will appear here.</p>
+      </header>
+
+      <section class="sync-card" aria-live="polite">
+        <div>
+          <strong>Pending sync <span lang="hi">/ सिंक लंबित</span></strong>
+          <p id="sync-status">Checking saved reports…</p>
+        </div>
+        <button id="sync-now" class="secondary" type="button">Sync now <span lang="hi">/ अभी सिंक करें</span></button>
+      </section>
+
+      <section class="report-card" aria-labelledby="report-title">
+        <h2 id="report-title">Report exception <span lang="hi">/ अपवाद रिपोर्ट करें</span></h2>
+        <p class="hint">Save an issue even when you have no signal. It will send automatically later.</p>
+        <form id="exception-form">
+          <label for="details">What happened? <span lang="hi">/ क्या हुआ?</span></label>
+          <textarea id="details" name="details" rows="4" required placeholder="Describe the issue"></textarea>
+
+          <label for="severity">Severity <span lang="hi">/ गंभीरता</span></label>
+          <select id="severity" name="severity" required>
+            <option value="low">Low / कम</option>
+            <option value="medium" selected>Medium / मध्यम</option>
+            <option value="high">High / अधिक</option>
+            <option value="critical">Critical / अति गंभीर</option>
+          </select>
+
+          <label for="photo">Photo <span lang="hi">/ फोटो</span></label>
+          <input id="photo" name="photo" type="file" accept="image/*" capture="environment" />
+
+          <div class="location-row">
+            <div>
+              <label>Location <span lang="hi">/ स्थान</span></label>
+              <p id="location-status" class="hint">Not added</p>
+            </div>
+            <button id="get-location" class="secondary" type="button">Add location</button>
+          </div>
+
+          <p id="form-status" class="form-status" aria-live="polite"></p>
+          <button class="primary" type="submit">Save report <span lang="hi">/ रिपोर्ट सहेजें</span></button>
+        </form>
+      </section>
+    </main>
+    <script src="/static/field/app.js" defer></script>
+  </body>
+</html>

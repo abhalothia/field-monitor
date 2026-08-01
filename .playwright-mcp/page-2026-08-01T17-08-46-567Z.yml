@@ -1,0 +1,55 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content":
+    - /url: "#geist-skip-nav"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - link "Vercel logo":
+        - /url: /home
+        - button "Vercel Logo":
+          - img "Vercel Logo"
+      - navigation [ref=e5]:
+        - navigation [ref=e6]:
+          - link "Sign Up" [ref=e7] [cursor=pointer]:
+            - /url: /signup?next=%2Fdakshbhatia1s-projects%2F~%2Fdomains%2Fagroceo.co
+            - paragraph [ref=e9]: Sign Up
+    - main [ref=e10]:
+      - generic [ref=e12]:
+        - heading "Log in to Vercel" [level=1] [ref=e15]
+        - generic [ref=e16]:
+          - generic [ref=e17]:
+            - textbox "Email Address" [ref=e19]
+            - button "Continue with Email" [ref=e20] [cursor=pointer]:
+              - generic [ref=e21]: Continue with Email
+          - generic [ref=e23]:
+            - button "Continue with Google" [ref=e24] [cursor=pointer]:
+              - img [ref=e26]
+              - generic [ref=e28]:
+                - generic [ref=e29]: Continue with
+                - text: Google
+            - button "Continue with GitHub" [ref=e30] [cursor=pointer]:
+              - img [ref=e32]
+              - generic [ref=e34]:
+                - generic [ref=e35]: Continue with
+                - text: GitHub
+            - button "Continue with ChatGPT" [ref=e36] [cursor=pointer]:
+              - img [ref=e38]
+              - generic [ref=e40]:
+                - generic [ref=e41]: Continue with
+                - text: ChatGPT
+            - button "Continue with SAML SSO" [ref=e43] [cursor=pointer]:
+              - img [ref=e45]
+              - generic [ref=e47]: Continue with SAML SSO
+            - button "Continue with Passkey" [ref=e48] [cursor=pointer]:
+              - img [ref=e50]
+              - generic [ref=e52]: Continue with Passkey
+            - button "Show other options" [ref=e53] [cursor=pointer]:
+              - generic [ref=e54]: Show other options
+        - paragraph [ref=e56]:
+          - text: Don't have an account?
+          - link "Sign Up" [ref=e57] [cursor=pointer]:
+            - /url: /signup?next=%2Fdakshbhatia1s-projects%2F~%2Fdomains%2Fagroceo.co
+      - generic [ref=e60]:
+        - link "Terms" [ref=e61] [cursor=pointer]:
+          - /url: /legal/terms
+        - link "Privacy Policy" [ref=e62] [cursor=pointer]:
+          - /url: /legal/privacy-policy
