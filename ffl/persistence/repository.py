@@ -799,7 +799,7 @@ def create_source_run(
     conn: sqlite3.Connection, source_id: str, coverage: Any, mapping_version: str,
     status: str = "pending", cursor: Optional[str] = None, fetched_at: Optional[str] = None,
     rows_received: int = 0, rows_accepted: int = 0, error_summary: Optional[str] = None,
-    next_retry_at: Optional[str] = None,
+    next_retry_at: Optional[str] = None, commit: bool = True,
 ) -> SourceRun:
     identifier, created_at = _new_identity()
     conn.execute(
@@ -807,7 +807,8 @@ def create_source_run(
         (identifier, source_id, cursor, _json_value(coverage), fetched_at, status, rows_received,
          rows_accepted, error_summary, next_retry_at, mapping_version, created_at),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return get_source_run(conn, identifier)  # type: ignore[return-value]
 
 
@@ -828,7 +829,7 @@ def create_regional_signal(
     source_run_id: Optional[str] = None, source_url: Optional[str] = None,
     received_at: Optional[str] = None, valid_from: Optional[str] = None, valid_to: Optional[str] = None,
     resolution: Optional[str] = None, freshness_target_hours: Optional[float] = None,
-    status: str = "available",
+    status: str = "available", commit: bool = True,
 ) -> RegionalSignal:
     if source_run_id is not None:
         source_run = get_source_run(conn, source_run_id)
@@ -844,7 +845,8 @@ def create_regional_signal(
          received_at, valid_from, valid_to, _json_value(coverage), resolution, freshness_target_hours,
          signal_kind, _json_value(value), status, created_at),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return get_regional_signal(conn, identifier)  # type: ignore[return-value]
 
 
