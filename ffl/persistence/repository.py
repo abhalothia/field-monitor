@@ -198,16 +198,16 @@ def list_active_crop_allocations(conn: sqlite3.Connection, operating_unit_id: st
 
 
 def create_work_item(
-    conn: sqlite3.Connection, allocation_id: str, title: str, owner_id: str, due_at: str
+    conn: sqlite3.Connection, allocation_id: str, title: str, owner_id: str, due_at: str,
+    initial_status: str = "in_progress",
 ) -> WorkItem:
     identifier, created_at = _new_identity()
-    status = "in_progress"
     conn.execute(
         "INSERT INTO work_items VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (identifier, allocation_id, title, owner_id, due_at, status, created_at),
+        (identifier, allocation_id, title, owner_id, due_at, initial_status, created_at),
     )
     conn.commit()
-    return WorkItem(identifier, allocation_id, title, owner_id, due_at, status, created_at)
+    return WorkItem(identifier, allocation_id, title, owner_id, due_at, initial_status, created_at)
 
 
 def get_work_item(conn: sqlite3.Connection, work_item_id: str) -> Optional[WorkItem]:
@@ -215,9 +215,17 @@ def get_work_item(conn: sqlite3.Connection, work_item_id: str) -> Optional[WorkI
     return _work_item(row) if row is not None else None
 
 
-def update_work_item_status(conn: sqlite3.Connection, work_item_id: str, status: str) -> WorkItem:
-    conn.execute("UPDATE work_items SET status = ? WHERE id = ?", (status, work_item_id))
-    conn.commit()
+def transition_work_item_with_audit(
+    conn: sqlite3.Connection, work_item_id: str, from_status: str, to_status: str,
+    actor_id: str, reason: str,
+) -> WorkItem:
+    audit_id, created_at = _new_identity()
+    with conn:
+        conn.execute("UPDATE work_items SET status = ? WHERE id = ?", (to_status, work_item_id))
+        conn.execute(
+            "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (audit_id, "work_item", work_item_id, from_status, to_status, actor_id, reason, created_at),
+        )
     return get_work_item(conn, work_item_id)  # type: ignore[return-value]
 
 
@@ -236,12 +244,21 @@ def create_exception_record(
 ) -> ExceptionRecord:
     identifier, created_at = _new_identity()
     status = "reported"
-    conn.execute(
-        "INSERT INTO exception_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (identifier, allocation_id, title, severity, owner_id, fallback_owner_id, observed_at,
-         idempotency_key, status, created_at),
-    )
-    conn.commit()
+    try:
+        conn.execute(
+            "INSERT INTO exception_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (identifier, allocation_id, title, severity, owner_id, fallback_owner_id, observed_at,
+             idempotency_key, status, created_at),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        row = conn.execute(
+            "SELECT * FROM exception_records WHERE idempotency_key = ?", (idempotency_key,)
+        ).fetchone()
+        if row is None:
+            raise
+        return _exception_record(row)
     return ExceptionRecord(identifier, allocation_id, title, severity, owner_id, fallback_owner_id,
                            observed_at, idempotency_key, status, created_at)
 
@@ -251,9 +268,17 @@ def get_exception_record(conn: sqlite3.Connection, exception_id: str) -> Optiona
     return _exception_record(row) if row is not None else None
 
 
-def update_exception_status(conn: sqlite3.Connection, exception_id: str, status: str) -> ExceptionRecord:
-    conn.execute("UPDATE exception_records SET status = ? WHERE id = ?", (status, exception_id))
-    conn.commit()
+def transition_exception_with_audit(
+    conn: sqlite3.Connection, exception_id: str, from_status: str, to_status: str,
+    actor_id: str, reason: str,
+) -> ExceptionRecord:
+    audit_id, created_at = _new_identity()
+    with conn:
+        conn.execute("UPDATE exception_records SET status = ? WHERE id = ?", (to_status, exception_id))
+        conn.execute(
+            "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (audit_id, "exception_record", exception_id, from_status, to_status, actor_id, reason, created_at),
+        )
     return get_exception_record(conn, exception_id)  # type: ignore[return-value]
 
 

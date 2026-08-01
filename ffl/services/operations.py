@@ -6,9 +6,14 @@ from ffl.persistence import repository
 
 
 def create_work_item(
-    conn: sqlite3.Connection, allocation_id: str, title: str, owner_id: str, due_at: str
+    conn: sqlite3.Connection, allocation_id: str, title: str, owner_id: str, due_at: str,
+    initial_status: str = "in_progress",
 ) -> WorkItem:
-    return repository.create_work_item(conn, allocation_id, title, owner_id, due_at)
+    if initial_status not in WORK_TRANSITIONS:
+        raise ValueError("invalid work status")
+    return repository.create_work_item(
+        conn, allocation_id, title, owner_id, due_at, initial_status
+    )
 
 
 def transition_work_item(
@@ -17,11 +22,9 @@ def transition_work_item(
     work_item = repository.get_work_item(conn, work_item_id)
     if work_item is None or target_status not in WORK_TRANSITIONS.get(work_item.status, set()):
         raise ValueError("invalid work transition")
-    updated = repository.update_work_item_status(conn, work_item_id, target_status)
-    repository.create_audit_event(
-        conn, "work_item", work_item_id, work_item.status, target_status, actor_id, reason
+    return repository.transition_work_item_with_audit(
+        conn, work_item_id, work_item.status, target_status, actor_id, reason
     )
-    return updated
 
 
 def report_exception(
@@ -42,11 +45,9 @@ def transition_exception(
     exception = repository.get_exception_record(conn, exception_id)
     if exception is None or target_status not in EXCEPTION_TRANSITIONS.get(exception.status, set()):
         raise ValueError("invalid exception transition")
-    updated = repository.update_exception_status(conn, exception_id, target_status)
-    repository.create_audit_event(
-        conn, "exception_record", exception_id, exception.status, target_status, actor_id, reason
+    return repository.transition_exception_with_audit(
+        conn, exception_id, exception.status, target_status, actor_id, reason
     )
-    return updated
 
 
 def create_decision(
