@@ -58,7 +58,7 @@ def _inbound(client, provider, event_id, message_id="inbound-1", **additional):
     payload = {
         "event": "message_inbound", "contact": "+15550000001", "text": "REPORT_DEVIATION",
         "message_type": "attachments", "attachments": ["https://evidence.example.invalid/photo.jpg"],
-        "message_id": message_id, "webhook_id": event_id, "api_version": "1.0",
+        "message_id": message_id, "webhook_id": event_id, "api_version": "1.0", "sender": "fake-whatsapp-sender",
     }
     payload.update(additional)
     response = client.post(
@@ -115,7 +115,7 @@ def test_invalid_signature_opt_out_and_delivery_failure_remain_visible(tmp_path)
         failed = client.post(
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_failed", "contact": "+15550000001", "text": "",
-                  "message_id": prompt["provider_message_id"], "webhook_id": "webhook-failed-1"},
+                  "message_id": prompt["provider_message_id"], "webhook_id": "webhook-failed-1", "sender": "fake-whatsapp-sender"},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert failed.status_code == 200
@@ -238,7 +238,7 @@ def test_webhook_receipt_recovers_after_crash_and_replay_creates_one_candidate_a
         payload = {
             "event": "message_inbound", "contact": "+15550000001", "text": "REPORT_DEVIATION",
             "message_type": "attachments", "attachments": ["https://private.example.invalid/photo.jpg"],
-            "message_id": "crash-inbound", "webhook_id": "crash-receipt-1", "api_version": "1.0",
+            "message_id": "crash-inbound", "webhook_id": "crash-receipt-1", "api_version": "1.0", "sender": "fake-whatsapp-sender",
         }
         accepted = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
         assert accepted.status_code == 200
@@ -390,7 +390,7 @@ def test_private_worker_processes_receipts_and_retains_media_with_count_only_ale
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_inbound", "contact": "+15550000001", "text": "field photo",
                   "message_type": "attachments", "attachments": [source_url], "message_id": "worker-inbound",
-                  "webhook_id": "worker-receipt", "api_version": "1.0"},
+                  "webhook_id": "worker-receipt", "api_version": "1.0", "sender": "fake-whatsapp-sender"},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert accepted.status_code == 200
@@ -413,7 +413,7 @@ def test_private_worker_alerts_without_provider_content_when_media_is_terminal(t
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_inbound", "contact": "+15550000001", "text": "private report",
                   "message_type": "attachments", "attachments": [source_url], "message_id": "terminal-inbound",
-                  "webhook_id": "terminal-receipt"},
+                  "webhook_id": "terminal-receipt", "sender": "fake-whatsapp-sender"},
             headers={"Authorization": provider.webhook_authorization},
         )
         alerts = []
@@ -444,7 +444,7 @@ def test_outbound_crash_reconciles_without_resending_and_passthrough_recovers_me
         delivered = client.post(
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_delivered", "contact": "+15550000001", "text": "",
-                  "message_id": "fake-message-1", "passthrough": prompt["id"], "webhook_id": "crash-delivered"},
+                  "message_id": "fake-message-1", "passthrough": prompt["id"], "webhook_id": "crash-delivered", "sender": "fake-whatsapp-sender"},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert delivered.status_code == 200
@@ -512,34 +512,74 @@ def test_work_prompt_rejects_enabled_flag_without_capability_proof_or_approved_p
         assert len(provider.sent) == 0
 
 
-def test_inbound_requires_proven_whatsapp_capability_and_rejects_supplied_other_channel(tmp_path):
+def test_inbound_requires_proven_whatsapp_capability_and_exact_configured_sender(tmp_path):
     for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
+        exact_sender = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
+                  "message_id": "exact-sender", "webhook_id": "exact-sender-event", "sender": provider.sender_id},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert exact_sender.status_code == 200
+        assert exact_sender.json()["status"] == "accepted"
+        provider.whatsapp_capability_proof = None
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 0
+        assert conn.execute("SELECT count(*) FROM communication_candidates").fetchone()[0] == 0
+        provider.whatsapp_capability_proof = "sandbox-verified"
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 1
+        envelope = conn.execute("SELECT envelope_json FROM communication_events").fetchone()["envelope_json"]
+        assert json.loads(envelope)["sender_fingerprint"]
+        assert provider.sender_id not in envelope
+        assert provider.sender_id not in json.dumps(client.get("/api/v1/communications/inbox").json())
+
+        missing_sender = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
+                  "message_id": "missing-sender", "webhook_id": "missing-sender-event"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert missing_sender.status_code == 200
+        assert missing_sender.json()["status"] == "quarantined"
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 1
+
+        mismatched_sender = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
+                  "message_id": "mismatched-sender", "webhook_id": "mismatched-sender-event", "sender": "other-sender"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert mismatched_sender.status_code == 200
+        assert mismatched_sender.json()["status"] == "quarantined"
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 1
+
         non_whatsapp = client.post(
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
-                  "message_id": "other-channel", "webhook_id": "other-channel-event", "channel": "imessage"},
+                  "message_id": "other-channel", "webhook_id": "other-channel-event", "channel": "imessage",
+                  "sender": provider.sender_id},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert non_whatsapp.status_code == 200
         assert non_whatsapp.json()["status"] == "quarantined"
-        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 1
 
         provider.whatsapp_capability_proof = None
         unproven = client.post(
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_inbound", "contact": "+15550000001", "text": "report",
-                  "message_id": "unproven", "webhook_id": "unproven-event"},
+                  "message_id": "unproven", "webhook_id": "unproven-event", "sender": provider.sender_id},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert unproven.status_code == 200
         assert unproven.json()["status"] == "quarantined"
-        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM communication_events").fetchone()[0] == 1
 
 
 def test_healthy_receipt_claim_cannot_be_stolen_by_replay_or_competing_worker(tmp_path):
     for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
         payload = {"event": "message_inbound", "contact": "+15550000001", "text": "claimed",
-                   "message_type": "text", "message_id": "claimed-inbound", "webhook_id": "claimed-receipt"}
+                   "message_type": "text", "message_id": "claimed-inbound", "webhook_id": "claimed-receipt",
+                   "sender": "fake-whatsapp-sender"}
         accepted = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
         event_id = accepted.json()["event_id"]
         claim = persistence.claim_receipt(conn, event_id, "2100-01-01T00:00:00+00:00")

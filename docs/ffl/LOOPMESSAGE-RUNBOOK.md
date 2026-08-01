@@ -53,16 +53,23 @@ Before setting those variables for a live account, a named FFL operator must
 record an account-level sandbox proof that the configured sender accepts
 `channel: whatsapp`, can use the selected externally approved WhatsApp
 template, and produces a status/callback that can be associated through FFL's
-passthrough ID. Use a non-production test contact and the LoopMessage dashboard
-for this controlled proof; do not use an operator's production work prompt. Put
-the signed-off ticket/record ID in `FFL_LOOPMESSAGE_WHATSAPP_CAPABILITY_PROOF_REF`.
+passthrough ID. The proof must also show that each WhatsApp callback includes a
+`sender` field exactly equal to `FFL_LOOPMESSAGE_SENDER_ID`. Use a
+non-production test contact and the LoopMessage dashboard for this controlled
+proof; do not use an operator's production work prompt. Put the signed-off
+ticket/record ID in `FFL_LOOPMESSAGE_WHATSAPP_CAPABILITY_PROOF_REF`. If the
+provider/account cannot emit that exact sender field on WhatsApp callbacks,
+leave inbound disabled; FFL will quarantine all inbound payloads.
 
 LoopMessage's current public webhook channel documentation lists iMessage, SMS,
 and RCS rather than WhatsApp. Therefore FFL accepts no inbound delivery before
 this account-level proof exists. After it exists, an omitted inbound `channel`
 is tolerated for the documented schema variance, but a supplied channel must
-be exactly `whatsapp`; any other value is quarantined with HTTP 200 and never
-enters the candidate workflow.
+be exactly `whatsapp`. Every inbound payload must also carry the exact
+configured `sender`; missing or mismatched sender values, and any other
+channel, are quarantined with HTTP 200 and never enter the candidate workflow.
+Ordinary communication records retain only a sender fingerprint, never the raw
+sender value.
 
 ## Schedule and authorization
 

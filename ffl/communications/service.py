@@ -89,7 +89,11 @@ def receive_webhook(
     stored, created = persistence.record_event_with_receipt(
         conn, provider.name, event["event_id"], event["message_id"], event["event_type"],
         event["contact"], endpoint["id"] if endpoint else None,
-        {"api_version": event["raw"].get("api_version"), "message_type": event["message_type"]}, ciphertext,
+        {
+            "api_version": event["raw"].get("api_version"),
+            "message_type": event["message_type"],
+            "sender_fingerprint": event["sender_fingerprint"],
+        }, ciphertext,
     )
     return stored, created
 
@@ -104,6 +108,8 @@ def process_pending_communications(
     and media references are durable.  A provider replay requeues an unfinished
     receipt immediately; an abandoned claim is recovered after its short lease.
     """
+    if not getattr(provider, "whatsapp_capability_enabled", False):
+        return 0
     now = datetime.now(timezone.utc)
     persistence.release_expired_receipt_claims(conn, now.isoformat())
     processed = 0
@@ -120,7 +126,15 @@ def process_pending_communications(
             except ValueError as error:
                 persistence.quarantine_receipt(conn, receipt["event_id"], claim_token, receipt["ciphertext"], str(error))
                 continue
-            event = provider.normalize_webhook(payload)
+            try:
+                event = provider.normalize_webhook(payload)
+            except ValueError as error:
+                # A receipt accepted by an older configuration can become
+                # invalid under a newly tightened provider boundary (for
+                # example, it has no sender).  It is untrusted, not a
+                # transient failure, so never retry it indefinitely.
+                persistence.quarantine_receipt(conn, receipt["event_id"], claim_token, receipt["ciphertext"], str(error))
+                continue
             stored = conn.execute("SELECT * FROM communication_events WHERE id = ?", (receipt["event_id"],)).fetchone()
             if stored is None:
                 raise ValueError("communication receipt event is missing")
@@ -141,6 +155,8 @@ def process_pending_communication_media(
     fetch never leaks the URL and cannot make a candidate publishable; transient
     failures remain eligible for the next worker run.
     """
+    if not getattr(provider, "whatsapp_capability_enabled", False):
+        return {"retained": 0, "retryable": 0, "failed": 0}
     retained = 0
     retryable = 0
     failed = 0

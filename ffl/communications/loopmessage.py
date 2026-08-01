@@ -1,5 +1,6 @@
 """The narrow adapter for the documented LoopMessage API surface."""
 
+import hashlib
 import hmac
 import ipaddress
 import os
@@ -156,6 +157,12 @@ class LoopMessageProvider:
         channel = payload.get("channel")
         if channel is not None and channel != "whatsapp":
             raise ValueError("LoopMessage inbound channel is not WhatsApp")
+        sender = payload.get("sender")
+        if self.whatsapp_capability_enabled:
+            if not isinstance(sender, str) or not sender:
+                raise ValueError("LoopMessage WhatsApp webhook requires sender")
+            if not hmac.compare_digest(sender, self.sender_id):
+                raise ValueError("LoopMessage WhatsApp webhook sender does not match the configured sender")
         return {
             "event_id": webhook_id,
             "message_id": str(payload.get("message_id", "")),
@@ -165,6 +172,9 @@ class LoopMessageProvider:
             "message_type": str(payload.get("message_type", "text")),
             "attachments": attachments,
             "channel": channel,
+            # The private receipt retains the provider payload for recovery,
+            # but ordinary event storage gets only this non-reversible marker.
+            "sender_fingerprint": _sender_fingerprint(sender) if isinstance(sender, str) else None,
             "passthrough": payload.get("passthrough") if isinstance(payload.get("passthrough"), str) else None,
             "raw": payload,
         }
@@ -185,6 +195,10 @@ def _error_code(body: Dict[str, Any]) -> Optional[int]:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return None
+
+
+def _sender_fingerprint(sender: str) -> str:
+    return hashlib.sha256(("loopmessage:sender:" + sender).encode("utf-8")).hexdigest()
 
 
 def _require_public_host(hostname: str) -> None:
