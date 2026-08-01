@@ -46,3 +46,7 @@ htmlcov/
 # Claude
 .claude/
 CLAUDE.local.md
+.vercel/
+.env
+.env.local
+.env.*.local
