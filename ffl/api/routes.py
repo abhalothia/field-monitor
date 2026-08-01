@@ -249,6 +249,14 @@ def communications_inbox(request: Request, manager_id: str = Depends(require_man
     return {"candidates": communications_persistence.inbox(_connection(request))}
 
 
+@router.get("/communications/candidates/{candidate_id}")
+def communication_candidate_detail(candidate_id: str, request: Request, manager_id: str = Depends(require_manager)) -> dict:
+    try:
+        return communications_service.candidate_review_detail(_connection(request), candidate_id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+
+
 @router.get("/communications/health")
 def communications_health(request: Request, manager_id: str = Depends(require_manager)) -> dict:
     return communications_persistence.health(_connection(request))

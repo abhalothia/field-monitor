@@ -5,12 +5,17 @@ from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
 from ffl.communications import private
-from ffl.communications.ports import CommunicationsProvider
+from ffl.communications.ports import CommunicationsProvider, ProviderRejectedError
 from ffl.persistence import repository
 from ffl.services import evidence, operations, season
 
 
 WORK_PROMPT_PURPOSE = "work_prompt"
+
+
+def _suppress_opted_out_endpoint(conn: sqlite3.Connection, endpoint_id: str, provenance: str) -> None:
+    if persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
+        persistence.set_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE, False, provenance)
 
 
 def send_work_prompt(
@@ -45,8 +50,17 @@ def send_work_prompt(
         result = provider.send_message(
             endpoint["address"], template["body"], None, prompt["id"]
         )
+    except ProviderRejectedError as error:
+        if error.error_code == 500:
+            _suppress_opted_out_endpoint(conn, endpoint_id, "LoopMessage synchronous error_code 500")
+        persistence.create_delivery_attempt(
+            conn, prompt["id"], "failed", error_summary="LoopMessage error_code {0}".format(error.error_code or "unknown"),
+        )
+        return persistence.update_prompt(conn, prompt["id"], "failed")
     except Exception as error:
-        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary=str(error)[:200])
+        # The provider may have accepted a request before a transport timeout;
+        # mark it unknown and reconcile, never blindly issue a second send.
+        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="provider transport outcome unknown")
         return persistence.update_prompt(conn, prompt["id"], "unknown")
     persistence.create_delivery_attempt(conn, prompt["id"], "accepted", result.provider_message_id)
     return persistence.update_prompt(conn, prompt["id"], result.status, result.provider_message_id)
@@ -78,11 +92,13 @@ def process_pending_communications(
     and media references are durable.  A provider replay requeues an unfinished
     receipt immediately; an abandoned claim is recovered after its short lease.
     """
-    lease_before = (datetime.now(timezone.utc) - timedelta(seconds=processing_lease_seconds)).isoformat()
-    persistence.release_expired_receipt_claims(conn, lease_before)
+    now = datetime.now(timezone.utc)
+    persistence.release_expired_receipt_claims(conn, now.isoformat())
     processed = 0
     for receipt in persistence.pending_receipts(conn):
-        if not persistence.claim_receipt(conn, receipt["event_id"]):
+        lease_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=processing_lease_seconds)).isoformat()
+        claim_token = persistence.claim_receipt(conn, receipt["event_id"], lease_expires_at)
+        if claim_token is None:
             continue
         try:
             if crash_after_receipt:
@@ -90,18 +106,100 @@ def process_pending_communications(
             try:
                 payload = private.open_receipt(receipt_key, receipt["ciphertext"])
             except ValueError as error:
-                persistence.quarantine_receipt(conn, receipt["event_id"], receipt["ciphertext"], str(error))
+                persistence.quarantine_receipt(conn, receipt["event_id"], claim_token, receipt["ciphertext"], str(error))
                 continue
             event = provider.normalize_webhook(payload)
             stored = conn.execute("SELECT * FROM communication_events WHERE id = ?", (receipt["event_id"],)).fetchone()
             if stored is None:
                 raise ValueError("communication receipt event is missing")
             _process_event(conn, provider, event, dict(stored))
-            persistence.complete_receipt(conn, receipt["event_id"])
-            processed += 1
+            if persistence.complete_receipt(conn, receipt["event_id"], claim_token):
+                processed += 1
         except Exception as error:
-            persistence.retry_receipt(conn, receipt["event_id"], str(error))
+            persistence.retry_receipt(conn, receipt["event_id"], claim_token, "communication processing failed")
     return processed
+
+
+def process_pending_communication_media(
+    conn: sqlite3.Connection, provider: CommunicationsProvider, receipt_key: str,
+) -> Dict[str, int]:
+    """Materialize authenticated inbound media as FFL evidence, or leave it unavailable.
+
+    Attachment URLs remain only in the purpose-limited private receipt.  A failed
+    fetch never leaks the URL and cannot make a candidate publishable; transient
+    failures remain eligible for the next worker run.
+    """
+    retained = 0
+    retryable = 0
+    failed = 0
+    for attachment in persistence.attachments_needing_retention(conn):
+        try:
+            payload = private.open_receipt(receipt_key, attachment["ciphertext"])
+            event = provider.normalize_webhook(payload)
+            source_url = next(
+                (url for url in event["attachments"]
+                 if persistence.attachment_reference(attachment["event_id"], url) == attachment["source_reference"]),
+                None,
+            )
+            if source_url is None:
+                raise ValueError("attachment source does not match its protected receipt")
+            downloaded = provider.download_inbound_attachment(source_url)
+            retain_inbound_attachment(conn, attachment["id"], downloaded.content, downloaded.media_type)
+            retained += 1
+        except ValueError:
+            persistence.record_attachment_attempt(conn, attachment["id"], "attachment cannot be retained", failed=True)
+            failed += 1
+        except Exception:
+            persistence.record_attachment_attempt(conn, attachment["id"], "attachment retrieval failed", failed=False)
+            retryable += 1
+    return {"retained": retained, "retryable": retryable, "failed": failed}
+
+
+def reconcile_outbound_messages(conn: sqlite3.Connection, provider: CommunicationsProvider) -> int:
+    """Resolve ambiguous sends without ever re-sending a logical work prompt."""
+    reconciled = 0
+    for prompt in persistence.prompts_requiring_reconciliation(conn):
+        if prompt["status"] == "pending":
+            # The process could have died after LoopMessage accepted the request
+            # but before saving its message_id.  Only a passthrough-bearing
+            # webhook can identify it; sending again would risk a duplicate.
+            if not persistence.has_unknown_delivery_attempt(conn, prompt["id"]):
+                persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="send acceptance interrupted")
+            persistence.update_prompt(conn, prompt["id"], "unknown")
+            persistence.create_reconciliation(conn, prompt["id"], "awaiting_webhook")
+            reconciled += 1
+            continue
+        if not prompt["provider_message_id"]:
+            persistence.create_reconciliation(conn, prompt["id"], "awaiting_webhook")
+            reconciled += 1
+            continue
+        try:
+            status = provider.get_message_status(prompt["provider_message_id"])
+        except ProviderRejectedError as error:
+            if error.error_code == 500:
+                _suppress_opted_out_endpoint(conn, prompt["endpoint_id"], "LoopMessage status error_code 500")
+            persistence.create_reconciliation(
+                conn, prompt["id"], "lookup_unavailable", prompt["provider_message_id"], provider_error_code=error.error_code,
+            )
+            continue
+        except Exception:
+            persistence.create_reconciliation(conn, prompt["id"], "lookup_unavailable", prompt["provider_message_id"])
+            continue
+        if status is None:
+            persistence.create_reconciliation(conn, prompt["id"], "lookup_unavailable", prompt["provider_message_id"])
+            continue
+        persistence.create_reconciliation(
+            conn, prompt["id"], "reconciled", status.provider_message_id, status.status, status.error_code,
+        )
+        if status.error_code == 500:
+            _suppress_opted_out_endpoint(conn, prompt["endpoint_id"], "LoopMessage status error_code 500")
+        desired = {"processing": "accepted", "failed": "failed", "delivered": "delivered", "unknown": "unknown"}[status.status]
+        if desired != prompt["status"]:
+            persistence.update_prompt(conn, prompt["id"], desired, status.provider_message_id)
+            attempt_status = "accepted" if desired == "accepted" else "failed" if desired == "failed" else "unknown"
+            persistence.create_delivery_attempt(conn, prompt["id"], attempt_status, status.provider_message_id)
+        reconciled += 1
+    return reconciled
 
 
 def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, event: Dict[str, Any], stored: Dict[str, Any]) -> None:
@@ -110,14 +208,16 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
 
     if event["event_type"] in ("message_failed", "message_delivered", "message_scheduled", "unknown"):
         prompt = persistence.find_prompt_for_message(conn, event["message_id"])
+        if prompt is None:
+            prompt = persistence.find_prompt_for_passthrough(conn, event.get("passthrough"), provider.name, event["contact"])
         if prompt is not None:
             lifecycle = {"message_failed": "failed", "message_delivered": "delivered", "message_scheduled": "scheduled", "unknown": "unknown"}
             try:
-                persistence.update_prompt(conn, prompt["id"], lifecycle[event["event_type"]])
+                persistence.update_prompt(conn, prompt["id"], lifecycle[event["event_type"]], event["message_id"] or None)
             except ValueError:
                 pass
             if event["event_type"] == "message_failed" and event["raw"].get("error_code") == 500:
-                persistence.set_consent(conn, prompt["endpoint_id"], WORK_PROMPT_PURPOSE, False, "LoopMessage error_code 500")
+                _suppress_opted_out_endpoint(conn, prompt["endpoint_id"], "LoopMessage error_code 500")
         persistence.update_event_status(conn, stored["id"], "processed")
         return
     if event["event_type"] != "message_inbound":
@@ -167,6 +267,47 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
 
 def _candidate_draft(candidate: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(candidate["draft_json"])
+
+
+def candidate_review_detail(conn: sqlite3.Connection, candidate_id: str) -> Dict[str, Any]:
+    """Return one manager-review record, never a contact conversation archive."""
+    detail = persistence.candidate_detail(conn, candidate_id)
+    if detail is None or detail["candidate"]["status"] != "review":
+        raise ValueError("reviewable communication candidate not found")
+    candidate = detail["candidate"]
+    draft = _candidate_draft(candidate)
+    endpoint = detail["endpoint"]
+    return {
+        "id": candidate["id"],
+        "kind": candidate["kind"],
+        "status": candidate["status"],
+        "allocation_id": candidate["allocation_id"],
+        "work_item_id": candidate["work_item_id"],
+        "created_at": candidate["created_at"],
+        "context": {
+            "reported_text": draft.get("text", ""),
+            "intent": draft.get("intent"),
+            "message_type": draft.get("message_type"),
+            "observed_at": draft.get("observed_at"),
+            "received_at": detail["event"]["received_at"],
+            "context_resolved": bool(draft.get("context_resolved")),
+        },
+        "endpoint": None if endpoint is None else {
+            "id": endpoint["id"], "provider": endpoint["provider"], "address_last4": endpoint["address"][-4:],
+            "locale": endpoint["locale"], "status": endpoint["status"],
+        },
+        "evidence": [
+            {
+                "attachment_id": attachment["id"], "media_type": attachment["media_type"], "status": attachment["status"],
+                "attempts": attachment["attempts"], "last_attempt_at": attachment["last_attempt_at"], "created_at": attachment["created_at"],
+                "evidence_artifact": None if attachment["evidence_artifact_id"] is None else {
+                    "id": attachment["evidence_artifact_id"], "media_type": attachment["evidence_media_type"],
+                    "size_bytes": attachment["evidence_size_bytes"], "created_at": attachment["evidence_created_at"],
+                },
+            }
+            for attachment in detail["attachments"]
+        ],
+    }
 
 
 def retain_inbound_attachment(

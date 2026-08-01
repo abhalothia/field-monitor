@@ -2,13 +2,19 @@ from pathlib import Path
 import json
 import sqlite3
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ffl.app import create_app
 from ffl.communications import persistence
 from ffl.communications.fake import FakeLoopMessageProvider
+from ffl.communications import loopmessage as loopmessage_module
 from ffl.communications.loopmessage import LoopMessageProvider
-from ffl.communications.service import process_pending_communications, retain_inbound_attachment
+from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderRejectedError
+from ffl.communications.service import (
+    process_pending_communications, reconcile_outbound_messages, retain_inbound_attachment, send_work_prompt,
+)
+from ffl.communications.worker import run_once
 from ffl.persistence.schema import create_schema
 from ffl.persistence import repository
 from ffl.seed import seed_pilot
@@ -360,3 +366,151 @@ def test_previous_c5_security_schema_upgrades_additive_tables_and_columns_withou
     assert conn.execute("SELECT 1 FROM communication_deliveries LIMIT 1").fetchone() is None
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     conn.close()
+
+
+def test_private_worker_processes_receipts_and_retains_media_with_count_only_alerts(tmp_path):
+    for client, conn, provider, _seed, work, _endpoint, _consent, _template in _setup(tmp_path):
+        source_url = "https://evidence.example.invalid/worker-photo.jpg"
+        provider.attachments[source_url] = AttachmentContent(b"worker-retained-photo", "image/jpeg")
+        accepted = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "field photo",
+                  "message_type": "attachments", "attachments": [source_url], "message_id": "worker-inbound",
+                  "webhook_id": "worker-receipt", "api_version": "1.0"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert accepted.status_code == 200
+        alerts = []
+        result = run_once(conn, provider, "test-receipt-key", alerts.append)
+        assert result["receipts_processed"] == 1
+        assert result["media_retained"] == 1
+        assert alerts == []
+        attachment = conn.execute("SELECT status FROM communication_attachments").fetchone()
+        assert attachment["status"] == "retained"
+        assert conn.execute("SELECT count(*) FROM communication_evidence_links").fetchone()[0] == 1
+        assert repository.get_work_item(conn, work.id).status == "planned"
+
+
+def test_private_worker_alerts_without_provider_content_when_media_is_terminal(tmp_path):
+    for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
+        source_url = "https://evidence.example.invalid/not-allowed.bin"
+        provider.attachments[source_url] = AttachmentContent(b"not evidence", "application/octet-stream")
+        client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_inbound", "contact": "+15550000001", "text": "private report",
+                  "message_type": "attachments", "attachments": [source_url], "message_id": "terminal-inbound",
+                  "webhook_id": "terminal-receipt"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        alerts = []
+        result = run_once(conn, provider, "test-receipt-key", alerts.append)
+        assert result["media_failed"] == 1
+        assert len(alerts) == 1
+        rendered = json.dumps(alerts[0])
+        assert "private report" not in rendered
+        assert "evidence.example" not in rendered
+        assert "contact" not in rendered
+
+
+def test_outbound_crash_reconciles_without_resending_and_passthrough_recovers_message_id(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        provider.crash_after_accept = True
+        with pytest.raises(KeyboardInterrupt):
+            send_work_prompt(conn, provider, work.id, endpoint["id"], template["id"], seed["manager_id"], "crash:" + work.id)
+        prompt = conn.execute("SELECT * FROM communication_prompts").fetchone()
+        assert prompt["status"] == "pending"
+        assert len(provider.sent) == 1
+
+        provider.crash_after_accept = False
+        assert reconcile_outbound_messages(conn, provider) == 1
+        assert conn.execute("SELECT status FROM communication_prompts WHERE id = ?", (prompt["id"],)).fetchone()[0] == "unknown"
+        assert conn.execute("SELECT count(*) FROM communication_deliveries WHERE status = 'unknown'").fetchone()[0] == 1
+        assert len(provider.sent) == 1
+
+        delivered = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={"event": "message_delivered", "contact": "+15550000001", "text": "",
+                  "message_id": "fake-message-1", "passthrough": prompt["id"], "webhook_id": "crash-delivered"},
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        assert delivered.status_code == 200
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 1
+        repaired = conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (prompt["id"],)).fetchone()
+        assert repaired["status"] == "delivered"
+        assert repaired["provider_message_id"] == "fake-message-1"
+        assert len(provider.sent) == 1
+
+
+def test_outbound_unknown_with_message_id_uses_status_lookup_without_a_resend(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        prompt = _send_prompt(client, work, endpoint, template, seed)
+        persistence.update_prompt(conn, prompt["id"], "unknown")
+        provider.statuses[prompt["provider_message_id"]] = MessageStatus(prompt["provider_message_id"], "delivered")
+        assert reconcile_outbound_messages(conn, provider) == 1
+        assert conn.execute("SELECT status FROM communication_prompts WHERE id = ?", (prompt["id"],)).fetchone()[0] == "delivered"
+        assert len(provider.sent) == 1
+        assert conn.execute("SELECT count(*) FROM communication_reconciliations WHERE outcome = 'reconciled'").fetchone()[0] == 1
+
+
+def test_healthy_receipt_claim_cannot_be_stolen_by_replay_or_competing_worker(tmp_path):
+    for client, conn, provider, _seed, _work, _endpoint, _consent, _template in _setup(tmp_path):
+        payload = {"event": "message_inbound", "contact": "+15550000001", "text": "claimed",
+                   "message_type": "text", "message_id": "claimed-inbound", "webhook_id": "claimed-receipt"}
+        accepted = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
+        event_id = accepted.json()["event_id"]
+        claim = persistence.claim_receipt(conn, event_id, "2100-01-01T00:00:00+00:00")
+        assert claim is not None
+        assert persistence.claim_receipt(conn, event_id, "2100-01-01T00:01:00+00:00") is None
+        replay = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
+        assert replay.json()["status"] == "duplicate"
+        receipt = conn.execute("SELECT status, claim_token FROM communication_receipts WHERE event_id = ?", (event_id,)).fetchone()
+        assert tuple(receipt) == ("processing", claim)
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 0
+
+        conn.execute("UPDATE communication_receipts SET lease_expires_at = ? WHERE event_id = ?", ("2000-01-01T00:00:00+00:00", event_id))
+        conn.commit()
+        expired_replay = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
+        assert expired_replay.json()["status"] == "duplicate"
+        assert conn.execute("SELECT status FROM communication_receipts WHERE event_id = ?", (event_id,)).fetchone()[0] == "queued"
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 1
+
+
+def test_synchronous_loopmessage_opt_out_revokes_consent_and_adapter_parses_error_before_raise(tmp_path, monkeypatch):
+    class RejectedResponse:
+        is_success = False
+
+        def json(self):
+            return {"success": False, "error_code": 500}
+
+    monkeypatch.setattr(loopmessage_module.httpx, "post", lambda *args, **kwargs: RejectedResponse())
+    with pytest.raises(ProviderRejectedError) as rejected:
+        LoopMessageProvider("organization-key", "webhook-token").send_message("+15550000001", "prompt", None, "passthrough")
+    assert rejected.value.error_code == 500
+
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        provider.synchronous_error_code = 500
+        rejected_prompt = _send_prompt(client, work, endpoint, template, seed)
+        assert rejected_prompt["status"] == "failed"
+        assert persistence.has_active_consent(conn, endpoint["id"], "work_prompt") is False
+        assert len(provider.sent) == 0
+
+
+def test_manager_candidate_detail_is_narrow_redacted_and_not_an_archive(tmp_path):
+    for client, conn, provider, seed, work, _endpoint, _consent, _template in _setup(tmp_path):
+        _send_prompt(client, work, _endpoint, _template, seed)
+        _inbound(client, provider, "detail-event", text="irrigation line is blocked")
+        candidate_id = client.get("/api/v1/communications/inbox").json()["candidates"][0]["id"]
+        denied = client.get("/api/v1/communications/candidates/{}".format(candidate_id), headers={"X-FFL-Manager-Token": "wrong"})
+        assert denied.status_code == 403
+        detail = client.get("/api/v1/communications/candidates/{}".format(candidate_id))
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["context"]["reported_text"] == "irrigation line is blocked"
+        assert body["endpoint"]["address_last4"] == "0001"
+        assert "address" not in body["endpoint"]
+        assert "draft_json" not in json.dumps(body)
+        assert "source_reference" not in json.dumps(body)
+        assert "ciphertext" not in json.dumps(body)
+        rejected = client.post("/api/v1/communications/candidates/{}/reject".format(candidate_id))
+        assert rejected.status_code == 200
+        assert client.get("/api/v1/communications/candidates/{}".format(candidate_id)).status_code == 404

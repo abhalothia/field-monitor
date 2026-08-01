@@ -1,12 +1,18 @@
 """The narrow adapter for the documented LoopMessage API surface."""
 
 import hmac
+import ipaddress
 import os
+import socket
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 
-from ffl.communications.ports import SendResult
+from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderRejectedError, SendResult
+
+
+MAX_INBOUND_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 class LoopMessageProvider:
@@ -46,11 +52,55 @@ class LoopMessageProvider:
             headers={"Authorization": self.organization_api_key, "Content-Type": "application/json"},
             json=payload, timeout=15.0,
         )
-        response.raise_for_status()
-        body = response.json()
-        if body.get("success") is False or not body.get("message_id"):
+        body = _json_body(response)
+        if not response.is_success or body.get("success") is False:
+            raise ProviderRejectedError(_error_code(body))
+        if not body.get("message_id"):
             raise RuntimeError("LoopMessage did not accept the send request")
         return SendResult(provider_message_id=str(body["message_id"]), status="accepted")
+
+    def get_message_status(self, provider_message_id: str) -> Optional[MessageStatus]:
+        """Use LoopMessage's documented status endpoint for an accepted message."""
+        if not self.organization_api_key:
+            raise RuntimeError("LoopMessage credentials are not configured")
+        response = httpx.get(
+            self.api_base_url + "/v1/message/status/{0}/".format(provider_message_id),
+            headers={"Authorization": self.organization_api_key, "Content-Type": "application/json"}, timeout=15.0,
+        )
+        body = _json_body(response)
+        if response.status_code == 404:
+            return None
+        if not response.is_success or body.get("success") is False:
+            raise ProviderRejectedError(_error_code(body))
+        value = body.get("status")
+        if not isinstance(value, str) or value.lower() not in {"processing", "failed", "delivered", "unknown"}:
+            raise RuntimeError("LoopMessage returned an invalid message status")
+        return MessageStatus(str(body.get("message_id") or provider_message_id), value.lower(), _error_code(body))
+
+    def download_inbound_attachment(self, url: str) -> AttachmentContent:
+        """Retrieve a documented inbound attachment URL without retaining the URL.
+
+        URLs originate in an authenticated provider webhook, but are still treated
+        as untrusted input: HTTPS only, no credentials/redirects, no private IP
+        targets, and a bounded response body.
+        """
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("inbound attachment URL is not an allowed HTTPS URL")
+        _require_public_host(parsed.hostname)
+        with httpx.stream("GET", url, timeout=15.0, follow_redirects=False) as response:
+            response.raise_for_status()
+            media_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if not media_type:
+                raise ValueError("inbound attachment has no media type")
+            content = bytearray()
+            for chunk in response.iter_bytes():
+                content.extend(chunk)
+                if len(content) > MAX_INBOUND_ATTACHMENT_BYTES:
+                    raise ValueError("inbound attachment exceeds the size limit")
+        if not content:
+            raise ValueError("inbound attachment is empty")
+        return AttachmentContent(bytes(content), media_type)
 
     def build_send_payload(self, contact: str, text: str, sender: Optional[str], passthrough: str) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -82,5 +132,36 @@ class LoopMessageProvider:
             "text": str(payload.get("text", "")),
             "message_type": str(payload.get("message_type", "text")),
             "attachments": attachments,
+            "passthrough": payload.get("passthrough") if isinstance(payload.get("passthrough"), str) else None,
             "raw": payload,
         }
+
+
+def _json_body(response: httpx.Response) -> Dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _error_code(body: Dict[str, Any]) -> Optional[int]:
+    value = body.get("error_code")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _require_public_host(hostname: str) -> None:
+    try:
+        addresses = {record[4][0] for record in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)}
+    except OSError as error:
+        raise RuntimeError("could not resolve inbound attachment host") from error
+    if not addresses:
+        raise ValueError("inbound attachment host has no address")
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if not ip.is_global:
+            raise ValueError("inbound attachment host resolves to a non-public address")

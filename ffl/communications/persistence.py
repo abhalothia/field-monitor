@@ -95,6 +95,9 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             source_reference TEXT NOT NULL,
             media_type TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('unavailable', 'retained', 'failed')),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at TEXT,
+            last_error TEXT,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS communication_evidence_links (
@@ -148,13 +151,31 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'processed', 'retryable', 'quarantined')),
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
+            claim_token TEXT,
+            lease_expires_at TEXT,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS communication_reconciliations (
+            id TEXT PRIMARY KEY,
+            prompt_id TEXT NOT NULL REFERENCES communication_prompts(id),
+            provider_message_id TEXT,
+            provider_status TEXT,
+            provider_error_code INTEGER,
+            outcome TEXT NOT NULL CHECK (outcome IN ('awaiting_webhook', 'reconciled', 'lookup_unavailable')),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_communication_reconciliations_prompt
+            ON communication_reconciliations(prompt_id, created_at);
         """
     )
     _add_column(conn, "communication_templates", "provider_template_id TEXT")
     _add_column(conn, "communication_templates", "provider_approval_state TEXT NOT NULL DEFAULT 'not_required'")
     _add_column(conn, "communication_prompts", "logical_action_key TEXT")
+    _add_column(conn, "communication_attachments", "attempts INTEGER NOT NULL DEFAULT 0")
+    _add_column(conn, "communication_attachments", "last_attempt_at TEXT")
+    _add_column(conn, "communication_attachments", "last_error TEXT")
+    _add_column(conn, "communication_receipts", "claim_token TEXT")
+    _add_column(conn, "communication_receipts", "lease_expires_at TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_communication_prompts_logical_action ON communication_prompts(logical_action_key) WHERE logical_action_key IS NOT NULL")
     conn.execute("INSERT OR IGNORE INTO communication_schema_migrations VALUES (?, ?)", ("communications-v2-security", datetime.now(timezone.utc).isoformat()))
     conn.commit()
@@ -364,7 +385,16 @@ def create_prompt(conn: sqlite3.Connection, work_item_id: str, allocation_id: st
 
 def update_prompt(conn: sqlite3.Connection, prompt_id: str, status: str, provider_message_id: Optional[str] = None) -> Dict[str, Any]:
     row = conn.execute("SELECT status FROM communication_prompts WHERE id = ?", (prompt_id,)).fetchone()
-    allowed = {"pending": {"accepted", "failed", "unknown"}, "accepted": {"scheduled", "delivered", "failed", "unknown", "responded", "no_response"}, "scheduled": {"delivered", "failed", "unknown", "responded", "no_response"}, "delivered": {"failed", "unknown", "responded", "no_response"}}
+    allowed = {
+        "pending": {"accepted", "scheduled", "delivered", "failed", "unknown"},
+        "accepted": {"scheduled", "delivered", "failed", "unknown", "responded", "no_response"},
+        "scheduled": {"delivered", "failed", "unknown", "responded", "no_response"},
+        "delivered": {"failed", "unknown", "responded", "no_response"},
+        # Unknown means an API response was interrupted or the provider could
+        # not currently identify the message; a later webhook/status lookup can
+        # safely resolve it without sending another message.
+        "unknown": {"accepted", "scheduled", "delivered", "failed", "responded", "no_response"},
+    }
     if row is None or status not in allowed.get(row["status"], set()):
         raise ValueError("invalid communication prompt transition")
     now = datetime.now(timezone.utc).isoformat()
@@ -383,6 +413,50 @@ def create_delivery_attempt(conn: sqlite3.Connection, prompt_id: str, status: st
     conn.commit()
 
 
+def create_reconciliation(
+    conn: sqlite3.Connection, prompt_id: str, outcome: str, provider_message_id: Optional[str] = None,
+    provider_status: Optional[str] = None, provider_error_code: Optional[int] = None,
+) -> None:
+    latest = conn.execute(
+        "SELECT provider_message_id, provider_status, provider_error_code, outcome FROM communication_reconciliations "
+        "WHERE prompt_id = ? ORDER BY created_at DESC LIMIT 1",
+        (prompt_id,),
+    ).fetchone()
+    if latest is not None and (
+        latest["provider_message_id"], latest["provider_status"], latest["provider_error_code"], latest["outcome"]
+    ) == (provider_message_id, provider_status, provider_error_code, outcome):
+        return
+    identifier, created_at = _identity()
+    conn.execute(
+        "INSERT INTO communication_reconciliations VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (identifier, prompt_id, provider_message_id, provider_status, provider_error_code, outcome, created_at),
+    )
+    conn.commit()
+
+
+def prompts_requiring_reconciliation(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT prompt.*, (
+                SELECT delivery.status FROM communication_deliveries delivery
+                WHERE delivery.prompt_id = prompt.id ORDER BY delivery.attempt DESC LIMIT 1
+            ) AS latest_delivery_status
+            FROM communication_prompts prompt
+            WHERE prompt.status = 'unknown'
+               OR (prompt.status = 'pending' AND EXISTS (
+                   SELECT 1 FROM communication_deliveries delivery
+                   WHERE delivery.prompt_id = prompt.id AND delivery.status = 'attempting'
+               ))
+            ORDER BY prompt.updated_at"""
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def has_unknown_delivery_attempt(conn: sqlite3.Connection, prompt_id: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM communication_deliveries WHERE prompt_id = ? AND status = 'unknown'", (prompt_id,)
+    ).fetchone() is not None
+
+
 def quarantine(conn: sqlite3.Connection, provider: str, reason: str, payload: bytes) -> None:
     identifier, created_at = _identity()
     fingerprint = hashlib.sha256(payload).hexdigest()
@@ -394,48 +468,69 @@ def pending_receipts(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
     return [dict(row) for row in conn.execute("SELECT * FROM communication_receipts WHERE status IN ('queued', 'retryable') ORDER BY updated_at").fetchall()]
 
 
-def release_expired_receipt_claims(conn: sqlite3.Connection, before: str) -> None:
+def release_expired_receipt_claims(conn: sqlite3.Connection, now: str) -> None:
     """Make work from a crashed worker recoverable after its bounded lease."""
     conn.execute(
-        "UPDATE communication_receipts SET status = 'retryable', last_error = 'processing lease expired', updated_at = ? "
-        "WHERE status = 'processing' AND updated_at < ?",
-        (datetime.now(timezone.utc).isoformat(), before),
+        "UPDATE communication_receipts SET status = 'retryable', claim_token = NULL, lease_expires_at = NULL, "
+        "last_error = 'processing lease expired', updated_at = ? "
+        "WHERE status = 'processing' AND (lease_expires_at IS NULL OR lease_expires_at <= ?)",
+        (now, now),
     )
     conn.commit()
 
 
-def claim_receipt(conn: sqlite3.Connection, event_id: str) -> bool:
+def claim_receipt(conn: sqlite3.Connection, event_id: str, lease_expires_at: str) -> Optional[str]:
     """Atomically claim a queued receipt so concurrent workers cannot replay it."""
+    token = str(uuid.uuid4())
     cursor = conn.execute(
-        "UPDATE communication_receipts SET status = 'processing', attempts = attempts + 1, last_error = NULL, updated_at = ? "
+        "UPDATE communication_receipts SET status = 'processing', attempts = attempts + 1, last_error = NULL, "
+        "claim_token = ?, lease_expires_at = ?, updated_at = ? "
         "WHERE event_id = ? AND status IN ('queued', 'retryable')",
-        (datetime.now(timezone.utc).isoformat(), event_id),
+        (token, lease_expires_at, datetime.now(timezone.utc).isoformat(), event_id),
+    )
+    conn.commit()
+    return token if cursor.rowcount == 1 else None
+
+
+def complete_receipt(conn: sqlite3.Connection, event_id: str, claim_token: str) -> bool:
+    cursor = conn.execute(
+        "UPDATE communication_receipts SET status = 'processed', last_error = NULL, claim_token = NULL, lease_expires_at = NULL, updated_at = ? "
+        "WHERE event_id = ? AND status = 'processing' AND claim_token = ?",
+        (datetime.now(timezone.utc).isoformat(), event_id, claim_token),
     )
     conn.commit()
     return cursor.rowcount == 1
 
 
-def complete_receipt(conn: sqlite3.Connection, event_id: str) -> None:
-    conn.execute("UPDATE communication_receipts SET status = 'processed', last_error = NULL, updated_at = ? WHERE event_id = ?", (datetime.now(timezone.utc).isoformat(), event_id))
+def retry_receipt(conn: sqlite3.Connection, event_id: str, claim_token: str, error: str) -> bool:
+    cursor = conn.execute(
+        "UPDATE communication_receipts SET status = 'retryable', last_error = ?, claim_token = NULL, lease_expires_at = NULL, updated_at = ? "
+        "WHERE event_id = ? AND status = 'processing' AND claim_token = ?",
+        (error[:200], datetime.now(timezone.utc).isoformat(), event_id, claim_token),
+    )
     conn.commit()
+    return cursor.rowcount == 1
 
 
-def retry_receipt(conn: sqlite3.Connection, event_id: str, error: str) -> None:
-    conn.execute("UPDATE communication_receipts SET status = 'retryable', last_error = ?, updated_at = ? WHERE event_id = ?", (error[:200], datetime.now(timezone.utc).isoformat(), event_id))
-    conn.commit()
-
-
-def quarantine_receipt(conn: sqlite3.Connection, event_id: str, ciphertext: str, error: str) -> None:
+def quarantine_receipt(conn: sqlite3.Connection, event_id: str, claim_token: str, ciphertext: str, error: str) -> bool:
     """Stop replay of an unreadable protected receipt without exposing it."""
     now = datetime.now(timezone.utc).isoformat()
     identifier, created_at = _identity()
-    conn.execute("UPDATE communication_receipts SET status = 'quarantined', last_error = ?, updated_at = ? WHERE event_id = ?", (error[:200], now, event_id))
+    cursor = conn.execute(
+        "UPDATE communication_receipts SET status = 'quarantined', last_error = ?, claim_token = NULL, lease_expires_at = NULL, updated_at = ? "
+        "WHERE event_id = ? AND status = 'processing' AND claim_token = ?",
+        (error[:200], now, event_id, claim_token),
+    )
+    if cursor.rowcount != 1:
+        conn.commit()
+        return False
     conn.execute("UPDATE communication_events SET status = 'quarantined' WHERE id = ?", (event_id,))
     conn.execute(
         "INSERT INTO communication_quarantines VALUES (?, ?, ?, ?, ?)",
         (identifier, "loopmessage", error[:200], hashlib.sha256(ciphertext.encode("utf-8")).hexdigest(), created_at),
     )
     conn.commit()
+    return True
 
 
 def find_endpoint(conn: sqlite3.Connection, provider: str, address: str) -> Optional[Dict[str, Any]]:
@@ -470,14 +565,17 @@ def record_event_with_receipt(
             stored = dict(stored_row)
             created = False
         conn.execute(
-            "INSERT OR IGNORE INTO communication_receipts VALUES (?, ?, 'queued', 0, NULL, ?)",
+            "INSERT OR IGNORE INTO communication_receipts "
+            "(event_id, ciphertext, status, attempts, last_error, claim_token, lease_expires_at, updated_at) "
+            "VALUES (?, ?, 'queued', 0, NULL, NULL, NULL, ?)",
             (stored["id"], ciphertext, now),
         )
-        # A provider replay also wakes up a receipt whose worker died mid-claim.
+        # Replays wake retryable work, or a demonstrably expired lease.  They
+        # must not steal a healthy worker's active claim.
         conn.execute(
-            "UPDATE communication_receipts SET status = 'queued', updated_at = ? "
-            "WHERE event_id = ? AND status IN ('retryable', 'processing')",
-            (now, stored["id"]),
+            "UPDATE communication_receipts SET status = 'queued', claim_token = NULL, lease_expires_at = NULL, updated_at = ? "
+            "WHERE event_id = ? AND (status = 'retryable' OR (status = 'processing' AND (lease_expires_at IS NULL OR lease_expires_at <= ?)))",
+            (now, stored["id"], now),
         )
         conn.commit()
         return stored, created
@@ -496,20 +594,59 @@ def find_prompt_for_message(conn: sqlite3.Connection, provider_message_id: str) 
     return dict(row) if row is not None else None
 
 
+def find_prompt_for_passthrough(conn: sqlite3.Connection, passthrough: Optional[str], provider: str, contact: str) -> Optional[Dict[str, Any]]:
+    if not passthrough:
+        return None
+    row = conn.execute(
+        """SELECT prompt.* FROM communication_prompts prompt
+            JOIN communication_endpoints endpoint ON endpoint.id = prompt.endpoint_id
+            WHERE prompt.id = ? AND endpoint.provider = ? AND endpoint.address = ?""",
+        (passthrough, provider, contact),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def single_open_prompt(conn: sqlite3.Connection, endpoint_id: str) -> Optional[Dict[str, Any]]:
     rows = conn.execute("SELECT * FROM communication_prompts WHERE endpoint_id = ? AND status IN ('accepted', 'delivered') ORDER BY created_at", (endpoint_id,)).fetchall()
     return dict(rows[0]) if len(rows) == 1 else None
 
 
+def attachment_reference(event_id: str, source_url: str) -> str:
+    return hashlib.sha256((event_id + ":" + source_url).encode("utf-8")).hexdigest()
+
+
 def add_attachment(conn: sqlite3.Connection, event_id: str, source_url: str, media_type: str) -> Dict[str, Any]:
-    reference = hashlib.sha256((event_id + ":" + source_url).encode("utf-8")).hexdigest()
+    reference = attachment_reference(event_id, source_url)
     existing = conn.execute("SELECT * FROM communication_attachments WHERE event_id = ? AND source_reference = ?", (event_id, reference)).fetchone()
     if existing is not None:
         return dict(existing)
     identifier, created_at = _identity()
-    conn.execute("INSERT INTO communication_attachments VALUES (?, ?, ?, ?, 'unavailable', ?)", (identifier, event_id, reference, media_type, created_at))
+    conn.execute(
+        "INSERT INTO communication_attachments (id, event_id, source_reference, media_type, status, attempts, last_attempt_at, last_error, created_at) "
+        "VALUES (?, ?, ?, ?, 'unavailable', 0, NULL, NULL, ?)",
+        (identifier, event_id, reference, media_type, created_at),
+    )
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_attachments WHERE id = ?", (identifier,)).fetchone())
+
+
+def attachments_needing_retention(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT attachment.*, receipt.ciphertext
+            FROM communication_attachments attachment
+            JOIN communication_receipts receipt ON receipt.event_id = attachment.event_id
+            WHERE attachment.status = 'unavailable' AND receipt.status = 'processed'
+            ORDER BY attachment.created_at"""
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def record_attachment_attempt(conn: sqlite3.Connection, attachment_id: str, error: Optional[str] = None, failed: bool = False) -> None:
+    conn.execute(
+        "UPDATE communication_attachments SET attempts = attempts + 1, last_attempt_at = ?, last_error = ?, status = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), error[:200] if error else None, "failed" if failed else "unavailable", attachment_id),
+    )
+    conn.commit()
 
 
 def link_retained_evidence(conn: sqlite3.Connection, attachment_id: str, evidence_artifact_id: str) -> None:
@@ -548,6 +685,39 @@ def get_candidate_for_event(conn: sqlite3.Connection, event_id: str) -> Optional
     return dict(row) if row is not None else None
 
 
+def candidate_detail(conn: sqlite3.Connection, candidate_id: str) -> Optional[Dict[str, Any]]:
+    candidate = get_candidate(conn, candidate_id)
+    if candidate is None:
+        return None
+    event = conn.execute(
+        "SELECT provider, received_at FROM communication_events WHERE id = ?", (candidate["event_id"],)
+    ).fetchone()
+    if event is None:
+        return None
+    endpoint = None
+    if candidate["endpoint_id"]:
+        endpoint_row = conn.execute(
+            "SELECT id, person_id, provider, address, locale, status FROM communication_endpoints WHERE id = ?",
+            (candidate["endpoint_id"],),
+        ).fetchone()
+        if endpoint_row is not None:
+            endpoint = dict(endpoint_row)
+    attachments = [
+        dict(row) for row in conn.execute(
+            """SELECT attachment.id, attachment.media_type, attachment.status, attachment.attempts,
+                      attachment.last_attempt_at, attachment.created_at,
+                      artifact.id AS evidence_artifact_id, artifact.media_type AS evidence_media_type,
+                      artifact.size_bytes AS evidence_size_bytes, artifact.created_at AS evidence_created_at
+               FROM communication_attachments attachment
+               LEFT JOIN communication_evidence_links link ON link.attachment_id = attachment.id
+               LEFT JOIN evidence_artifacts artifact ON artifact.id = link.evidence_artifact_id
+               WHERE attachment.event_id = ? ORDER BY attachment.created_at""",
+            (candidate["event_id"],),
+        ).fetchall()
+    ]
+    return {"candidate": candidate, "event": dict(event), "endpoint": endpoint, "attachments": attachments}
+
+
 def review_candidate(conn: sqlite3.Connection, candidate_id: str, status: str, reviewer_id: str, record_type: Optional[str] = None, record_id: Optional[str] = None) -> Dict[str, Any]:
     if status not in ("accepted", "rejected") or conn.execute("SELECT 1 FROM people WHERE id = ?", (reviewer_id,)).fetchone() is None:
         raise ValueError("invalid communication candidate review")
@@ -567,4 +737,15 @@ def health(conn: sqlite3.Connection) -> Dict[str, int]:
     awaiting = conn.execute("SELECT count(*) FROM communication_prompts WHERE status IN ('accepted', 'delivered')").fetchone()[0]
     review = conn.execute("SELECT count(*) FROM communication_candidates WHERE status = 'review'").fetchone()[0]
     unknown = conn.execute("SELECT count(*) FROM communication_prompts WHERE status = 'unknown'").fetchone()[0]
-    return {"failed_delivery_count": failed, "unknown_delivery_count": unknown, "awaiting_response_count": awaiting, "review_required_count": review}
+    retryable_receipts = conn.execute("SELECT count(*) FROM communication_receipts WHERE status = 'retryable'").fetchone()[0]
+    unavailable_media = conn.execute("SELECT count(*) FROM communication_attachments WHERE status = 'unavailable'").fetchone()[0]
+    failed_media = conn.execute("SELECT count(*) FROM communication_attachments WHERE status = 'failed'").fetchone()[0]
+    return {
+        "failed_delivery_count": failed,
+        "unknown_delivery_count": unknown,
+        "awaiting_response_count": awaiting,
+        "review_required_count": review,
+        "retryable_receipt_count": retryable_receipts,
+        "unavailable_media_count": unavailable_media,
+        "failed_media_count": failed_media,
+    }

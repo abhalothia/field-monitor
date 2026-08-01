@@ -1,0 +1,18 @@
+[Unit]
+Description=FFL private LoopMessage communications maintenance worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ffl-communications
+Group=ffl-communications
+WorkingDirectory=/srv/ffl/app
+EnvironmentFile=/etc/ffl/communications-worker.env
+ExecStart=/srv/ffl/app/.venv/bin/python -m ffl.communications.worker --once
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/ffl/data /srv/ffl/evidence
+UMask=0077

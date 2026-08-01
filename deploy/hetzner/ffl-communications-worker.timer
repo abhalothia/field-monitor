@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule FFL private LoopMessage communications maintenance
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+Persistent=true
+Unit=ffl-communications-worker.service
+
+[Install]
+WantedBy=timers.target
