@@ -1,9 +1,7 @@
 """Manager-safe API for trusted external context sources.
 
-This router is intentionally not mounted by :mod:`ffl.app`; production
-integration needs a reviewed provider adapter registry and runtime-secret
-resolver first.  Mounting it without either is nevertheless safe: refresh is a
-deterministic unavailable run, never a fabricated weather or mandi value.
+The application installs no provider adapter by default, so refresh remains a
+deterministic unavailable run until a provider access review adds one.
 """
 
 from typing import Any, Dict, List, Optional
