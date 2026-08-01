@@ -43,7 +43,8 @@
       accepted_risk: "Review the accepted risk; reopen if conditions change.",
       reopened: "Return the exception to triage and reassess ownership."
     };
-    return actions[exceptionRecord.status] || "Review the record and assign the next action.";
+    return Object.prototype.hasOwnProperty.call(actions, exceptionRecord.status) ?
+      actions[exceptionRecord.status] : "";
   }
 
   function setHtml(id, markup) {
@@ -105,14 +106,16 @@
       return;
     }
     setHtml("exception-list", openExceptions.map(function (item) {
+      var action = nextAction(item);
+      var state = action ? escapeHtml(item.status) : "Unsupported exception state";
       return "<article class=\"queue-item exception-item\">" +
         "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
         "<span class=\"severity severity-" + escapeHtml(item.severity) + "\">" + escapeHtml(item.severity) + "</span></div>" +
         "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(item.owner_id) + "</dd></div>" +
         "<div><dt>Fallback owner</dt><dd>" + escapeHtml(item.fallback_owner_id) + "</dd></div>" +
         "<div><dt>Observed</dt><dd>" + escapeHtml(formatTime(item.observed_at)) + "</dd></div>" +
-        "<div><dt>Current state</dt><dd>" + escapeHtml(item.status) + "</dd></div>" +
-        "<div><dt>Next action</dt><dd>" + escapeHtml(nextAction(item)) + "</dd></div></dl>" +
+        "<div><dt>Current state</dt><dd>" + state + "</dd></div>" +
+        "<div><dt>Next action</dt><dd>" + escapeHtml(action) + "</dd></div></dl>" +
         "<button class=\"detail-button\" type=\"button\" data-exception-id=\"" + escapeHtml(item.id) + "\">View audit history</button>" +
         "</article>";
     }).join(""));
