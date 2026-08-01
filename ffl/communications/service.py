@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from ffl.communications import persistence
 from ffl.communications.ports import CommunicationsProvider
 from ffl.persistence import repository
-from ffl.services import operations
+from ffl.services import operations, season
 
 
 WORK_PROMPT_PURPOSE = "work_prompt"
@@ -14,7 +14,7 @@ WORK_PROMPT_PURPOSE = "work_prompt"
 
 def send_work_prompt(
     conn: sqlite3.Connection, provider: CommunicationsProvider, work_item_id: str, endpoint_id: str,
-    template_id: str, initiated_by_person_id: str,
+    template_id: str, initiated_by_person_id: str, idempotency_key: str,
 ) -> Dict[str, Any]:
     endpoint = conn.execute("SELECT * FROM communication_endpoints WHERE id = ? AND status = 'active'", (endpoint_id,)).fetchone()
     template = conn.execute("SELECT * FROM communication_templates WHERE id = ?", (template_id,)).fetchone()
@@ -27,10 +27,14 @@ def send_work_prompt(
         raise ValueError("work prompt requires a published work_prompt template")
     if not persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
         raise ValueError("work prompt consent is not active")
+    if conn.execute("SELECT 1 FROM people WHERE id = ?", (initiated_by_person_id,)).fetchone() is None:
+        raise ValueError("prompt initiator does not exist")
 
-    prompt = persistence.create_prompt(
-        conn, work.id, work.allocation_id, endpoint_id, template_id, initiated_by_person_id
+    prompt, created = persistence.create_prompt(
+        conn, work.id, work.allocation_id, endpoint_id, template_id, initiated_by_person_id, idempotency_key
     )
+    if not created:
+        return prompt
     try:
         result = provider.send_message(
             endpoint["address"], template["body"], None, prompt["id"]
@@ -47,21 +51,20 @@ def receive_webhook(
     endpoint = persistence.find_endpoint(conn, provider.name, event["contact"])
     stored, created = persistence.record_event(
         conn, provider.name, event["event_id"], event["message_id"], event["event_type"],
-        event["contact"], endpoint["id"] if endpoint else None, event["raw"],
+        event["contact"], endpoint["id"] if endpoint else None,
+        {"api_version": event["raw"].get("api_version"), "message_type": event["message_type"]},
     )
     if not created:
         return stored, False
 
-    if event["event_type"] == "message_failed":
+    if event["event_type"] in ("message_failed", "message_delivered", "message_scheduled", "unknown"):
         prompt = persistence.find_prompt_for_message(conn, event["message_id"])
         if prompt is not None:
-            persistence.update_prompt(conn, prompt["id"], "failed")
-        persistence.update_event_status(conn, stored["id"], "processed")
-        return stored, True
-    if event["event_type"] == "message_delivered":
-        prompt = persistence.find_prompt_for_message(conn, event["message_id"])
-        if prompt is not None:
-            persistence.update_prompt(conn, prompt["id"], "delivered")
+            lifecycle = {"message_failed": "failed", "message_delivered": "delivered", "message_scheduled": "scheduled", "unknown": "unknown"}
+            try:
+                persistence.update_prompt(conn, prompt["id"], lifecycle[event["event_type"]])
+            except ValueError:
+                pass
         persistence.update_event_status(conn, stored["id"], "processed")
         return stored, True
     if event["event_type"] != "message_inbound":
@@ -73,7 +76,7 @@ def receive_webhook(
         for url in event["attachments"]
     ]
     prompt = persistence.single_open_prompt(conn, endpoint["id"]) if endpoint else None
-    intent = event.get("quick_reply") or event["text"].strip().upper()
+    intent = event["text"].strip().upper()
     kind = "exception" if intent == "REPORT_DEVIATION" else "signal"
     candidate = persistence.create_candidate(
         conn, stored["id"], prompt["id"] if prompt else None,
@@ -101,6 +104,7 @@ def accept_candidate(
     conn: sqlite3.Connection, candidate_id: str, reviewer_id: str, signal_template_id: Optional[str] = None,
     signal_template_version: Optional[int] = None, exception_owner_id: Optional[str] = None,
     exception_fallback_owner_id: Optional[str] = None, severity: str = "medium",
+    signal_values: Optional[Dict[str, Any]] = None, evidence_artifact_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     candidate = persistence.get_candidate(conn, candidate_id)
     if candidate is None or candidate["status"] != "review":
@@ -123,16 +127,13 @@ def accept_candidate(
         return persistence.review_candidate(conn, candidate_id, "accepted", reviewer_id, "exception_record", record.id)
     if not signal_template_id or signal_template_version is None:
         raise ValueError("signal acceptance requires template id and version")
-    template = conn.execute(
-        "SELECT 1 FROM signal_templates WHERE id = ? AND version = ? AND status = 'published'",
-        (signal_template_id, signal_template_version),
-    ).fetchone()
-    if template is None:
-        raise ValueError("published signal template id and version are required")
-    record = repository.create_field_signal(
+    if signal_values is None:
+        raise ValueError("signal acceptance requires reviewed signal values")
+    if draft.get("attachment_ids") and evidence_artifact_id is None:
+        raise ValueError("unavailable communication attachment requires retained evidence before signal acceptance")
+    record = season.record_field_signal(
         conn, candidate["allocation_id"], signal_template_id, signal_template_version, observed_at,
-        endpoint["person_id"], {"communication_candidate_id": candidate["id"], "reported_text": draft["text"]},
-        status="submitted", received_at=event["received_at"],
+        endpoint["person_id"], signal_values, evidence_artifact_id=evidence_artifact_id, status="submitted",
     )
     return persistence.review_candidate(conn, candidate_id, "accepted", reviewer_id, "field_signal", record.id)
 

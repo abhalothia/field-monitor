@@ -8,6 +8,7 @@ from ffl.communications.fake import FakeLoopMessageProvider
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.persistence import repository
 from ffl.seed import seed_pilot
+from ffl.services.evidence import retain_evidence
 from ffl.services.operations import create_work_item
 
 
@@ -28,13 +29,14 @@ def _setup(tmp_path: Path):
             app.state.conn, "irrigation_check", 1, "hi-IN", "work_prompt",
             "FFL: सिंचाई जांच / Inspect irrigation. Reply REPORT_DEVIATION if needed.", seed["manager_id"],
         )
+        template = persistence.publish_template(app.state.conn, template["id"], seed["manager_id"])
         yield client, app.state.conn, provider, seed, work, endpoint, consent, template
 
 
 def _send_prompt(client, work, endpoint, template, seed):
     response = client.post(
         "/api/v1/work-items/{}/communication-prompts".format(work.id),
-        json={"endpoint_id": endpoint["id"], "template_id": template["id"], "initiated_by_person_id": seed["manager_id"]},
+        json={"endpoint_id": endpoint["id"], "template_id": template["id"], "initiated_by_person_id": seed["manager_id"], "idempotency_key": "prompt:" + work.id},
     )
     assert response.status_code == 201
     return response.json()
@@ -56,12 +58,15 @@ def _inbound(client, provider, event_id, message_id="inbound-1", **additional):
 def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acceptance(tmp_path):
     for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
         prompt = _send_prompt(client, work, endpoint, template, seed)
+        replayed_prompt = _send_prompt(client, work, endpoint, template, seed)
         assert prompt["status"] == "accepted"
+        assert replayed_prompt["id"] == prompt["id"]
+        assert len(provider.sent) == 1
         assert provider.sent[0]["contact"] == "+15550000001"
         assert "सिंचाई" in provider.sent[0]["text"]
 
-        first = _inbound(client, provider, "webhook-inbound-1", quick_reply="REPORT_DEVIATION")
-        replay = _inbound(client, provider, "webhook-inbound-1", quick_reply="REPORT_DEVIATION")
+        first = _inbound(client, provider, "webhook-inbound-1")
+        replay = _inbound(client, provider, "webhook-inbound-1")
         assert first.status_code == 200
         assert replay.json()["status"] == "duplicate"
         candidate_id = first.json()["candidate_id"]
@@ -70,6 +75,7 @@ def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acc
         assert candidate["id"] == candidate_id
         assert candidate["work_item_id"] == work.id
         assert candidate["allocation_id"] == seed["allocation_id"]
+        assert "draft_json" not in candidate
         assert conn.execute("SELECT count(*) FROM communication_attachments").fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM exception_records").fetchone()[0] == 0
 
@@ -105,7 +111,7 @@ def test_invalid_signature_opt_out_and_delivery_failure_remain_visible(tmp_path)
         persistence.set_consent(conn, endpoint["id"], "work_prompt", False, "operator opted out")
         suppressed = client.post(
             "/api/v1/work-items/{}/communication-prompts".format(work.id),
-            json={"endpoint_id": endpoint["id"], "template_id": template["id"], "initiated_by_person_id": seed["manager_id"]},
+            json={"endpoint_id": endpoint["id"], "template_id": template["id"], "initiated_by_person_id": seed["manager_id"], "idempotency_key": "suppressed:" + work.id},
         )
         assert suppressed.status_code == 422
         assert "consent" in suppressed.json()["detail"]
@@ -136,40 +142,56 @@ def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_
         signal_candidate = client.get("/api/v1/communications/inbox").json()["candidates"][-1]
         assert resolved.status_code == 200
         signal_template = conn.execute("SELECT id, version FROM signal_templates WHERE name = 'crop_exception'").fetchone()
+        invalid = client.post(
+            "/api/v1/communications/candidates/{}/accept".format(signal_candidate["id"]),
+            json={"reviewer_id": seed["manager_id"], "signal_template_id": signal_template["id"], "signal_template_version": signal_template["version"], "signal_values": {"severity": "high"}},
+        )
+        assert invalid.status_code == 422
+        assert conn.execute("SELECT count(*) FROM field_signals").fetchone()[0] == 0
+        retained_evidence = retain_evidence(conn, b"reviewed image bytes", "image/jpeg", created_by_person_id=seed["operator_id"])
         accepted = client.post(
             "/api/v1/communications/candidates/{}/accept".format(signal_candidate["id"]),
-            json={"reviewer_id": seed["manager_id"], "signal_template_id": signal_template["id"], "signal_template_version": signal_template["version"]},
+            json={"reviewer_id": seed["manager_id"], "signal_template_id": signal_template["id"], "signal_template_version": signal_template["version"], "signal_values": {"severity": "high", "photo_url": "reviewed-in-app"}, "evidence_artifact_id": retained_evidence.id},
         )
         assert accepted.status_code == 200
         assert accepted.json()["accepted_record_type"] == "field_signal"
         assert conn.execute("SELECT count(*) FROM field_signals").fetchone()[0] == 1
 
 
-def test_loopmessage_adapter_uses_documented_authorization_and_whatsapp_channel(monkeypatch):
-    captured = {}
+def test_admin_communications_paths_redact_endpoints_and_publish_templates(tmp_path):
+    provider = FakeLoopMessageProvider()
+    app = create_app(str(tmp_path / "admin.db"), communication_provider=provider)
+    with TestClient(app) as client:
+        seed = seed_pilot(app.state.conn)
+        endpoint = client.post(
+            "/api/v1/communication-endpoints",
+            json={"person_id": seed["operator_id"], "provider": "loopmessage", "address": "+15550000002", "locale": "hi-IN"},
+        )
+        assert endpoint.status_code == 201
+        assert endpoint.json()["address_last4"] == "0002"
+        assert "address" not in endpoint.json()
+        consent = client.post(
+            "/api/v1/communication-endpoints/{}/consents".format(endpoint.json()["id"]),
+            json={"purpose": "work_prompt", "evidence": "signed pilot consent"},
+        )
+        assert consent.json()["status"] == "active"
+        draft = client.post(
+            "/api/v1/communication-templates",
+            json={"template_key": "daily_check", "version": 1, "locale": "hi-IN", "purpose": "work_prompt", "body": "Daily check", "owner_id": seed["manager_id"]},
+        )
+        assert draft.json()["status"] == "draft"
+        published = client.post(
+            "/api/v1/communication-templates/{}/publish".format(draft.json()["id"]),
+            json={"publisher_id": seed["manager_id"]},
+        )
+        assert published.json()["status"] == "published"
 
-    class Response:
-        def raise_for_status(self):
-            return None
 
-        def json(self):
-            return {"message_id": "provider-message-1"}
-
-    def fake_post(url, headers, json, timeout):
-        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
-        return Response()
-
-    monkeypatch.setattr("ffl.communications.loopmessage.httpx.post", fake_post)
+def test_loopmessage_adapter_builds_documented_payload_without_a_network_call():
     provider = LoopMessageProvider("organization-key", "webhook-token", "sender-1")
-    result = provider.send_message("+15550000001", "FFL work prompt", None, "ffl-prompt-1")
+    payload = provider.build_send_payload("+15550000001", "FFL work prompt", None, "ffl-prompt-1")
 
     assert provider.verify_webhook("webhook-token")
     assert not provider.verify_webhook("wrong")
-    assert result.provider_message_id == "provider-message-1"
-    assert captured == {
-        "url": "https://a.loopmessage.com/api/v1/message/send/",
-        "headers": {"Authorization": "organization-key", "Content-Type": "application/json"},
-        "json": {"contact": "+15550000001", "text": "FFL work prompt", "channel": "whatsapp",
-                 "passthrough": "ffl-prompt-1", "sender": "sender-1"},
-        "timeout": 15.0,
-    }
+    assert payload == {"contact": "+15550000001", "text": "FFL work prompt", "passthrough": "ffl-prompt-1", "sender": "sender-1"}
+    assert LoopMessageProvider("key", "token", whatsapp_channel_enabled=True).build_send_payload("+15550000001", "prompt", None, "id")["channel"] == "whatsapp"

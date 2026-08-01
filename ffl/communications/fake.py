@@ -20,9 +20,4 @@ class FakeLoopMessageProvider(LoopMessageProvider):
 
     def normalize_webhook(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         normalized = super().normalize_webhook(payload)
-        # LoopMessage does not document interactive WhatsApp payloads. Tests may
-        # supply this normalized intent to prove FFL's provider-neutral seam.
-        quick_reply = payload.get("quick_reply")
-        if isinstance(quick_reply, str):
-            normalized["quick_reply"] = quick_reply
         return normalized

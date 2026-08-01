@@ -1,7 +1,7 @@
 from dataclasses import asdict
 
 import json
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
@@ -35,6 +35,32 @@ class CommunicationPromptRequest(BaseModel):
     endpoint_id: str
     template_id: str
     initiated_by_person_id: str
+    idempotency_key: str
+
+
+class CommunicationEndpointRequest(BaseModel):
+    person_id: str
+    provider: str
+    address: str
+    locale: str
+
+
+class CommunicationConsentRequest(BaseModel):
+    purpose: str
+    evidence: str
+
+
+class CommunicationTemplateRequest(BaseModel):
+    template_key: str
+    version: int
+    locale: str
+    purpose: str
+    body: str
+    owner_id: str
+
+
+class CommunicationTemplatePublishRequest(BaseModel):
+    publisher_id: str
 
 
 class CandidateAcceptRequest(BaseModel):
@@ -44,6 +70,8 @@ class CandidateAcceptRequest(BaseModel):
     exception_owner_id: Optional[str] = None
     exception_fallback_owner_id: Optional[str] = None
     severity: str = "medium"
+    signal_values: Optional[Dict[str, Any]] = None
+    evidence_artifact_id: Optional[str] = None
 
 
 class CandidateRejectRequest(BaseModel):
@@ -56,6 +84,10 @@ def _connection(request: Request):
 
 def _communication_provider(request: Request):
     return request.app.state.communication_provider
+
+
+def _redact_endpoint(endpoint: dict) -> dict:
+    return {"id": endpoint["id"], "person_id": endpoint["person_id"], "provider": endpoint["provider"], "address_last4": endpoint["address"][-4:], "locale": endpoint["locale"], "status": endpoint["status"]}
 
 
 def _runtime_rows(conn, table: str, where: str = "", params: tuple = ()) -> list[dict]:
@@ -157,8 +189,50 @@ def create_communication_prompt(work_item_id: str, payload: CommunicationPromptR
     try:
         return communications_service.send_work_prompt(
             _connection(request), _communication_provider(request), work_item_id, payload.endpoint_id,
-            payload.template_id, payload.initiated_by_person_id,
+            payload.template_id, payload.initiated_by_person_id, payload.idempotency_key,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communication-endpoints", status_code=status.HTTP_201_CREATED)
+def create_communication_endpoint(payload: CommunicationEndpointRequest, request: Request) -> dict:
+    try:
+        return _redact_endpoint(communications_persistence.create_endpoint(_connection(request), payload.person_id, payload.provider, payload.address, payload.locale))
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communication-endpoints/{endpoint_id}/consents")
+def grant_communication_consent(endpoint_id: str, payload: CommunicationConsentRequest, request: Request) -> dict:
+    try:
+        consent = communications_persistence.set_consent(_connection(request), endpoint_id, payload.purpose, True, payload.evidence)
+        return {key: consent[key] for key in ("id", "endpoint_id", "purpose", "status", "granted_at", "revoked_at")}
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communication-endpoints/{endpoint_id}/consents/{purpose}/revoke")
+def revoke_communication_consent(endpoint_id: str, purpose: str, payload: CommunicationConsentRequest, request: Request) -> dict:
+    try:
+        consent = communications_persistence.set_consent(_connection(request), endpoint_id, purpose, False, payload.evidence)
+        return {key: consent[key] for key in ("id", "endpoint_id", "purpose", "status", "granted_at", "revoked_at")}
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communication-templates", status_code=status.HTTP_201_CREATED)
+def create_communication_template(payload: CommunicationTemplateRequest, request: Request) -> dict:
+    try:
+        return communications_persistence.create_template(_connection(request), payload.template_key, payload.version, payload.locale, payload.purpose, payload.body, payload.owner_id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communication-templates/{template_id}/publish")
+def publish_communication_template(template_id: str, payload: CommunicationTemplatePublishRequest, request: Request) -> dict:
+    try:
+        return communications_persistence.publish_template(_connection(request), template_id, payload.publisher_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
@@ -192,7 +266,7 @@ def accept_communication_candidate(candidate_id: str, payload: CandidateAcceptRe
         return communications_service.accept_candidate(
             _connection(request), candidate_id, payload.reviewer_id, payload.signal_template_id,
             payload.signal_template_version, payload.exception_owner_id, payload.exception_fallback_owner_id,
-            payload.severity,
+            payload.severity, payload.signal_values, payload.evidence_artifact_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
