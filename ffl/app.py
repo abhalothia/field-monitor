@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from ffl.api.import_routes import router as import_router
 from ffl.api.routes import router
 from ffl.api.season_routes import router as season_router
+from ffl.api.trial_routes import router as trial_router
 from ffl.config import FFL_DATABASE_PATH
 from ffl.persistence.schema import create_schema
 
@@ -52,6 +53,7 @@ def create_app(database_path: Optional[str] = None) -> FastAPI:
     app.include_router(router)
     app.include_router(season_router)
     app.include_router(import_router)
+    app.include_router(trial_router)
     return app
 
 

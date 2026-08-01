@@ -1,8 +1,4 @@
-"""HTTP boundary for governed FFL trials and playbooks.
-
-The router is intentionally unmounted here.  It is integrated only after its
-service contract is reviewed with the other V1 routes.
-"""
+"""HTTP boundary for governed FFL trials and playbooks."""
 
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional
