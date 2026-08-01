@@ -152,8 +152,6 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     @app.middleware("http")
     async def launch_access_gate(request: Request, call_next):
         password = app.state.launch_password
-        if not password:
-            return await call_next(request)
         path = request.url.path
         webhook = path == "/api/v1/communications/loopmessage/webhook" and request.method == "POST"
         public_paths = {
@@ -166,6 +164,17 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             "/api/v1/launch/login",
             "/api/v1/launch/logout",
         }
+        if not password:
+            # A local disposable preview may intentionally omit access setup.
+            # A Vercel URL must never turn that omission into an open operating
+            # surface: leave only the data-free share shell and static branding
+            # available until its encrypted launch secret is configured.
+            if os.environ.get("VERCEL") and not (path in public_paths or path.startswith("/static/")):
+                return JSONResponse(
+                    {"detail": "Fortune pilot access is not configured"},
+                    status_code=503,
+                )
+            return await call_next(request)
         if path in public_paths or path.startswith("/static/") or webhook:
             return await call_next(request)
         if request.session.get(SESSION_FLAG) is True:
