@@ -758,7 +758,7 @@ def create_source_registry(
     authority_level: str, owner_id: str, permitted_data_classes: Any, schema_version: str,
     mapping_version: str, default_coverage: Any, credentials_reference: Optional[str] = None,
     endpoint: Optional[str] = None, freshness_target_hours: Optional[float] = None,
-    license_notes: Optional[str] = None, enabled: bool = False,
+    license_notes: Optional[str] = None, enabled: bool = False, commit: bool = True,
 ) -> SourceRegistry:
     _validate_credentials_reference(credentials_reference)
     identifier, created_at = _new_identity()
@@ -769,7 +769,8 @@ def create_source_registry(
              credentials_reference, endpoint, _json_value(permitted_data_classes), freshness_target_hours,
              license_notes, schema_version, mapping_version, _json_value(default_coverage), int(enabled), created_at),
         )
-        conn.commit()
+        if commit:
+            conn.commit()
     except sqlite3.IntegrityError:
         conn.rollback()
         existing = get_source_registry_by_key(conn, source_key)
@@ -858,6 +859,12 @@ def get_regional_signal(conn: sqlite3.Connection, regional_signal_id: str) -> Op
 def list_regional_signals(conn: sqlite3.Connection, region: str) -> List[RegionalSignal]:
     return [_regional_signal(row) for row in conn.execute(
         "SELECT * FROM regional_signals WHERE region = ? ORDER BY observed_at, created_at", (region,)
+    ).fetchall()]
+
+
+def list_regional_signals_by_source(conn: sqlite3.Connection, source_id: str) -> List[RegionalSignal]:
+    return [_regional_signal(row) for row in conn.execute(
+        "SELECT * FROM regional_signals WHERE source_id = ? ORDER BY observed_at, created_at", (source_id,)
     ).fetchall()]
 
 

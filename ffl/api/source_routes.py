@@ -53,6 +53,14 @@ def get_india_source_candidates() -> List[dict]:
     return sources.india_source_candidates()
 
 
+@router.get("/regional-context")
+def get_regional_context(region: str, request: Request) -> dict:
+    try:
+        return sources.regional_context(_connection(request), region)
+    except ValueError as error:
+        raise _unprocessable(error)
+
+
 @router.post("/sources", status_code=status.HTTP_201_CREATED)
 def create_source(payload: SourceRegistrationRequest, request: Request, response: Response) -> dict:
     try:

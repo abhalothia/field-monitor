@@ -14,10 +14,11 @@ import math
 import os
 import re
 import sqlite3
+import threading
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
 from urllib.parse import urlparse
 
-from ffl.domain.models import SourceRegistry, SourceRun
+from ffl.domain.models import RegionalSignal, SourceRegistry, SourceRun
 from ffl.persistence import repository
 
 
@@ -31,6 +32,7 @@ _PROHIBITED_COVERAGE_KEYS = {"latitude", "longitude", "coordinates", "geometry",
 _SIGNAL_KINDS = {
     "observation", "forecast", "human_assessment", "model_inference", "aggregate_statistic",
 }
+_SOURCE_REGISTRY_LOCK = threading.RLock()
 
 
 # These are discovery/onboarding candidates, not pre-enabled sources.  IMD's
@@ -339,17 +341,33 @@ def register_source(
         display_name, source_type, purpose, authority_level, owner_id, data_classes, schema_version,
         mapping_version, coverage, credentials_reference, endpoint, freshness_target_hours, license_notes, enabled,
     )
-    existing = repository.get_source_registry_by_key(conn, source_key)
-    if existing is not None:
-        if _source_fields(existing) != requested:
-            raise ValueError("source_key is already registered with a different configuration")
-        return existing
-    return repository.create_source_registry(
-        conn, source_key, display_name, source_type, purpose, authority_level, owner_id, data_classes,
-        schema_version, mapping_version, coverage, credentials_reference=credentials_reference,
-        endpoint=endpoint, freshness_target_hours=freshness_target_hours, license_notes=license_notes,
-        enabled=enabled,
-    )
+    # SQLite serialises competing writers across processes with BEGIN
+    # IMMEDIATE; the process lock also protects the shared pilot connection.
+    # This makes "check then insert" a single registration decision rather
+    # than treating a conflicting concurrent configuration as an idempotent
+    # retry.
+    with _SOURCE_REGISTRY_LOCK:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = repository.get_source_registry_by_key(conn, source_key)
+            if existing is not None:
+                if _source_fields(existing) != requested:
+                    raise ValueError("source_key is already registered with a different configuration")
+                conn.commit()
+                return existing
+            stored = repository.create_source_registry(
+                conn, source_key, display_name, source_type, purpose, authority_level, owner_id, data_classes,
+                schema_version, mapping_version, coverage, credentials_reference=credentials_reference,
+                endpoint=endpoint, freshness_target_hours=freshness_target_hours, license_notes=license_notes,
+                enabled=enabled, commit=False,
+            )
+            if _source_fields(stored) != requested:
+                raise ValueError("source_key is already registered with a different configuration")
+            conn.commit()
+            return stored
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def _credential_for(reference: Optional[str], resolver: Optional[Callable[[str], Optional[str]]]) -> Optional[str]:
@@ -503,23 +521,67 @@ def _coverage_dimensions(coverage: Any) -> List[str]:
 
 
 def _latest_successful_run(runs: Sequence[SourceRun]) -> Optional[SourceRun]:
-    successful = [run for run in runs if run.status == "succeeded" and run.fetched_at]
+    successful = []
+    for run in runs:
+        if run.status != "succeeded" or not run.fetched_at:
+            continue
+        try:
+            _parse_time(run.fetched_at, "fetched_at")
+        except ValueError:
+            continue
+        successful.append(run)
     if not successful:
         return None
     return max(successful, key=lambda run: _parse_time(run.fetched_at or "", "fetched_at"))
 
 
-def _freshness_state(source: SourceRegistry, runs: Sequence[SourceRun], now: datetime) -> str:
+def _signal_freshness_target(signal: RegionalSignal, source: SourceRegistry) -> Optional[float]:
+    return signal.freshness_target_hours if signal.freshness_target_hours is not None else source.freshness_target_hours
+
+
+def _is_effective_signal(signal: RegionalSignal, source: SourceRegistry, now: datetime) -> bool:
+    """A fetched row is usable only while its declared context is current."""
+    if signal.status != "available":
+        return False
+    try:
+        observed_at = _parse_time(signal.observed_at, "observed_at")
+        received_at = _parse_time(signal.received_at, "received_at")
+        if signal.valid_from and _parse_time(signal.valid_from, "valid_from") > now:
+            return False
+        if signal.valid_to and _parse_time(signal.valid_to, "valid_to") <= now:
+            return False
+    except ValueError:
+        return False
+    freshness_target = _signal_freshness_target(signal, source)
+    if freshness_target is not None:
+        # Zero is allowed in storage as an explicit disablement, never as a
+        # claim that a context fact is fresh at the instant it was fetched.
+        if freshness_target <= 0:
+            return False
+        if (now - min(observed_at, received_at)).total_seconds() / 3600 > freshness_target:
+            return False
+    return True
+
+
+def _freshness_state(
+    source: SourceRegistry, runs: Sequence[SourceRun], signals: Sequence[RegionalSignal], now: datetime
+) -> str:
     latest = _latest_successful_run(runs)
     if latest is None:
         return "unknown"
-    if source.freshness_target_hours is None:
+    if source.freshness_target_hours is None or source.freshness_target_hours <= 0:
         return "not_configured"
     age_hours = (now - _parse_time(latest.fetched_at or "", "fetched_at")).total_seconds() / 3600
-    return "fresh" if age_hours <= source.freshness_target_hours else "stale"
+    if age_hours > source.freshness_target_hours:
+        return "stale"
+    if not any(_is_effective_signal(signal, source, now) for signal in signals):
+        return "no_effective_signals"
+    return "fresh"
 
 
-def _health_state(source: SourceRegistry, runs: Sequence[SourceRun], now: datetime) -> str:
+def _health_state(
+    source: SourceRegistry, runs: Sequence[SourceRun], signals: Sequence[RegionalSignal], now: datetime
+) -> str:
     if not source.enabled:
         return "disabled"
     if not runs:
@@ -527,7 +589,8 @@ def _health_state(source: SourceRegistry, runs: Sequence[SourceRun], now: dateti
     latest = runs[-1]
     if latest.status in {"failed", "unavailable", "quarantined", "pending"}:
         return latest.status
-    return "stale" if _freshness_state(source, runs, now) == "stale" else "healthy"
+    freshness = _freshness_state(source, runs, signals, now)
+    return "healthy" if freshness == "fresh" else freshness
 
 
 def _run_summary(run: SourceRun) -> Dict[str, Any]:
@@ -561,6 +624,7 @@ def source_status(
         current_time = current_time.replace(tzinfo=timezone.utc)
     current_time = current_time.astimezone(timezone.utc)
     runs = repository.list_source_runs(conn, source.id)
+    signals = repository.list_regional_signals_by_source(conn, source.id)
     latest = runs[-1] if runs else None
     signal_counts = conn.execute(
         "SELECT status, COUNT(*) AS count FROM regional_signals WHERE source_id = ? GROUP BY status", (source.id,)
@@ -581,9 +645,12 @@ def source_status(
             "endpoint_configured": source.endpoint is not None,
             "credentials_reference_configured": source.credentials_reference is not None,
         },
-        "health": _health_state(source, runs, current_time),
-        "freshness": _freshness_state(source, runs, current_time),
+        "health": _health_state(source, runs, signals, current_time),
+        "freshness": _freshness_state(source, runs, signals, current_time),
         "latest_run": _run_summary(latest) if latest else None,
+        "effective_regional_signal_count": sum(
+            1 for signal in signals if _is_effective_signal(signal, source, current_time)
+        ),
         "regional_signal_counts": {row["status"]: row["count"] for row in signal_counts},
     }
 
@@ -604,6 +671,53 @@ def list_source_run_summaries(conn: sqlite3.Connection, source_key: str) -> List
     if source is None:
         raise LookupError("source not found")
     return [_run_summary(run) for run in repository.list_source_runs(conn, source.id)]
+
+
+def _regional_context_signal(signal: RegionalSignal, source: SourceRegistry, now: datetime) -> Dict[str, Any]:
+    """Expose the normalised regional fact and provenance, never transport data."""
+    return {
+        "id": signal.id,
+        "region": signal.region,
+        "signal_type": signal.signal_type,
+        "signal_kind": signal.signal_kind,
+        "value": signal.value,
+        "status": signal.status,
+        "effective": _is_effective_signal(signal, source, now),
+        "observed_at": signal.observed_at,
+        "received_at": signal.received_at,
+        "valid_from": signal.valid_from,
+        "valid_to": signal.valid_to,
+        "resolution": signal.resolution,
+        "freshness_target_hours": signal.freshness_target_hours,
+        "coverage_dimensions": _coverage_dimensions(signal.coverage),
+        "provenance": {
+            "source_key": source.source_key,
+            "source_display_name": source.display_name,
+            "authority_level": source.authority_level,
+            "source_run_id": signal.source_run_id,
+            "source_identifier": signal.source_identifier,
+            "mapping_version": source.mapping_version,
+        },
+    }
+
+
+def regional_context(conn: sqlite3.Connection, region: str, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Return persisted, normalised source context for one named region."""
+    region = _require_text(region, "region")
+    current_time = now or _now()
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    current_time = current_time.astimezone(timezone.utc)
+    source_by_id = {source.id: source for source in repository.list_source_registry(conn)}
+    signals = []
+    for signal in repository.list_regional_signals(conn, region):
+        source = source_by_id.get(signal.source_id)
+        if source is None:
+            # The foreign key normally makes this impossible.  Avoid exposing
+            # an orphaned legacy record if a database was repaired manually.
+            continue
+        signals.append(_regional_context_signal(signal, source, current_time))
+    return {"region": region, "as_of": _iso(current_time), "signals": signals}
 
 
 def india_source_candidates() -> List[Dict[str, Any]]:
