@@ -21,7 +21,7 @@ CALENDAR_WINDOW_DAYS = 14
 _SIGNAL_STATUSES = {"draft", "submitted"}
 _HARVEST_STATUSES = {"preliminary", "final"}
 _REVIEW_STATUSES = {"draft", "reviewed", "published"}
-_TERMINAL_WORK_STATUSES = {"accepted", "rejected"}
+_TERMINAL_WORK_STATUSES = {"accepted", "cancelled", "rejected"}
 _LINKED_ENTITY_TABLES = {
     "evidence_artifact": "evidence_artifacts",
     "field_signal": "field_signals",
@@ -104,6 +104,8 @@ def _get_template(conn: sqlite3.Connection, template_id: str, template_version: 
 def _calendar_timing_state(
     due_at: str, item_status: str, now: datetime, terminal_statuses: Iterable[str]
 ) -> str:
+    if item_status == "cancelled":
+        return "cancelled"
     if item_status in {"skipped", "superseded", "rejected"}:
         return "stale"
     if item_status in set(terminal_statuses):
@@ -125,7 +127,10 @@ def allocation_calendar(
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     now = now.astimezone(timezone.utc)
-    checkpoints = repository.list_crop_stage_checkpoints(conn, allocation_id)
+    checkpoints = sorted(
+        repository.list_crop_stage_checkpoints(conn, allocation_id),
+        key=lambda item: _parse_schedule_time(item.planned_for, "planned_for"),
+    )
     work_items = sorted(
         repository.list_work_items(conn, allocation_id),
         key=lambda item: _parse_schedule_time(item.due_at, "due_at"),
@@ -209,7 +214,7 @@ def record_harvest(
     conn: sqlite3.Connection, allocation_id: str, harvest_starts_on: str, quantity: float,
     canonical_unit: str, measurement_method: str, quality_metrics: Any,
     harvest_ends_on: Optional[str] = None, evidence_artifact_id: Optional[str] = None,
-    status: str = "preliminary", correction_of_id: Optional[str] = None,
+    status: Optional[str] = None, correction_of_id: Optional[str] = None,
     corrected_by_person_id: Optional[str] = None, correction_reason: Optional[str] = None,
 ):
     """Append an output record or an accountable linked correction."""
@@ -232,6 +237,8 @@ def record_harvest(
     _require_evidence(conn, evidence_artifact_id)
 
     if correction_of_id is not None:
+        if status not in (None, "corrected"):
+            raise ValueError("harvest correction status must be corrected")
         _nonempty_text(correction_of_id, "correction_of_id")
         _require_person(conn, corrected_by_person_id or "", "corrected_by_person_id")
         _nonempty_text(correction_reason or "", "correction_reason")
@@ -240,6 +247,8 @@ def record_harvest(
             raise ValueError("prior harvest record does not exist")
         if prior.allocation_id != allocation_id:
             raise ValueError("harvest correction must use the predecessor allocation")
+        if prior.status != "final":
+            raise ValueError("harvest corrections require a final predecessor record")
         return repository.create_harvest_correction(
             conn, correction_of_id, corrected_by_person_id or "", correction_reason or "", float(quantity),
             quality_metrics, harvest_starts_on=harvest_starts_on, harvest_ends_on=harvest_ends_on,
@@ -249,6 +258,8 @@ def record_harvest(
 
     if corrected_by_person_id is not None or correction_reason is not None:
         raise ValueError("correction actor and reason require correction_of_id")
+    if status is None:
+        status = "preliminary"
     if status not in _HARVEST_STATUSES:
         raise ValueError("harvest record status must be preliminary or final")
     return repository.create_harvest_record(
@@ -284,10 +295,15 @@ def _validate_review_entries(
 ) -> List[Dict[str, Any]]:
     if not isinstance(entries, list):
         raise ValueError("{0} must be a list of structured entries".format(category))
+    if not entries:
+        raise ValueError("{0} must contain at least one structured entry".format(category))
     validated = []
     for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError("{0} entries must be objects".format(category))
+        statement = entry.get("statement")
+        if not isinstance(statement, str) or not statement.strip():
+            raise ValueError("{0} entries require a non-empty statement".format(category))
         links = entry.get("evidence_links")
         if not isinstance(links, list) or not links:
             raise ValueError("{0} entries require non-empty evidence_links".format(category))

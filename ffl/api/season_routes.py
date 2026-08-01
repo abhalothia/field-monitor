@@ -30,7 +30,7 @@ class HarvestRecordRequest(BaseModel):
     quality_metrics: Any = Field(default_factory=dict)
     harvest_ends_on: Optional[str] = None
     evidence_artifact_id: Optional[str] = None
-    status: str = "preliminary"
+    status: Optional[str] = None
     correction_of_id: Optional[str] = None
     corrected_by_person_id: Optional[str] = None
     correction_reason: Optional[str] = None
