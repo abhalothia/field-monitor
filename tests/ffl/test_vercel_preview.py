@@ -5,10 +5,12 @@ from pathlib import Path
 import ffl.config as config
 from api.index import app as vercel_app
 from ffl.app import app as ffl_app
+from index import app as root_vercel_app
 
 
 def test_vercel_entrypoint_exports_the_existing_ffl_app():
     assert vercel_app is ffl_app
+    assert root_vercel_app is ffl_app
 
 
 def test_vercel_uses_ephemeral_database_unless_explicitly_overridden(monkeypatch):
@@ -33,6 +35,7 @@ def test_vercel_function_bundle_includes_runtime_static_assets_and_postgres_cont
     project_root = Path(__file__).resolve().parents[2]
     config_payload = json.loads((project_root / "vercel.json").read_text(encoding="utf-8"))
 
-    assert config_payload["functions"]["api/index.py"]["includeFiles"] == (
+    assert config_payload["functions"]["index.py"]["includeFiles"] == (
         "{ffl/static/**,db/postgres/0001_agro_private_schema.sql}"
     )
+    assert "rewrites" not in config_payload
