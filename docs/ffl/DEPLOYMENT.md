@@ -11,6 +11,7 @@ The V0 application currently uses a local SQLite file. Vercel supports FastAPI f
 - The Vercel connector is authenticated; it can be used to deploy without placing a raw token in this repository.
 - The connected teams have no existing Vercel project for this codebase. A new preview project will be created only after the reviewed field and manager surfaces are integrated.
 - No Vercel token is printed, copied into `.env`, committed, or exposed in logs. Connector authentication is sufficient for deployment; a raw personal token is neither needed nor appropriate to retrieve.
+- The preview adapter writes only to disposable `/tmp/ffl.db`; it is never a real-data or authoritative FFL record.
 
 ## Target topology
 
