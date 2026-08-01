@@ -13,6 +13,8 @@ from ffl.api.routes import router
 from ffl.api.season_routes import router as season_router
 from ffl.api.source_routes import router as source_router
 from ffl.api.trial_routes import router as trial_router
+from ffl.communications.loopmessage import LoopMessageProvider
+from ffl.communications.persistence import create_communications_schema
 from ffl.config import FFL_DATABASE_PATH
 from ffl.persistence.schema import create_schema
 
@@ -30,7 +32,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.state.database_path = database_path or FFL_DATABASE_PATH
@@ -39,6 +41,8 @@ def create_app(database_path: Optional[str] = None) -> FastAPI:
     app.state.conn.row_factory = sqlite3.Row
     app.state.conn.execute("PRAGMA foreign_keys = ON")
     create_schema(app.state.conn)
+    create_communications_schema(app.state.conn)
+    app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
 
     @app.get("/health")
     def health() -> dict:

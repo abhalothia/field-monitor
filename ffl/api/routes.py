@@ -1,9 +1,14 @@
 from dataclasses import asdict
 
+import json
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from ffl.persistence import repository
+from ffl.communications import persistence as communications_persistence
+from ffl.communications import service as communications_service
 from ffl.services import operations
 
 
@@ -26,8 +31,31 @@ class ExceptionCreateRequest(BaseModel):
     idempotency_key: str
 
 
+class CommunicationPromptRequest(BaseModel):
+    endpoint_id: str
+    template_id: str
+    initiated_by_person_id: str
+
+
+class CandidateAcceptRequest(BaseModel):
+    reviewer_id: str
+    signal_template_id: Optional[str] = None
+    signal_template_version: Optional[int] = None
+    exception_owner_id: Optional[str] = None
+    exception_fallback_owner_id: Optional[str] = None
+    severity: str = "medium"
+
+
+class CandidateRejectRequest(BaseModel):
+    reviewer_id: str
+
+
 def _connection(request: Request):
     return request.app.state.conn
+
+
+def _communication_provider(request: Request):
+    return request.app.state.communication_provider
 
 
 def _runtime_rows(conn, table: str, where: str = "", params: tuple = ()) -> list[dict]:
@@ -122,3 +150,57 @@ def transition_exception(exception_id: str, payload: TransitionRequest, request:
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     return asdict(exception)
+
+
+@router.post("/work-items/{work_item_id}/communication-prompts", status_code=status.HTTP_201_CREATED)
+def create_communication_prompt(work_item_id: str, payload: CommunicationPromptRequest, request: Request) -> dict:
+    try:
+        return communications_service.send_work_prompt(
+            _connection(request), _communication_provider(request), work_item_id, payload.endpoint_id,
+            payload.template_id, payload.initiated_by_person_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communications/loopmessage/webhook")
+async def loopmessage_webhook(request: Request) -> dict:
+    provider = _communication_provider(request)
+    if not provider.verify_webhook(request.headers.get("authorization")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid LoopMessage webhook authorization")
+    try:
+        payload = json.loads((await request.body()).decode("utf-8"))
+        event, created = communications_service.receive_webhook(_connection(request), provider, payload)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+    return {"status": "accepted" if created else "duplicate", "event_id": event["id"], "candidate_id": event.get("candidate_id")}
+
+
+@router.get("/communications/inbox")
+def communications_inbox(request: Request) -> dict:
+    return {"candidates": communications_persistence.inbox(_connection(request))}
+
+
+@router.get("/communications/health")
+def communications_health(request: Request) -> dict:
+    return communications_persistence.health(_connection(request))
+
+
+@router.post("/communications/candidates/{candidate_id}/accept")
+def accept_communication_candidate(candidate_id: str, payload: CandidateAcceptRequest, request: Request) -> dict:
+    try:
+        return communications_service.accept_candidate(
+            _connection(request), candidate_id, payload.reviewer_id, payload.signal_template_id,
+            payload.signal_template_version, payload.exception_owner_id, payload.exception_fallback_owner_id,
+            payload.severity,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.post("/communications/candidates/{candidate_id}/reject")
+def reject_communication_candidate(candidate_id: str, payload: CandidateRejectRequest, request: Request) -> dict:
+    try:
+        return communications_service.reject_candidate(_connection(request), candidate_id, payload.reviewer_id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
