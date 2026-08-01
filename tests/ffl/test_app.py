@@ -10,3 +10,15 @@ def test_health_endpoint_reports_ffl_service():
 
     assert response.status_code == 200
     assert response.json() == {"service": "ffl-operating-kernel", "status": "ok"}
+
+
+def test_v1_season_and_evidence_routes_are_mounted_on_the_operating_app():
+    client = TestClient(create_app())
+
+    evidence = client.post(
+        "/api/v1/evidence", json={"content_base64": "not base64", "media_type": "text/plain"}
+    )
+    calendar = client.get("/api/v1/allocations/not-a-real-allocation/calendar")
+
+    assert evidence.status_code == 422
+    assert calendar.status_code == 422

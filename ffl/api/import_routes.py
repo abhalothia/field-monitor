@@ -1,8 +1,4 @@
-"""Evidence and CSV import endpoints.
-
-This router is intentionally not mounted by ``ffl.app`` until the V1 integration
-phase chooses the authenticated manager surface that owns it.
-"""
+"""Evidence and CSV import endpoints for the FFL operating application."""
 
 import base64
 from dataclasses import asdict
