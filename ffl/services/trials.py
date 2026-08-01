@@ -377,10 +377,15 @@ def transition_trial_allocation(
     return repository.get_trial_allocation(conn, allocation.id)  # type: ignore[return-value]
 
 
-def _enrolled_arms(conn: sqlite3.Connection, trial_id: str) -> set:
+def _enrolled_arms(conn: sqlite3.Connection, trial: Trial) -> set:
     rows = conn.execute(
-        "SELECT DISTINCT arm FROM trial_allocations WHERE trial_id = ? AND status = 'enrolled'", (trial_id,)
+        "SELECT allocation_id, arm FROM trial_allocations WHERE trial_id = ? AND status = 'enrolled'", (trial.id,)
     ).fetchall()
+    # Eligibility is a live operating constraint, not merely an enrolment-time
+    # assertion.  A member that later becomes inactive or no longer belongs to
+    # the declared farm/season/crop cohort blocks activation.
+    for row in rows:
+        _require_trial_allocation(conn, trial, row["allocation_id"], require_not_member=False)
     return {row["arm"] for row in rows}
 
 
@@ -393,7 +398,7 @@ def transition_trial(
     reason = _nonempty(reason, "reason")
     if target_status == "active":
         _require_owner_or_manager(conn, actor_id, trial.owner_id, "trial activation")
-        if _enrolled_arms(conn, trial.id) != {"treatment", "comparator"}:
+        if _enrolled_arms(conn, trial) != {"treatment", "comparator"}:
             raise ValueError("trial activation requires enrolled treatment and comparator allocations")
     else:
         _require_owner_or_manager(conn, actor_id, trial.owner_id, "trial transition")

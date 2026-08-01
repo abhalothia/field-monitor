@@ -426,7 +426,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """INSERT INTO trial_allocations
                    (id, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at)
-                   SELECT id, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at
+                   SELECT id, trial_id, allocation_id, arm, status,
+                          CASE WHEN status = 'eligible' THEN NULL ELSE enrolled_at END,
+                          withdrawn_at, reason, created_at
                    FROM trial_allocations_legacy"""
             )
             conn.execute("DROP TABLE trial_allocations_legacy")

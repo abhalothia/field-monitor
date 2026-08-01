@@ -203,6 +203,27 @@ def test_eligible_allocation_has_no_enrolment_time_until_explicit_enrolment(ffl_
     assert enrolled.enrolled_at is not None
 
 
+def test_activation_rechecks_live_eligibility_for_every_enrolled_allocation(ffl_db, users):
+    context = _trial_context(ffl_db, users)
+    treatment = trials.add_trial_allocation(
+        ffl_db, context.trial.id, context.treatment.id, "treatment", users.lead.id
+    )
+    comparator = trials.add_trial_allocation(
+        ffl_db, context.trial.id, context.comparator.id, "comparator", users.lead.id
+    )
+    trials.transition_trial_allocation(
+        ffl_db, context.trial.id, treatment.id, "enrolled", users.lead.id, "eligible"
+    )
+    trials.transition_trial_allocation(
+        ffl_db, context.trial.id, comparator.id, "enrolled", users.lead.id, "eligible"
+    )
+    ffl_db.execute("UPDATE crop_allocations SET status = 'inactive' WHERE id = ?", (context.treatment.id,))
+    ffl_db.commit()
+
+    with pytest.raises(ValueError, match="only active"):
+        trials.transition_trial(ffl_db, context.trial.id, "active", users.lead.id, "start")
+
+
 def test_schema_migrates_legacy_non_null_trial_enrolment_timestamp():
     conn = sqlite3.connect(":memory:")
     conn.execute(
@@ -212,10 +233,18 @@ def test_schema_migrates_legacy_non_null_trial_enrolment_timestamp():
             UNIQUE (trial_id, allocation_id)
         )"""
     )
+    conn.execute(
+        """INSERT INTO trial_allocations
+           VALUES ('legacy-eligible', 'legacy-trial', 'legacy-allocation', 'treatment', 'eligible',
+                   '2026-08-01T00:00:00+00:00', NULL, NULL, '2026-08-01T00:00:00+00:00')"""
+    )
     create_schema(conn)
 
     enrolled_at = next(row for row in conn.execute("PRAGMA table_info(trial_allocations)") if row[1] == "enrolled_at")
     assert enrolled_at[3] == 0
+    assert conn.execute(
+        "SELECT enrolled_at FROM trial_allocations WHERE id = 'legacy-eligible'"
+    ).fetchone()[0] is None
     conn.close()
 
 
