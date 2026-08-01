@@ -21,7 +21,7 @@ CALENDAR_WINDOW_DAYS = 14
 _SIGNAL_STATUSES = {"draft", "submitted"}
 _HARVEST_STATUSES = {"preliminary", "final"}
 _REVIEW_STATUSES = {"draft", "reviewed", "published"}
-_TERMINAL_WORK_STATUSES = {"accepted", "cancelled", "rejected"}
+_TERMINAL_WORK_STATUSES = {"accepted", "cancelled"}
 _LINKED_ENTITY_TABLES = {
     "evidence_artifact": "evidence_artifacts",
     "field_signal": "field_signals",
@@ -106,7 +106,7 @@ def _calendar_timing_state(
 ) -> str:
     if item_status == "cancelled":
         return "cancelled"
-    if item_status in {"skipped", "superseded", "rejected"}:
+    if item_status in {"skipped", "superseded"}:
         return "stale"
     if item_status in set(terminal_statuses):
         return "complete"

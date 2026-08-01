@@ -10,7 +10,7 @@ import pytest
 from ffl.api.season_routes import router as season_router
 from ffl.persistence import repository
 from ffl.persistence.schema import create_schema
-from ffl.services import season
+from ffl.services import operations, season
 
 
 def _published_template(conn, owner):
@@ -137,6 +137,23 @@ def test_calendar_treats_cancelled_work_as_distinct_terminal_state(ffl_db, crop_
 
     assert calendar["work_items"][0]["id"] == cancelled.id
     assert calendar["work_items"][0]["timing_state"] == "cancelled"
+
+
+def test_calendar_surfaces_rejected_work_for_rework(ffl_db, crop_allocation, users):
+    rejected = repository.create_work_item(
+        ffl_db, crop_allocation.id, "Rework field evidence", users.manager.id,
+        "2026-08-01T09:00:00+00:00", initial_status="submitted",
+    )
+    operations.transition_work_item(
+        ffl_db, rejected.id, "rejected", users.manager.id, "Photo does not identify the block"
+    )
+
+    calendar = season.allocation_calendar(
+        ffl_db, crop_allocation.id, as_of=datetime(2026, 8, 5, tzinfo=timezone.utc)
+    )
+
+    assert calendar["work_items"][0]["status"] == "rejected"
+    assert calendar["work_items"][0]["timing_state"] == "overdue"
 
 
 def test_harvest_correction_preserves_original_and_accounts_for_actor_and_reason(
