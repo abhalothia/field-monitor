@@ -45,6 +45,7 @@ _REVIEWER_ROLES = {"agronomist", "operations_lead"}
 _TRIAL_MANAGER_ROLES = _REVIEWER_ROLES | {"farm_manager"}
 _PLAYBOOK_DECISIONS = {"none", "create", "revise", "promote", "retire"}
 _CLAIM_TYPES = {"descriptive", "associative", "causal"}
+_ELIGIBILITY_KEYS = {"operating_unit_ids", "season_ids", "crop_names", "allocation_statuses"}
 
 
 def _now() -> str:
@@ -105,10 +106,29 @@ def _require_role(person: Person, allowed_roles: set, purpose: str) -> None:
 
 
 def _require_owner_or_manager(conn: sqlite3.Connection, actor_id: str, owner_id: str, purpose: str) -> Person:
+    _require_accountable_trial_owner(conn, owner_id)
     actor = _person(conn, actor_id, "actor_id")
     if actor.id != owner_id and actor.role not in _TRIAL_MANAGER_ROLES:
         raise ValueError("{0} must be performed by the accountable owner or an authorised manager".format(purpose))
     return actor
+
+
+def _require_owner_or_operational_manager(
+    conn: sqlite3.Connection, actor_id: str, owner_id: str, purpose: str
+) -> Person:
+    actor = _person(conn, actor_id, "actor_id")
+    if actor.id != owner_id and actor.role not in _TRIAL_MANAGER_ROLES:
+        raise ValueError("{0} must be performed by the accountable owner or an authorised manager".format(purpose))
+    return actor
+
+
+def _require_accountable_trial_owner(conn: sqlite3.Connection, owner_id: str) -> Person:
+    owner = _person(conn, owner_id, "owner_id")
+    if owner.role not in _TRIAL_MANAGER_ROLES:
+        raise ValueError(
+            "trial owner must be an agronomist, operations lead, or authorised farm manager"
+        )
+    return owner
 
 
 def _require_owner(conn: sqlite3.Connection, actor_id: str, owner_id: str, purpose: str) -> Person:
@@ -196,7 +216,7 @@ def transition_playbook(
             effective_from = playbook.effective_from
         _parse_time(effective_from or "", "effective_from")
     elif target_status == "retired":
-        _require_owner_or_manager(conn, actor_id, playbook.owner_id, "playbook retirement")
+        _require_owner_or_operational_manager(conn, actor_id, playbook.owner_id, "playbook retirement")
         _supporting_conclusion(conn, supporting_conclusion_id, playbook.id, "retire")
 
     approved_at = _now() if target_status == "published" else playbook.approved_at
@@ -218,19 +238,52 @@ def _validate_trial_protocol(
 ) -> None:
     _require_object(treatment, "treatment")
     _require_object(comparator, "comparator")
-    _require_object(eligibility_rule, "eligibility_rule")
+    _validate_eligibility_rule(eligibility_rule)
     measurement_items = _require_list(measurements, "measurements")
     guardrail_items = _require_list(guardrails, "guardrails")
+    outcomes = set()
     for item in measurement_items:
         if not isinstance(item, dict):
             raise ValueError("measurements entries must be objects")
         for key in ("outcome", "method", "cadence"):
             _nonempty(item.get(key), "measurements.{0}".format(key))
+        if item["outcome"] in outcomes:
+            raise ValueError("measurements cannot declare the same outcome twice")
+        outcomes.add(item["outcome"])
     for item in guardrail_items:
         if not isinstance(item, dict):
             raise ValueError("guardrails entries must be objects")
         for key in ("threshold", "action"):
             _nonempty(item.get(key), "guardrails.{0}".format(key))
+
+
+def _string_list(value: Any, field_name: str) -> List[str]:
+    values = _require_list(value, field_name)
+    normalized = [_nonempty(item, "{0} entry".format(field_name)) for item in values]
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("{0} cannot contain duplicates".format(field_name))
+    return normalized
+
+
+def _validate_eligibility_rule(value: Any) -> Dict[str, List[str]]:
+    """Validate the narrow, deterministic cohort contract used at enrolment.
+
+    A trial never enrols against a prose assertion such as "similar fields".
+    Every permitted operating unit, season, crop, and allocation state is
+    recorded as an explicit allow-list and re-evaluated at each enrolment.
+    """
+    rule = _require_object(value, "eligibility_rule")
+    missing = _ELIGIBILITY_KEYS - set(rule)
+    unexpected = set(rule) - _ELIGIBILITY_KEYS
+    if missing or unexpected:
+        message = "eligibility_rule must contain exactly {0}".format(
+            ", ".join(sorted(_ELIGIBILITY_KEYS))
+        )
+        raise ValueError(message)
+    normalized = {key: _string_list(rule[key], "eligibility_rule.{0}".format(key)) for key in _ELIGIBILITY_KEYS}
+    if "active" not in normalized["allocation_statuses"]:
+        raise ValueError("eligibility_rule.allocation_statuses must include active")
+    return normalized
 
 
 def create_trial(
@@ -243,7 +296,7 @@ def create_trial(
     hypothesis = _nonempty(hypothesis, "hypothesis")
     protocol_version = _nonempty(protocol_version, "protocol_version")
     decision_question = _nonempty(decision_question, "decision_question")
-    owner = _person(conn, owner_id, "owner_id")
+    owner = _require_accountable_trial_owner(conn, owner_id)
     _validate_trial_protocol(treatment, comparator, eligibility_rule, measurements, guardrails)
     return repository.create_trial(
         conn, name, hypothesis, owner.id, protocol_version, decision_question, treatment, comparator,
@@ -251,14 +304,29 @@ def create_trial(
     )
 
 
-def _require_trial_allocation(conn: sqlite3.Connection, trial_id: str, allocation_id: str) -> None:
-    if conn.execute("SELECT 1 FROM crop_allocations WHERE id = ?", (allocation_id,)).fetchone() is None:
+def _require_trial_allocation(
+    conn: sqlite3.Connection, trial: Trial, allocation_id: str, require_not_member: bool = True
+) -> None:
+    row = conn.execute("SELECT * FROM crop_allocations WHERE id = ?", (allocation_id,)).fetchone()
+    if row is None:
         raise ValueError("allocation_id does not exist")
-    existing = conn.execute(
-        "SELECT 1 FROM trial_allocations WHERE trial_id = ? AND allocation_id = ?", (trial_id, allocation_id)
-    ).fetchone()
-    if existing is not None:
-        raise ValueError("allocation is already part of this trial")
+    rule = _validate_eligibility_rule(trial.eligibility_rule)
+    if row["status"] != "active":
+        raise ValueError("only active crop allocations can enroll in a trial")
+    for rule_key, allocation_key in (
+        ("operating_unit_ids", "operating_unit_id"),
+        ("season_ids", "season_id"),
+        ("crop_names", "crop_name"),
+        ("allocation_statuses", "status"),
+    ):
+        if row[allocation_key] not in rule[rule_key]:
+            raise ValueError("allocation does not satisfy the trial eligibility rule")
+    if require_not_member:
+        existing = conn.execute(
+            "SELECT 1 FROM trial_allocations WHERE trial_id = ? AND allocation_id = ?", (trial.id, allocation_id)
+        ).fetchone()
+        if existing is not None:
+            raise ValueError("allocation is already part of this trial")
 
 
 def add_trial_allocation(
@@ -272,7 +340,7 @@ def add_trial_allocation(
     _require_owner_or_manager(conn, actor_id, trial.owner_id, "trial allocation")
     if arm not in {"treatment", "comparator"}:
         raise ValueError("arm must be treatment or comparator")
-    _require_trial_allocation(conn, trial.id, allocation_id)
+    _require_trial_allocation(conn, trial, allocation_id)
     allocation = repository.create_trial_allocation(
         conn, trial.id, allocation_id, arm, status="eligible"
     )
@@ -294,12 +362,16 @@ def transition_trial_allocation(
         raise ValueError("trial allocations can only change while the trial is draft or paused")
     _require_owner_or_manager(conn, actor_id, trial.owner_id, "trial allocation transition")
     reason = _nonempty(reason, "reason")
+    if target_status == "enrolled":
+        _require_trial_allocation(conn, trial, allocation.allocation_id, require_not_member=False)
     changed_at = _now()
-    withdrawn_at = changed_at if target_status in {"withdrawn", "excluded"} else None
+    enrolled_at = changed_at if target_status == "enrolled" else allocation.enrolled_at
+    withdrawn_at = changed_at if target_status == "withdrawn" else allocation.withdrawn_at
     with conn:
         conn.execute(
-            "UPDATE trial_allocations SET status = ?, withdrawn_at = ?, reason = ? WHERE id = ?",
-            (target_status, withdrawn_at, reason, allocation.id),
+            """UPDATE trial_allocations
+               SET status = ?, enrolled_at = ?, withdrawn_at = ?, reason = ? WHERE id = ?""",
+            (target_status, enrolled_at, withdrawn_at, reason, allocation.id),
         )
         _audit(conn, "trial_allocation", allocation.id, allocation.status, target_status, actor_id, reason)
     return repository.get_trial_allocation(conn, allocation.id)  # type: ignore[return-value]
@@ -381,20 +453,61 @@ def _validate_result(result: Any, trial: Trial, conn: sqlite3.Connection) -> Dic
         if not isinstance(context, dict):
             raise ValueError("causal conclusions require comparison_context")
         _nonempty(context.get("control_strategy"), "comparison_context.control_strategy")
-        treatment_ids = context.get("treatment_allocation_ids")
-        comparator_ids = context.get("comparator_allocation_ids")
-        if not isinstance(treatment_ids, list) or not treatment_ids or not isinstance(comparator_ids, list) or not comparator_ids:
+        treatment_ids = _string_list(context.get("treatment_allocation_ids"), "comparison_context.treatment_allocation_ids")
+        comparator_ids = _string_list(context.get("comparator_allocation_ids"), "comparison_context.comparator_allocation_ids")
+        if not treatment_ids or not comparator_ids:
             raise ValueError("causal conclusions require treatment and comparator allocation context")
-        enrolled = {
-            row["allocation_id"]: row["arm"] for row in conn.execute(
-                "SELECT allocation_id, arm FROM trial_allocations WHERE trial_id = ? AND status = 'enrolled'", (trial.id,)
-            ).fetchall()
-        }
-        if not set(treatment_ids).issubset({key for key, arm in enrolled.items() if arm == "treatment"}):
-            raise ValueError("causal conclusion treatment context must reference enrolled treatment allocations")
-        if not set(comparator_ids).issubset({key for key, arm in enrolled.items() if arm == "comparator"}):
-            raise ValueError("causal conclusion comparator context must reference enrolled comparator allocations")
+        participants = conn.execute(
+            "SELECT allocation_id, arm, status FROM trial_allocations WHERE trial_id = ?", (trial.id,)
+        ).fetchall()
+        if not participants or any(item["status"] != "enrolled" for item in participants):
+            raise ValueError(
+                "causal conclusions require the complete declared comparison cohort; withdrawn or omitted allocations force an associative claim"
+            )
+        enrolled_treatment = {item["allocation_id"] for item in participants if item["arm"] == "treatment"}
+        enrolled_comparator = {item["allocation_id"] for item in participants if item["arm"] == "comparator"}
+        if set(treatment_ids) != enrolled_treatment:
+            raise ValueError("causal conclusion treatment context must cover every enrolled treatment allocation")
+        if set(comparator_ids) != enrolled_comparator:
+            raise ValueError("causal conclusion comparator context must cover every enrolled comparator allocation")
+        _validate_causal_measurement_coverage(result.get("measurement_coverage"), trial, participants, conn)
     return result
+
+
+def _validate_causal_measurement_coverage(
+    coverage: Any, trial: Trial, participants: List[sqlite3.Row], conn: sqlite3.Connection
+) -> None:
+    """Require one attributable observation for every declared outcome/cohort member."""
+    records = _require_list(coverage, "measurement_coverage")
+    expected = {item["outcome"]: item["method"] for item in trial.measurements}
+    by_outcome = {}
+    participant_ids = {item["allocation_id"] for item in participants}
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("measurement_coverage entries must be objects")
+        outcome = _nonempty(record.get("outcome"), "measurement_coverage.outcome")
+        method = _nonempty(record.get("method"), "measurement_coverage.method")
+        if outcome in by_outcome:
+            raise ValueError("measurement_coverage cannot contain the same outcome twice")
+        if outcome not in expected or method != expected[outcome]:
+            raise ValueError("measurement_coverage must use each declared outcome and method")
+        observations = _require_list(record.get("observations"), "measurement_coverage.observations")
+        observed_ids = set()
+        for observation in observations:
+            if not isinstance(observation, dict):
+                raise ValueError("measurement coverage observations must be objects")
+            allocation_id = _nonempty(observation.get("allocation_id"), "measurement coverage allocation_id")
+            if allocation_id in observed_ids:
+                raise ValueError("measurement coverage cannot repeat an allocation")
+            observed_ids.add(allocation_id)
+            evidence_id = _nonempty(observation.get("evidence_artifact_id"), "measurement coverage evidence_artifact_id")
+            if repository.get_evidence_artifact(conn, evidence_id) is None:
+                raise ValueError("measurement coverage evidence_artifact_id does not exist")
+        if observed_ids != participant_ids:
+            raise ValueError("measurement coverage must include every declared comparison allocation")
+        by_outcome[outcome] = record
+    if set(by_outcome) != set(expected):
+        raise ValueError("measurement coverage must include every declared outcome")
 
 
 def create_trial_conclusion(

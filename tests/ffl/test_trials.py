@@ -20,7 +20,7 @@ def _protocol():
     }
 
 
-def _trial_payload(owner_id):
+def _trial_payload(owner_id, operating_unit_id="unit-id", season_id="season-id"):
     return {
         "name": "Irrigation interval pilot",
         "hypothesis": "A measured interval may reduce water use without reducing grade-A output.",
@@ -29,7 +29,12 @@ def _trial_payload(owner_id):
         "decision_question": "Whether to retain the interval for the next pilot season.",
         "treatment": {"interval_hours": 48},
         "comparator": {"interval_hours": 36},
-        "eligibility_rule": {"crop": "Rice", "same_season": True},
+        "eligibility_rule": {
+            "operating_unit_ids": [operating_unit_id],
+            "season_ids": [season_id],
+            "crop_names": ["Rice"],
+            "allocation_statuses": ["active"],
+        },
         "measurements": [{"outcome": "grade_a_output", "method": "weighbridge", "cadence": "harvest"}],
         "guardrails": [{"threshold": "wilting observed", "action": "pause and inspect"}],
     }
@@ -48,9 +53,9 @@ def _trial_context(ffl_db, users):
         ffl_db, unit.id, comparator_block.id, season.id, "Rice", None, 2.0
     )
     unrelated = repository.create_crop_allocation(
-        ffl_db, unit.id, unrelated_block.id, season.id, "Rice", None, 2.0
+        ffl_db, unit.id, unrelated_block.id, season.id, "Wheat", None, 2.0
     )
-    trial = trials.create_trial(ffl_db, **_trial_payload(users.lead.id))
+    trial = trials.create_trial(ffl_db, **_trial_payload(users.lead.id, unit.id, season.id))
     return SimpleNamespace(trial=trial, treatment=treatment, comparator=comparator, unrelated=unrelated)
 
 
@@ -77,7 +82,7 @@ def _evidence(ffl_db, owner_id):
     )
 
 
-def _causal_result(context):
+def _causal_result(context, evidence_artifact_id):
     return {
         "summary": "The observed output difference is conditional on the documented comparison.",
         "claim_type": "causal",
@@ -86,6 +91,14 @@ def _causal_result(context):
             "treatment_allocation_ids": [context.treatment.id],
             "comparator_allocation_ids": [context.comparator.id],
         },
+        "measurement_coverage": [{
+            "outcome": "grade_a_output",
+            "method": "weighbridge",
+            "observations": [
+                {"allocation_id": context.treatment.id, "evidence_artifact_id": evidence_artifact_id},
+                {"allocation_id": context.comparator.id, "evidence_artifact_id": evidence_artifact_id},
+            ],
+        }],
     }
 
 
@@ -106,6 +119,59 @@ def test_trial_requires_complete_protocol_and_both_enrolled_arms_before_activati
         trials.transition_trial(ffl_db, context.trial.id, "active", users.lead.id, "start")
 
 
+def test_trial_owner_and_eligibility_contract_protect_enrolment(ffl_db, users):
+    unit = repository.create_operating_unit(ffl_db, "Owner policy farm")
+    season = repository.create_season(ffl_db, unit.id, "Kharif 2026", "2026-06-01", "2026-11-30")
+    payload = _trial_payload(users.operator.id, unit.id, season.id)
+    with pytest.raises(ValueError, match="trial owner"):
+        trials.create_trial(ffl_db, **payload)
+
+    context = _trial_context(ffl_db, users)
+    unsafe_trial = repository.create_trial(
+        ffl_db, "Unsafe owner", "Do not use", users.operator.id, "v1", "Never activate",
+        {"rate": 1}, {"rate": 0}, context.trial.eligibility_rule,
+        [{"outcome": "grade_a_output", "method": "weighbridge", "cadence": "harvest"}],
+        [{"threshold": "any deviation", "action": "stop"}],
+    )
+    with pytest.raises(ValueError, match="trial owner"):
+        trials.add_trial_allocation(
+            ffl_db, unsafe_trial.id, context.treatment.id, "treatment", users.lead.id
+        )
+    with pytest.raises(ValueError, match="eligibility rule"):
+        trials.add_trial_allocation(
+            ffl_db, context.trial.id, context.unrelated.id, "treatment", users.lead.id
+        )
+    trial_unit = ffl_db.execute(
+        "SELECT operating_unit_id FROM crop_allocations WHERE id = ?", (context.treatment.id,)
+    ).fetchone()["operating_unit_id"]
+    other_season = repository.create_season(
+        ffl_db, trial_unit, "Rabi 2026", "2026-12-01", "2027-04-30"
+    )
+    other_season_block = repository.create_operational_block(ffl_db, trial_unit, "Other season", 1.0)
+    other_season_allocation = repository.create_crop_allocation(
+        ffl_db, trial_unit, other_season_block.id, other_season.id, "Rice", None, 1.0
+    )
+    other_unit = repository.create_operating_unit(ffl_db, "Other farm")
+    other_unit_season = repository.create_season(
+        ffl_db, other_unit.id, "Kharif 2026", "2026-06-01", "2026-11-30"
+    )
+    other_unit_block = repository.create_operational_block(ffl_db, other_unit.id, "Other farm block", 1.0)
+    other_farm_allocation = repository.create_crop_allocation(
+        ffl_db, other_unit.id, other_unit_block.id, other_unit_season.id, "Rice", None, 1.0
+    )
+    for allocation in (other_season_allocation, other_farm_allocation):
+        with pytest.raises(ValueError, match="eligibility rule"):
+            trials.add_trial_allocation(
+                ffl_db, context.trial.id, allocation.id, "treatment", users.lead.id
+            )
+    ffl_db.execute("UPDATE crop_allocations SET status = 'inactive' WHERE id = ?", (context.treatment.id,))
+    ffl_db.commit()
+    with pytest.raises(ValueError, match="only active"):
+        trials.add_trial_allocation(
+            ffl_db, context.trial.id, context.treatment.id, "treatment", users.lead.id
+        )
+
+
 def test_trial_state_and_allocation_transitions_are_governed_and_auditable(ffl_db, users):
     context = _trial_context(ffl_db, users)
     active = _activate(ffl_db, users, context)
@@ -122,6 +188,35 @@ def test_trial_state_and_allocation_transitions_are_governed_and_auditable(ffl_d
 
     with pytest.raises(ValueError, match="invalid trial transition"):
         trials.transition_trial(ffl_db, stopped.id, "active", users.lead.id, "retry")
+
+
+def test_eligible_allocation_has_no_enrolment_time_until_explicit_enrolment(ffl_db, users):
+    context = _trial_context(ffl_db, users)
+    pending = trials.add_trial_allocation(
+        ffl_db, context.trial.id, context.treatment.id, "treatment", users.lead.id
+    )
+    enrolled = trials.transition_trial_allocation(
+        ffl_db, context.trial.id, pending.id, "enrolled", users.lead.id, "eligible and consented"
+    )
+
+    assert pending.enrolled_at is None
+    assert enrolled.enrolled_at is not None
+
+
+def test_schema_migrates_legacy_non_null_trial_enrolment_timestamp():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        """CREATE TABLE trial_allocations (
+            id TEXT PRIMARY KEY, trial_id TEXT NOT NULL, allocation_id TEXT NOT NULL, arm TEXT NOT NULL,
+            status TEXT NOT NULL, enrolled_at TEXT NOT NULL, withdrawn_at TEXT, reason TEXT, created_at TEXT NOT NULL,
+            UNIQUE (trial_id, allocation_id)
+        )"""
+    )
+    create_schema(conn)
+
+    enrolled_at = next(row for row in conn.execute("PRAGMA table_info(trial_allocations)") if row[1] == "enrolled_at")
+    assert enrolled_at[3] == 0
+    conn.close()
 
 
 def test_confounder_cannot_be_attached_to_nonparticipating_allocation(ffl_db, users):
@@ -154,11 +249,11 @@ def test_conclusions_require_evidence_limitations_and_comparison_context_for_cau
         )
     with pytest.raises(ValueError, match="limitations must be a non-empty list"):
         trials.create_trial_conclusion(
-            ffl_db, context.trial.id, users.lead.id, _causal_result(context), "medium", [], artifact.id,
+        ffl_db, context.trial.id, users.lead.id, _causal_result(context, artifact.id), "medium", [], artifact.id,
         )
 
     conclusion = trials.create_trial_conclusion(
-        ffl_db, context.trial.id, users.lead.id, _causal_result(context), "medium",
+        ffl_db, context.trial.id, users.lead.id, _causal_result(context, artifact.id), "medium",
         [{"statement": "One season and limited blocks; repeat before scale."}], artifact.id,
     )
     reviewed = trials.transition_trial_conclusion(
@@ -170,6 +265,35 @@ def test_conclusions_require_evidence_limitations_and_comparison_context_for_cau
 
     assert approved.status == "approved"
     assert approved.approved_at is not None
+
+
+def test_causal_conclusion_rejects_withdrawn_cohort_or_missing_measurement_coverage(ffl_db, users):
+    context = _trial_context(ffl_db, users)
+    _activate(ffl_db, users, context)
+    treatment_allocation = repository.list_trial_allocations(ffl_db, context.trial.id)[0]
+    trials.transition_trial(ffl_db, context.trial.id, "paused", users.lead.id, "recheck cohort")
+    trials.transition_trial_allocation(
+        ffl_db, context.trial.id, treatment_allocation.id, "withdrawn", users.lead.id, "missed harvest measurement"
+    )
+    trials.transition_trial(ffl_db, context.trial.id, "stopped", users.lead.id, "cohort incomplete")
+    artifact = _evidence(ffl_db, users.lead.id)
+
+    with pytest.raises(ValueError, match="complete declared comparison cohort"):
+        trials.create_trial_conclusion(
+            ffl_db, context.trial.id, users.lead.id, _causal_result(context, artifact.id), "low",
+            ["One allocation withdrawn"], artifact.id,
+        )
+
+    context = _trial_context(ffl_db, users)
+    _activate(ffl_db, users, context)
+    trials.transition_trial(ffl_db, context.trial.id, "completed", users.lead.id, "harvest records complete")
+    artifact = _evidence(ffl_db, users.lead.id)
+    missing_measurement = _causal_result(context, artifact.id)
+    missing_measurement["measurement_coverage"] = []
+    with pytest.raises(ValueError, match="measurement_coverage must be a non-empty list"):
+        trials.create_trial_conclusion(
+            ffl_db, context.trial.id, users.lead.id, missing_measurement, "low", ["Pilot only"], artifact.id,
+        )
 
 
 def test_playbook_can_only_publish_from_an_approved_promoting_conclusion(ffl_db, users):
@@ -188,7 +312,7 @@ def test_playbook_can_only_publish_from_an_approved_promoting_conclusion(ffl_db,
         )
 
     conclusion = trials.create_trial_conclusion(
-        ffl_db, context.trial.id, users.lead.id, _causal_result(context), "medium", ["Repeat next season"], artifact.id,
+        ffl_db, context.trial.id, users.lead.id, _causal_result(context, artifact.id), "medium", ["Repeat next season"], artifact.id,
     )
     trials.transition_trial_conclusion(
         ffl_db, context.trial.id, conclusion.id, "review", users.lead.id, "review evidence"

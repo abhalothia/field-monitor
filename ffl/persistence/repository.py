@@ -1066,7 +1066,12 @@ def create_trial_allocation(
     withdrawn_at: Optional[str] = None, reason: Optional[str] = None,
 ) -> TrialAllocation:
     identifier, created_at = _new_identity()
-    enrolled_at = enrolled_at or created_at
+    if status == "eligible":
+        if enrolled_at is not None:
+            raise ValueError("eligible trial allocations cannot have enrolled_at")
+        enrolled_at = None
+    elif status == "enrolled":
+        enrolled_at = enrolled_at or created_at
     conn.execute(
         "INSERT INTO trial_allocations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (identifier, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at),

@@ -336,7 +336,7 @@ class TrialAllocation:
     allocation_id: str
     arm: str
     status: str
-    enrolled_at: str
+    enrolled_at: Optional[str]
     withdrawn_at: Optional[str]
     reason: Optional[str]
     created_at: str

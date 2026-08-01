@@ -332,7 +332,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
             arm TEXT NOT NULL CHECK (arm IN ('treatment', 'comparator')),
             status TEXT NOT NULL CHECK (status IN ('eligible', 'enrolled', 'withdrawn', 'excluded')),
-            enrolled_at TEXT NOT NULL,
+            enrolled_at TEXT,
             withdrawn_at TEXT,
             reason TEXT,
             created_at TEXT NOT NULL,
@@ -399,4 +399,38 @@ def create_schema(conn: sqlite3.Connection) -> None:
     import_batch_columns = {row[1] for row in conn.execute("PRAGMA table_info(import_batches)").fetchall()}
     if "reviewed_by_id" not in import_batch_columns:
         conn.execute("ALTER TABLE import_batches ADD COLUMN reviewed_by_id TEXT")
+    # V1 initially used a non-null ``enrolled_at`` despite also modelling an
+    # ``eligible`` state.  Eligible is intentionally pre-enrolment, so retain
+    # existing trial data while rebuilding this isolated table with a nullable
+    # timestamp.  No table has a foreign key to trial_allocations.
+    trial_allocation_columns = {
+        row[1]: row for row in conn.execute("PRAGMA table_info(trial_allocations)").fetchall()
+    }
+    if trial_allocation_columns.get("enrolled_at", [None, None, None, 0])[3]:
+        with conn:
+            conn.execute("ALTER TABLE trial_allocations RENAME TO trial_allocations_legacy")
+            conn.execute(
+                """CREATE TABLE trial_allocations (
+                    id TEXT PRIMARY KEY,
+                    trial_id TEXT NOT NULL REFERENCES trials(id),
+                    allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+                    arm TEXT NOT NULL CHECK (arm IN ('treatment', 'comparator')),
+                    status TEXT NOT NULL CHECK (status IN ('eligible', 'enrolled', 'withdrawn', 'excluded')),
+                    enrolled_at TEXT,
+                    withdrawn_at TEXT,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (trial_id, allocation_id)
+                )"""
+            )
+            conn.execute(
+                """INSERT INTO trial_allocations
+                   (id, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at)
+                   SELECT id, trial_id, allocation_id, arm, status, enrolled_at, withdrawn_at, reason, created_at
+                   FROM trial_allocations_legacy"""
+            )
+            conn.execute("DROP TABLE trial_allocations_legacy")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial ON trial_allocations (trial_id)"
+            )
     conn.commit()
