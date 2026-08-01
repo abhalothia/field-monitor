@@ -66,3 +66,51 @@ class Person:
     name: str
     role: str
     created_at: str
+
+
+@dataclass(frozen=True)
+class WorkItem:
+    id: str
+    allocation_id: str
+    title: str
+    owner_id: str
+    due_at: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class ExceptionRecord:
+    id: str
+    allocation_id: str
+    title: str
+    severity: str
+    owner_id: str
+    fallback_owner_id: str
+    observed_at: str
+    idempotency_key: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Decision:
+    id: str
+    allocation_id: str
+    title: str
+    owner_id: str
+    review_due_at: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class AuditEvent:
+    id: str
+    entity_type: str
+    entity_id: str
+    from_status: str
+    to_status: str
+    actor_id: str
+    reason: str
+    created_at: str

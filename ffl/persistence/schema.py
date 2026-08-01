@@ -69,6 +69,50 @@ def create_schema(conn: sqlite3.Connection) -> None:
             role TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS work_items (
+            id TEXT PRIMARY KEY,
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            title TEXT NOT NULL,
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            due_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS exception_records (
+            id TEXT PRIMARY KEY,
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            title TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            fallback_owner_id TEXT NOT NULL REFERENCES people(id),
+            observed_at TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS decisions (
+            id TEXT PRIMARY KEY,
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            title TEXT NOT NULL,
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            review_due_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            actor_id TEXT NOT NULL REFERENCES people(id),
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
