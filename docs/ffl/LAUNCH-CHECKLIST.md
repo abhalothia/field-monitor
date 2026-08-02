@@ -17,8 +17,12 @@
    `FFL_LAUNCH_PASSWORD`, `FFL_LAUNCH_COOKIE_SECURE=true`, and
    `FFL_PUBLIC_ORIGIN=https://www.agroceo.co` in Vercel's encrypted Production
    environment. Do not put any of these in browser configuration or git.
-2. Configure private durable evidence storage. `/tmp/ffl-evidence` is only a
-   local/test fallback and is not a launch-grade evidence store.
+2. Configure private durable evidence storage. The current production adapter
+   uses a private Supabase `agro-evidence` bucket and only server-side encrypted
+   `FFL_EVIDENCE_STORAGE_*` variables. It stores immutable SHA-256 paths and
+   private references, never public object URLs. `/tmp/ffl-evidence` is only a
+   local/test fallback and Vercel rejects evidence writes when the private
+   store is absent.
 3. Create the real Fortune operating unit, people, blocks, rights, current
    season, allocations, owners, and signal templates. Do not seed fictional
    pilot data into the live database.

@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from ffl.domain.models import ImportBatch
 from ffl.persistence import repository
 from ffl.services.evidence import retain_evidence
+from ffl.services.evidence_store import EvidenceStore
 
 
 KNOWN_PURPOSES = {"land_register", "field_visit", "soil_measurement"}
@@ -158,6 +159,7 @@ def register_csv_import(
     owner_id: str,
     original_filename: Optional[str] = None,
     evidence_directory: Optional[str] = None,
+    evidence_store: Optional[EvidenceStore] = None,
 ) -> Dict[str, Any]:
     """Retain and profile CSV rows.  It never creates or overwrites farm records."""
     if purpose not in KNOWN_PURPOSES:
@@ -166,7 +168,7 @@ def register_csv_import(
         raise ValueError("import owner does not exist")
     artifact = retain_evidence(
         conn, content, "text/csv", original_filename=original_filename,
-        created_by_person_id=owner_id, directory=evidence_directory,
+        created_by_person_id=owner_id, directory=evidence_directory, store=evidence_store,
     )
     headers, rows, parse_errors = _parse_csv(content)
     profile = _profile(headers, rows, parse_errors)

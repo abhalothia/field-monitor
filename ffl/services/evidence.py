@@ -13,6 +13,7 @@ from typing import Optional
 
 from ffl.domain.models import EvidenceArtifact
 from ffl.persistence import repository
+from ffl.services.evidence_store import EvidenceStore, LocalEvidenceStore
 
 
 ALLOWED_MEDIA_TYPES = {
@@ -21,6 +22,7 @@ ALLOWED_MEDIA_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+MAX_DIRECT_EVIDENCE_BYTES = 3 * 1024 * 1024
 
 
 def evidence_directory(directory: Optional[str] = None) -> Path:
@@ -79,6 +81,7 @@ def retain_evidence(
     source_uri: Optional[str] = None,
     created_by_person_id: Optional[str] = None,
     directory: Optional[str] = None,
+    store: Optional[EvidenceStore] = None,
 ) -> EvidenceArtifact:
     """Retain supported evidence and return its idempotent content-addressed record.
 
@@ -86,7 +89,7 @@ def retain_evidence(
     operating record from its contents.
     """
     artifact, _ = retain_evidence_result(
-        conn, content, media_type, original_filename, source_uri, created_by_person_id, directory
+        conn, content, media_type, original_filename, source_uri, created_by_person_id, directory, store
     )
     return artifact
 
@@ -99,23 +102,29 @@ def retain_evidence_result(
     source_uri: Optional[str] = None,
     created_by_person_id: Optional[str] = None,
     directory: Optional[str] = None,
+    store: Optional[EvidenceStore] = None,
 ) -> tuple[EvidenceArtifact, bool]:
     """Retain evidence and report whether this call established the database record."""
     if not isinstance(content, bytes) or not content:
         raise ValueError("evidence content must be non-empty bytes")
+    if len(content) > MAX_DIRECT_EVIDENCE_BYTES:
+        raise ValueError("direct evidence upload must be at most 3 MiB")
     _validate_media_type(media_type)
     if created_by_person_id is not None and conn.execute(
         "SELECT 1 FROM people WHERE id = ?", (created_by_person_id,)
     ).fetchone() is None:
         raise ValueError("evidence creator does not exist")
     content_hash = hashlib.sha256(content).hexdigest()
-    root = evidence_directory(directory)
-    _write_content_once(root / content_hash, content)
+    established = repository.get_evidence_artifact_by_hash(conn, content_hash)
+    if established is not None:
+        return established, False
+    resolved_store = store or LocalEvidenceStore(evidence_directory(directory))
+    storage_reference = resolved_store.put_content_addressed(content_hash, content, media_type)
     return repository.create_evidence_artifact_if_absent(
         conn,
         content_hash=content_hash,
         media_type=media_type,
-        storage_reference=str(root / content_hash),
+        storage_reference=storage_reference,
         original_filename=original_filename,
         size_bytes=len(content),
         source_uri=source_uri,

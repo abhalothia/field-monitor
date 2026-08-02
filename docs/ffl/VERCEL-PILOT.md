@@ -37,7 +37,17 @@ Fortune launch-password session.
    session to accept the first real farm; it is not a browser credential.
    Rotate and remove it immediately after the one-time acceptance succeeds.
 5. Configure a durable private evidence-store integration before permitting
-   evidence uploads. Vercel's `/tmp` is only a disposable preview fallback.
+   evidence uploads. For the initial setup, use the private Supabase bucket
+   `agro-evidence` with `FFL_EVIDENCE_STORE=supabase`,
+   `FFL_EVIDENCE_STORAGE_URL`, `FFL_EVIDENCE_STORAGE_KEY`, and
+   `FFL_EVIDENCE_STORAGE_BUCKET=agro-evidence` as Production-only encrypted
+   variables. The bucket must remain private; FFL writes immutable SHA-256
+   object paths with overwrite disabled and keeps only a `supabase://` reference
+   in its operating schema. Do not place any of these Storage values in Preview
+   or a browser bundle. The current direct API path accepts at most 3 MiB per
+   object; larger field media needs a later named-user resumable upload flow.
+   If this configuration is absent, Vercel rejects upload requests rather than
+   using `/tmp`.
 
 ## Preview policy
 

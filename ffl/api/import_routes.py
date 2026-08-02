@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from ffl.services import evidence, imports
+from ffl.services.evidence_store import EvidenceStoreError
 
 
 router = APIRouter(prefix="/api/v1")
@@ -36,6 +37,10 @@ def _connection(request: Request):
     return getattr(request.state, "conn", request.app.state.conn)
 
 
+def _evidence_store(request: Request):
+    return getattr(request.app.state, "evidence_store", None)
+
+
 def _content(value: str) -> bytes:
     try:
         return base64.b64decode(value, validate=True)
@@ -57,8 +62,10 @@ def create_evidence(payload: EvidenceCreateRequest, request: Request, response: 
         content = _content(payload.content_base64)
         artifact, created = evidence.retain_evidence_result(
             _connection(request), content, payload.media_type, payload.original_filename,
-            payload.source_uri, payload.created_by_person_id,
+            payload.source_uri, payload.created_by_person_id, store=_evidence_store(request),
         )
+    except EvidenceStoreError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     if not created:
@@ -71,8 +78,10 @@ def create_csv_import(payload: CsvImportRequest, request: Request, response: Res
     try:
         result = imports.register_csv_import(
             _connection(request), _content(payload.content_base64), payload.purpose, payload.owner_id,
-            payload.original_filename,
+            payload.original_filename, evidence_store=_evidence_store(request),
         )
+    except EvidenceStoreError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
     if result["idempotent"]:
