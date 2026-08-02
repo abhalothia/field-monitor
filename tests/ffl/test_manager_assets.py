@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 
 
-def test_manager_assets_define_a_three_view_farm_command():
+def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
@@ -19,7 +19,17 @@ def test_manager_assets_define_a_three_view_farm_command():
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
-    assert "/api/v1/pilot/readiness" not in app_js
+    assert "/api/v1/pilot/readiness" in app_js
+    assert "/api/v1/pilot/setup/validate" in app_js
+    assert "/api/v1/pilot/setup/accept" not in app_js
+    assert "FFL_PILOT_SETUP_APPROVAL_TOKEN" not in app_js
+    assert "Make the farm real." in index_html
+    assert "Nothing is saved from this screen." in index_html
+    assert "Check this farm pack" in index_html
+    assert "renderPilotReadiness" in app_js
+    assert "buildSetupProposal" in app_js
+    assert "renderPreparedSetup" in app_js
+    assert "Prepare first farm" in app_js
     assert "allocation.crop_name" in app_js
     assert "allocation.cultivar" in app_js
     assert "Risk &amp; action" in index_html

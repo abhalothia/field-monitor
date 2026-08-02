@@ -3,6 +3,8 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
+  var pilotReadinessUrl = "/api/v1/pilot/readiness";
+  var pilotValidationUrl = "/api/v1/pilot/setup/validate";
   var currentRuntime = null;
   var focusExceptionId = null;
   var focusTargetView = "fields";
@@ -74,6 +76,28 @@
 
   function safeSeverity(value) {
     return ["critical", "high", "medium", "low", "info"].indexOf(value) === -1 ? "medium" : value;
+  }
+
+  function formValue(form, name) {
+    return String(new FormData(form).get(name) || "").trim();
+  }
+
+  function localTimestamp(value) {
+    var date = new Date(value);
+    if (!value || isNaN(date.getTime())) {
+      return "";
+    }
+    var offset = -date.getTimezoneOffset();
+    var sign = offset >= 0 ? "+" : "-";
+    var absolute = Math.abs(offset);
+    var hours = String(Math.floor(absolute / 60)).padStart(2, "0");
+    var minutes = String(absolute % 60).padStart(2, "0");
+    return (value.length === 16 ? value + ":00" : value) + sign + hours + ":" + minutes;
+  }
+
+  function districtContextKey(districtName) {
+    var slug = districtName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug ? "up:" + slug : "";
   }
 
   function showView(viewName) {
@@ -195,6 +219,46 @@
     renderDataContext(portfolio);
     renderLearning(portfolio);
     element("portfolio-status").textContent = "Tools updated just now.";
+  }
+
+  function renderPilotReadiness(readiness) {
+    var progress = readiness && readiness.progress ? readiness.progress : { completed: 0, total: 6 };
+    var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
+    var nextStage = readiness && readiness.next_stage ? readiness.next_stage : null;
+    element("today-heading").textContent = "First farm";
+    element("exception-count").textContent = progress.completed + "/" + progress.total;
+    element("exception-summary").textContent = nextStage ?
+      "Start with " + nextStage.title.toLowerCase() + "." :
+      "The minimum field loop is ready.";
+    setHtml("exception-list", stages.slice(0, 3).map(function (stage) {
+      var ready = stage.status === "ready";
+      return '<article class="queue-item foundation-item"><div class="item-title"><h3>' +
+        escapeHtml(stage.title) + '</h3><span class="status">' +
+        (ready ? "ready" : "next") + '</span></div><p>' +
+        escapeHtml(ready ? "Recorded and ready for the field loop." : stage.next_action) +
+        '</p></article>';
+    }).join("") || '<p class="empty-state">The first farm has not been prepared yet.</p>');
+    element("active-work-count").textContent = progress.completed;
+    element("submitted-work-count").textContent = progress.total;
+    setHtml("active-work-summary", "<span>Foundations ready</span>");
+    setHtml("submitted-work-summary", "<span>Minimum needed</span>");
+  }
+
+  function loadPilotReadiness() {
+    fetch(pilotReadinessUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load first-farm readiness.");
+        }
+        return response.json();
+      })
+      .then(renderPilotReadiness)
+      .catch(function () {
+        element("today-heading").textContent = "First farm";
+        element("exception-count").textContent = "0/6";
+        element("exception-summary").textContent = "Prepare one real farm before external data can help.";
+        setHtml("exception-list", '<p class="empty-state">Farm, field, people, place, soil report, then the first work loop.</p>');
+      });
   }
 
   function renderCards(runtime) {
@@ -391,6 +455,7 @@
 
   function renderRuntime(runtime) {
     currentRuntime = runtime;
+    element("today-heading").textContent = "Today";
     element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderCards(runtime);
     renderPeople(runtime);
@@ -405,17 +470,18 @@
     element("allocation-count").textContent = "0";
     element("focus-crop").textContent = "Farm setup";
     element("focus-kicker").textContent = "Farm setup";
-    element("focus-title").textContent = "Start with the real farm.";
-    element("focus-note").textContent = "Add the operating context before field signals or outside data can be useful.";
+    element("focus-title").textContent = "Make the first field real.";
+    element("focus-note").textContent = "One farm, one live field, named people, and the next proof. Nothing invented.";
     element("focus-severity").textContent = "Set up";
     element("focus-severity").className = "severity severity-medium";
-    setFocusAction("Open field work", "fields", null, null);
+    setFocusAction("Prepare first farm", "setup", null, null);
     element("exception-count").textContent = "0";
-    element("exception-summary").textContent = "No field record exists yet.";
+    element("exception-summary").textContent = "Reading the real setup requirements…";
     setHtml("allocation-list", "<span>No active allocation.</span>");
     setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
     setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
-    setHtml("exception-list", '<p class="empty-state">No field signals yet.</p>');
+    setHtml("exception-list", '<p class="empty-state">Reading the first-farm setup…</p>');
+    loadPilotReadiness();
   }
 
   function renderAudit(detail) {
@@ -441,6 +507,140 @@
       .then(renderAudit)
       .catch(function (error) {
         element("exception-detail").textContent = error.message;
+      });
+  }
+
+  function clearSetupFeedback() {
+    element("setup-error").hidden = true;
+    element("setup-error").textContent = "";
+    element("setup-result").hidden = true;
+    element("setup-result").innerHTML = "";
+  }
+
+  function showSetupError(message) {
+    element("setup-error").textContent = message;
+    element("setup-error").hidden = false;
+  }
+
+  function buildSetupProposal(form) {
+    var districtName = formValue(form, "district_name");
+    var area = Number(formValue(form, "area_hectares"));
+    var verifiedAt = localTimestamp(formValue(form, "verified_at"));
+    var workDueAt = localTimestamp(formValue(form, "first_work_due_at"));
+    if (!districtContextKey(districtName)) {
+      throw new Error("Enter the district in English so its reviewed UP source context can be matched.");
+    }
+    if (!isFinite(area) || area <= 0) {
+      throw new Error("Usable hectares must be a positive number.");
+    }
+    if (!verifiedAt || !workDueAt) {
+      throw new Error("Location verification time and first work due time are both required.");
+    }
+    var location = {
+      state_name: "Uttar Pradesh",
+      district_name: districtName,
+      district_context_key: districtContextKey(districtName),
+      verified_at: verifiedAt
+    };
+    var village = formValue(form, "village_name");
+    var pincode = formValue(form, "pincode");
+    if (village) {
+      location.village_name = village;
+    }
+    if (pincode) {
+      location.pincode = pincode;
+    }
+    return {
+      farm_name: formValue(form, "farm_name"),
+      people: [
+        { reference: "manager", name: formValue(form, "manager_name"), role: "farm_manager" },
+        { reference: "field", name: formValue(form, "operator_name"), role: "field_operator" }
+      ],
+      parcels: [{
+        reference: "first-parcel", name: formValue(form, "parcel_name"), area_hectares: area,
+        right_type: formValue(form, "right_type"),
+        right_starts_on: formValue(form, "right_starts_on"), right_ends_on: formValue(form, "right_ends_on")
+      }],
+      blocks: [{
+        reference: "first-block", name: formValue(form, "block_name"), area_hectares: area,
+        parcel_references: ["first-parcel"]
+      }],
+      season: {
+        name: formValue(form, "season_name"),
+        starts_on: formValue(form, "season_starts_on"), ends_on: formValue(form, "season_ends_on")
+      },
+      allocations: [{
+        reference: "first-allocation", block_reference: "first-block", crop_name: formValue(form, "crop_name"),
+        cultivar: formValue(form, "cultivar") || null, area_hectares: area
+      }],
+      location: location,
+      first_work: {
+        title: formValue(form, "first_work_title"), owner_reference: "field",
+        allocation_reference: "first-allocation", due_at: workDueAt,
+        required_evidence: [formValue(form, "required_evidence")]
+      }
+    };
+  }
+
+  function renderPreparedSetup(result) {
+    var required = Array.isArray(result.required_before_acceptance) ? result.required_before_acceptance : [];
+    element("setup-result").innerHTML = '<h3>Ready for a named manager to accept.</h3><p>' +
+      escapeHtml(result.farm.name) + ' · ' + escapeHtml(result.location.district_name) + ' · ' +
+      escapeHtml(result.allocations[0].crop_name) + '</p><ul>' + required.map(function (item) {
+        return '<li>' + escapeHtml(item) + '</li>';
+      }).join("") + '</ul><p>This screen only checked the pack. It did not create a farm, people, land, or work.</p>';
+    element("setup-result").hidden = false;
+  }
+
+  function openSetupDialog() {
+    clearSetupFeedback();
+    var dialog = element("setup-dialog");
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    var firstInput = element("setup-form").querySelector("input[name='farm_name']");
+    if (firstInput) {
+      firstInput.focus();
+    }
+  }
+
+  function validateSetup(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    clearSetupFeedback();
+    if (!form.reportValidity()) {
+      return;
+    }
+    var proposal;
+    try {
+      proposal = buildSetupProposal(form);
+    } catch (error) {
+      showSetupError(error.message || "Complete the first farm details.");
+      return;
+    }
+    var submit = element("validate-setup");
+    submit.disabled = true;
+    submit.textContent = "Checking…";
+    fetch(pilotValidationUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(proposal)
+    })
+      .then(function (response) {
+        return response.json().then(function (body) {
+          if (!response.ok) {
+            throw new Error(body.detail || "The farm pack could not be checked.");
+          }
+          return body;
+        });
+      })
+      .then(renderPreparedSetup)
+      .catch(function (error) {
+        showSetupError(error.message || "The farm pack could not be checked.");
+      })
+      .finally(function () {
+        submit.disabled = false;
+        submit.innerHTML = 'Check this farm pack <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
       });
   }
 
@@ -478,8 +678,19 @@
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
   });
+  element("close-setup").addEventListener("click", function () {
+    element("setup-dialog").close();
+  });
+  element("setup-dialog").addEventListener("cancel", function () {
+    clearSetupFeedback();
+  });
+  element("setup-form").addEventListener("submit", validateSetup);
   element("refresh").addEventListener("click", loadActionCentre);
   element("review-focus").addEventListener("click", function () {
+    if (focusTargetView === "setup") {
+      openSetupDialog();
+      return;
+    }
     showView(focusTargetView);
     if (focusExceptionId) {
       loadException(focusExceptionId);

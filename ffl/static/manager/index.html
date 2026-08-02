@@ -129,6 +129,82 @@
           </section>
         </div>
       </section>
+
+      <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">
+        <section class="setup-sheet">
+          <header class="setup-header">
+            <div>
+              <p class="eyebrow">First farm</p>
+              <h2 id="setup-title">Make the farm real.</h2>
+              <p class="setup-intro">Prepare one reviewed pack. Nothing is saved from this screen.</p>
+            </div>
+            <button id="close-setup" class="dialog-close" type="button" aria-label="Close first farm setup">
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </header>
+
+          <form id="setup-form" class="setup-form" novalidate>
+            <section class="setup-step" aria-labelledby="setup-farm-heading">
+              <p class="step-number">01</p>
+              <div class="setup-step-copy">
+                <h3 id="setup-farm-heading">Farm &amp; team</h3>
+                <p>Who runs it, and what do we call the operating farm?</p>
+              </div>
+              <div class="setup-fields">
+                <label>Farm name<input name="farm_name" maxlength="200" required></label>
+                <label>Manager name<input name="manager_name" maxlength="200" required></label>
+                <label>Field operator name<input name="operator_name" maxlength="200" required></label>
+              </div>
+            </section>
+
+            <section class="setup-step" aria-labelledby="setup-field-heading">
+              <p class="step-number">02</p>
+              <div class="setup-step-copy">
+                <h3 id="setup-field-heading">One live field</h3>
+                <p>Start with the first block and its current crop. We can add the rest later.</p>
+              </div>
+              <div class="setup-fields setup-fields-wide">
+                <label>Parcel name<input name="parcel_name" maxlength="200" required></label>
+                <label>Usable hectares<input name="area_hectares" type="number" min="0.01" step="0.01" required></label>
+                <label>Operating right<select name="right_type" required><option value="lease">Lease</option><option value="owned">Owned</option><option value="management">Management</option></select></label>
+                <label>Right starts<input name="right_starts_on" type="date" required></label>
+                <label>Right ends<input name="right_ends_on" type="date" required></label>
+                <label>Block name<input name="block_name" maxlength="200" required></label>
+                <label>Season name<input name="season_name" maxlength="200" required></label>
+                <label>Season starts<input name="season_starts_on" type="date" required></label>
+                <label>Season ends<input name="season_ends_on" type="date" required></label>
+                <label>Crop<input name="crop_name" maxlength="200" required></label>
+                <label>Variety <span class="optional">optional</span><input name="cultivar" maxlength="120"></label>
+              </div>
+            </section>
+
+            <section class="setup-step" aria-labelledby="setup-place-heading">
+              <p class="step-number">03</p>
+              <div class="setup-step-copy">
+                <h3 id="setup-place-heading">Place &amp; first loop</h3>
+                <p>District context guides public data. It never claims a field boundary.</p>
+              </div>
+              <div class="setup-fields setup-fields-wide">
+                <label>State<input value="Uttar Pradesh" readonly aria-readonly="true"></label>
+                <label>District<input name="district_name" maxlength="200" required></label>
+                <label>Village <span class="optional">optional</span><input name="village_name" maxlength="200"></label>
+                <label>PIN <span class="optional">optional</span><input name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"></label>
+                <label>Location verified at<input name="verified_at" type="datetime-local" required></label>
+                <label>First work<input name="first_work_title" maxlength="200" required></label>
+                <label>Due at<input name="first_work_due_at" type="datetime-local" required></label>
+                <label>Required proof<input name="required_evidence" maxlength="200" placeholder="e.g. field photo" required></label>
+              </div>
+            </section>
+
+            <div id="setup-error" class="setup-message" role="alert" aria-live="assertive" hidden></div>
+            <div id="setup-result" class="setup-result" aria-live="polite" hidden></div>
+            <footer class="setup-footer">
+              <p>Keep the original soil report ready. It is reviewed as evidence after this first pack is accepted.</p>
+              <button id="validate-setup" class="setup-submit" type="submit">Check this farm pack <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+            </footer>
+          </form>
+        </section>
+      </dialog>
     </main>
     <script src="/assets/manager.js"></script>
   </body>
