@@ -103,9 +103,16 @@ def get_runtime(request: Request) -> dict:
             "SELECT id, name, role FROM people ORDER BY name, created_at"
         ).fetchall()
     ]
-    allocations = _runtime_rows(
-        conn, "crop_allocations", "operating_unit_id = ? AND status = 'active'", (operating_unit["id"],)
-    )
+    allocations = [
+        dict(allocation) for allocation in conn.execute(
+            """SELECT crop_allocations.*, operational_blocks.name AS operational_block_name
+               FROM crop_allocations
+               JOIN operational_blocks ON operational_blocks.id = crop_allocations.operational_block_id
+               WHERE crop_allocations.operating_unit_id = ? AND crop_allocations.status = 'active'
+               ORDER BY crop_allocations.created_at, crop_allocations.id""",
+            (operating_unit["id"],),
+        ).fetchall()
+    ]
     allocation_ids = [allocation["id"] for allocation in allocations]
     if not allocation_ids:
         return {

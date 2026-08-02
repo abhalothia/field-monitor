@@ -37,14 +37,14 @@
       </section>
 
       <section id="panel-home" class="command-view is-active" role="tabpanel" aria-labelledby="tab-home">
-        <section class="home-grid" aria-label="Field focus and today's action queue">
+        <section class="home-grid" aria-label="Field focus and today's work">
           <article class="command-card focus-card">
             <img class="focus-image" src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
             <div class="map-copy">
               <p id="focus-kicker" class="map-kicker"><span class="material-symbols-outlined" aria-hidden="true">location_on</span> Field focus</p>
               <p id="focus-crop" class="map-crop">Reading the field</p>
-              <h2 id="focus-title">Current evidence is loading.</h2>
-              <p id="focus-note">The next reviewable signal will appear here.</p>
+              <h2 id="focus-title">Loading the farm.</h2>
+              <p id="focus-note">The next item will appear here.</p>
               <p id="focus-owner" class="focus-owner"></p>
             </div>
             <div class="map-meta">
@@ -52,7 +52,7 @@
               <span><strong id="allocation-count">—</strong> active plots</span>
             </div>
             <button id="review-focus" class="map-action" type="button">
-              <span id="focus-action-label">Review field signal</span>
+              <span id="focus-action-label">Open field work</span>
               <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
             </button>
           </article>
@@ -60,13 +60,13 @@
           <aside class="command-card today-card" aria-labelledby="today-heading">
             <div class="card-heading today-heading">
               <h2 id="today-heading">Today</h2>
-              <span id="exception-count" class="count-chip">—</span>
+              <span id="today-count" class="count-chip">—</span>
             </div>
-            <p id="exception-summary" class="today-summary">Looking for the next decision…</p>
-            <div id="exception-list" class="item-list today-list" aria-live="polite"></div>
+            <p id="today-summary" class="today-summary">Loading today’s work…</p>
+            <div id="today-list" class="item-list today-list" aria-live="polite"></div>
             <dl class="today-totals" aria-label="Today's work totals">
-              <div><dt>In motion</dt><dd id="active-work-count">—</dd></div>
-              <div><dt>To review</dt><dd id="submitted-work-count">—</dd></div>
+              <div><dt>Open work</dt><dd id="active-work-count">—</dd></div>
+              <div><dt>Awaiting review</dt><dd id="submitted-work-count">—</dd></div>
             </dl>
             <div class="today-footer">
               <p id="active-work-summary">—</p>
@@ -80,10 +80,10 @@
         <div class="command-grid two-column">
           <section class="command-card" aria-labelledby="work-heading">
             <div class="card-heading">
-              <p class="eyebrow">Active allocation</p>
-              <h2 id="work-heading">Field work</h2>
+              <p class="eyebrow">Current fields</p>
+              <h2 id="work-heading">Work</h2>
             </div>
-            <div id="allocation-list" class="allocation-list" aria-label="Active crop allocations"></div>
+            <div id="allocation-list" class="allocation-list" aria-label="Active fields and crop allocations"></div>
             <div id="work-list" class="item-list work-list" aria-live="polite"></div>
           </section>
 

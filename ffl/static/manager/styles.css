@@ -68,6 +68,10 @@ dt { color: #748174; font-family: "DM Mono", monospace; font-size: .58rem; lette
 dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; overflow-wrap: anywhere; }
 .today-list .facts div:nth-child(n+3) { display: none; }
 .today-list .detail-button { margin-top: 2px; }
+.today-item-detail, .today-item-next { margin: 5px 0 0; color: #536a5a; font-size: .72rem; line-height: 1.42; }
+.today-item-next { color: #315844; }
+.today-item-next strong, .work-field { color: #60704d; font-family: "DM Mono", monospace; font-size: .58rem; font-weight: 500; letter-spacing: .055em; text-transform: uppercase; }
+.work-field { margin: 0 0 5px; }
 .status, .severity { width: fit-content; border-radius: 99px; padding: 4px 7px; font-family: "DM Mono", monospace; font-size: .56rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .status { background: #dce7d3; color: #315738; }
 .severity { background: #f0dfad; color: #725317; }

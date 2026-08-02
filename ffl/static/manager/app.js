@@ -246,11 +246,11 @@
     var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
     var nextStage = readiness && readiness.next_stage ? readiness.next_stage : null;
     element("today-heading").textContent = "First farm";
-    element("exception-count").textContent = progress.completed + "/" + progress.total;
-    element("exception-summary").textContent = nextStage ?
+    element("today-count").textContent = progress.completed + "/" + progress.total;
+    element("today-summary").textContent = nextStage ?
       "Start with " + nextStage.title.toLowerCase() + "." :
       "The minimum field loop is ready.";
-    setHtml("exception-list", stages.slice(0, 3).map(function (stage) {
+    setHtml("today-list", stages.slice(0, 3).map(function (stage) {
       var ready = stage.status === "ready";
       return '<article class="queue-item foundation-item"><div class="item-title"><h3>' +
         escapeHtml(stage.title) + '</h3><span class="status">' +
@@ -275,16 +275,15 @@
       .then(renderPilotReadiness)
       .catch(function () {
         element("today-heading").textContent = "First farm";
-        element("exception-count").textContent = "0/6";
-        element("exception-summary").textContent = "Prepare one real farm before external data can help.";
-        setHtml("exception-list", '<p class="empty-state">Farm, field, people, place, soil report, then the first work loop.</p>');
+        element("today-count").textContent = "0/6";
+        element("today-summary").textContent = "Prepare one real farm before external data can help.";
+        setHtml("today-list", '<p class="empty-state">Farm, field, people, place, soil report, then the first work loop.</p>');
       });
   }
 
   function renderCards(runtime) {
     var allocations = runtime.allocations || [];
     var workItems = runtime.work_items || [];
-    var exceptions = (runtime.exceptions || []).filter(isOpenException);
     var activeWork = workItems.filter(function (item) {
       return item.status === "planned" || item.status === "in_progress";
     });
@@ -294,17 +293,13 @@
 
     element("allocation-count").textContent = allocations.length;
     setHtml("allocation-list", allocations.length ? allocations.map(function (allocation) {
-      return "<span>" + escapeHtml(allocation.crop_name) +
+      return "<span>" + escapeHtml(allocation.operational_block_name || "Field") + " · " + escapeHtml(allocation.crop_name) +
         (allocation.cultivar ? " · " + escapeHtml(allocation.cultivar) : "") + "</span>";
     }).join("") : "<span>No active allocation.</span>");
     element("active-work-count").textContent = activeWork.length;
     setHtml("active-work-summary", "<span>" + activeWork.filter(isOverdue).length + " overdue</span>");
     element("submitted-work-count").textContent = submitted.length;
     setHtml("submitted-work-summary", "<span>Requires manager review</span>");
-    element("exception-count").textContent = exceptions.length;
-    element("exception-summary").textContent = exceptions.length ?
-      exceptions.length + (exceptions.length === 1 ? " open field signal needs a decision." : " open field signals need decisions.") :
-      "No open field signals. Keep the evidence loop moving.";
   }
 
   function personFor(personId) {
@@ -320,6 +315,16 @@
   function workFor(workId) {
     var workItems = currentRuntime && Array.isArray(currentRuntime.work_items) ? currentRuntime.work_items : [];
     return workItems.filter(function (item) { return item.id === workId; })[0] || null;
+  }
+
+  function allocationFor(allocationId) {
+    var allocations = currentRuntime && Array.isArray(currentRuntime.allocations) ? currentRuntime.allocations : [];
+    return allocations.filter(function (allocation) { return allocation.id === allocationId; })[0] || null;
+  }
+
+  function fieldNameFor(allocationId) {
+    var allocation = allocationFor(allocationId);
+    return allocation && allocation.operational_block_name ? allocation.operational_block_name : "Field";
   }
 
   function exceptionFor(exceptionId) {
@@ -342,12 +347,15 @@
       return;
     }
     setHtml("people-list", people.map(function (person) {
-      var assigned = workItems.filter(function (item) {
+      var assignedItems = workItems.filter(function (item) {
         return item.owner_id === person.id && isOpenWork(item);
-      }).length;
+      });
+      var fields = assignedItems.map(function (item) { return fieldNameFor(item.allocation_id); })
+        .filter(function (value, index, values) { return values.indexOf(value) === index; });
       return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
         '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
-        '<p class="person-work">' + assigned + (assigned === 1 ? ' open item' : ' open items') + '</p></article>';
+        '<p class="person-work">' + assignedItems.length + (assignedItems.length === 1 ? ' open item' : ' open items') +
+        (fields.length ? ' · ' + escapeHtml(fields.join(", ")) : '') + '</p></article>';
     }).join(""));
   }
 
@@ -362,14 +370,14 @@
     element("focus-crop").textContent = crop;
     if (focus) {
       element("focus-title").textContent = focus.title;
-      element("focus-note").textContent = nextAction(focus) || "Review the field signal with its linked evidence.";
+      element("focus-note").textContent = nextAction(focus) || "Review the field report and its proof.";
       element("focus-severity").textContent = focus.severity;
       element("focus-severity").className = "severity severity-" + safeSeverity(focus.severity);
       setFocusAction("Review signal", "fields", focus.id, focus.owner_id);
       return;
     }
-    element("focus-title").textContent = allocation ? "Keep the next pass close." : "The field is ready for its first allocation.";
-    element("focus-note").textContent = allocation ? "No open exception is blocking this allocation right now." : "Add a crop allocation to begin the evidence ledger.";
+    element("focus-title").textContent = allocation ? "No open issue." : "No active crop.";
+    element("focus-note").textContent = allocation ? "Open field work is listed under Fields." : "Add the first crop allocation to begin.";
     element("focus-severity").textContent = "Clear";
     element("focus-severity").className = "severity severity-low";
     setFocusAction("Open field work", "fields", null, null);
@@ -377,6 +385,7 @@
 
   function renderMorningBrief(brief) {
     var attention = brief && Array.isArray(brief.attention) ? brief.attention : [];
+    renderToday(attention);
     var item = attention[0];
     if (!item || !item.entity) {
       return;
@@ -415,6 +424,79 @@
     setFocusAction(actionLabel, targetView, exception ? exception.id : null, ownerId);
   }
 
+  function todayDetail(item) {
+    var entity = item && item.entity ? item.entity : {};
+    var exception = entity.type === "exception_record" ? exceptionFor(entity.id) : null;
+    var work = entity.type === "work_item" ? workFor(entity.id) : null;
+    if (exception) {
+      return "Owner · " + personName(exception.owner_id) + " · " + readable(exception.status);
+    }
+    if (work) {
+      return fieldNameFor(work.allocation_id) + " · " + personName(work.owner_id) + " · due " + formatTime(work.due_at);
+    }
+    if (entity.type === "crop_stage_checkpoint") {
+      return "Field check due.";
+    }
+    if (entity.type === "regional_signal" || entity.type === "source_registry") {
+      return "District context only. Check it against the field.";
+    }
+    return item && item.detail ? item.detail : "Needs a manager check.";
+  }
+
+  function todayNext(item) {
+    var entity = item && item.entity ? item.entity : {};
+    if (entity.type === "exception_record") {
+      return "Review and assign the next step.";
+    }
+    if (entity.type === "work_item") {
+      return "Complete it, replan it, or record why it is blocked.";
+    }
+    if (entity.type === "crop_stage_checkpoint") {
+      return "Confirm the stage in the field.";
+    }
+    if (entity.type === "regional_signal" || entity.type === "source_registry") {
+      return "Check the source before changing field work.";
+    }
+    return "Check the farm record.";
+  }
+
+  function renderToday(items) {
+    var currentItems = Array.isArray(items) ? items.slice(0, 3) : [];
+    element("today-count").textContent = currentItems.length;
+    element("today-summary").textContent = currentItems.length ?
+      (currentItems.length === 1 ? "One item needs a look." : currentItems.length + " items need a look.") :
+      "Nothing needs a look right now.";
+    if (!currentItems.length) {
+      setHtml("today-list", '<p class="empty-state">No due work or open issue.</p>');
+      return;
+    }
+    setHtml("today-list", currentItems.map(function (item) {
+      var entity = item.entity || {};
+      var exception = entity.type === "exception_record" ? exceptionFor(entity.id) : null;
+      return '<article class="queue-item today-item">' +
+        '<div class="item-title"><h3>' + escapeHtml(item.title) + '</h3><span class="severity severity-' +
+        safeSeverity(item.priority) + '">' + escapeHtml(item.priority) + '</span></div>' +
+        '<p class="today-item-detail">' + escapeHtml(todayDetail(item)) + '</p>' +
+        '<p class="today-item-next"><strong>Next</strong> ' + escapeHtml(todayNext(item)) + '</p>' +
+        (exception ? '<button class="detail-button" type="button" data-exception-id="' + escapeHtml(exception.id) + '">Open</button>' : '') +
+        '</article>';
+    }).join(""));
+  }
+
+  function renderTodayFallback(runtime) {
+    var exceptions = (runtime.exceptions || []).filter(isOpenException).map(function (item) {
+      return { priority: item.severity === "critical" ? "critical" : "high", title: item.title,
+        entity: { type: "exception_record", id: item.id } };
+    });
+    var work = (runtime.work_items || []).filter(function (item) {
+      return item.status === "submitted" || (isOpenWork(item) && isOverdue(item));
+    }).map(function (item) {
+      return { priority: item.status === "submitted" ? "medium" : "high", title: item.title,
+        entity: { type: "work_item", id: item.id } };
+    });
+    renderToday(exceptions.concat(work));
+  }
+
   function loadMorningBrief(runtime) {
     if (!runtime || !runtime.operating_unit || !runtime.operating_unit.id) {
       return;
@@ -429,7 +511,7 @@
       .then(renderMorningBrief)
       .catch(function () {
         // The Home view remains fully useful from runtime data when the brief
-        // cannot be composed. It is a decision aid, never a source of record.
+        // cannot be composed. It is a read-only summary, never a source of record.
       });
   }
 
@@ -442,33 +524,12 @@
     setHtml("work-list", openWork.map(function (item) {
       var overdue = isOverdue(item);
       return "<article class=\"queue-item\">" +
+        "<p class=\"work-field\">" + escapeHtml(fieldNameFor(item.allocation_id)) + "</p>" +
         "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
         "<span class=\"status status-" + escapeHtml(item.status) + "\">" + escapeHtml(item.status) + "</span></div>" +
         "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(personName(item.owner_id)) + "</dd></div>" +
         "<div><dt>Due</dt><dd>" + escapeHtml(formatTime(item.due_at)) + "</dd></div>" +
         "<div><dt>Timing</dt><dd class=\"" + (overdue ? "overdue" : "") + "\">" + (overdue ? "Overdue" : "On schedule") + "</dd></div></dl>" +
-        "</article>";
-    }).join(""));
-  }
-
-  function renderExceptions(exceptions) {
-    var openExceptions = exceptions.filter(isOpenException);
-    if (!openExceptions.length) {
-      setHtml("exception-list", '<p class="empty-state">No open exceptions.</p>');
-      return;
-    }
-    setHtml("exception-list", openExceptions.map(function (item) {
-      var action = nextAction(item);
-      var state = action ? escapeHtml(item.status) : "Unsupported exception state";
-      return "<article class=\"queue-item exception-item\">" +
-        "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
-        "<span class=\"severity severity-" + escapeHtml(item.severity) + "\">" + escapeHtml(item.severity) + "</span></div>" +
-        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(personName(item.owner_id)) + "</dd></div>" +
-        "<div><dt>Fallback owner</dt><dd>" + escapeHtml(personName(item.fallback_owner_id)) + "</dd></div>" +
-        "<div><dt>Observed</dt><dd>" + escapeHtml(formatTime(item.observed_at)) + "</dd></div>" +
-        "<div><dt>Current state</dt><dd>" + state + "</dd></div>" +
-        "<div><dt>Next action</dt><dd>" + escapeHtml(action) + "</dd></div></dl>" +
-        "<button class=\"detail-button\" type=\"button\" data-exception-id=\"" + escapeHtml(item.id) + "\">View audit history</button>" +
         "</article>";
     }).join(""));
   }
@@ -481,7 +542,7 @@
     renderPeople(runtime);
     renderFieldFocus(runtime);
     renderWork(runtime.work_items || []);
-    renderExceptions(runtime.exceptions || []);
+    renderTodayFallback(runtime);
     loadMorningBrief(runtime);
   }
 
@@ -495,12 +556,12 @@
     element("focus-severity").textContent = "Set up";
     element("focus-severity").className = "severity severity-medium";
     setFocusAction("Prepare first farm", "setup", null, null);
-    element("exception-count").textContent = "0";
-    element("exception-summary").textContent = "Reading the real setup requirements…";
+    element("today-count").textContent = "0";
+    element("today-summary").textContent = "Reading the first-farm checklist…";
     setHtml("allocation-list", "<span>No active allocation.</span>");
     setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
     setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
-    setHtml("exception-list", '<p class="empty-state">Reading the first-farm setup…</p>');
+    setHtml("today-list", '<p class="empty-state">Reading the first-farm checklist…</p>');
     loadPilotReadiness();
   }
 
@@ -731,7 +792,7 @@
       element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
     }
   });
-  element("exception-list").addEventListener("click", function (event) {
+  element("today-list").addEventListener("click", function (event) {
     var button = event.target.closest("[data-exception-id]");
     if (button) {
       showView("fields");

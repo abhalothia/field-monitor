@@ -32,6 +32,7 @@ def test_runtime_returns_seeded_pilot_state(seeded_client):
     }
     assert all(set(person) == {"id", "name", "role"} for person in payload["people"])
     assert payload["allocations"][0]["id"] == seeded_client.seed["allocation_id"]
+    assert payload["allocations"][0]["operational_block_name"] == "North Block"
     assert payload["work_items"]
     assert payload["exceptions"] == []
 
