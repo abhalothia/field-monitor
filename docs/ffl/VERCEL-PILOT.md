@@ -32,6 +32,10 @@ Fortune launch-password session.
    role has DML access to the private `agro` tables and no schema-creation
    privilege. Never use a browser key, Supabase secret key, or a
    migration/superuser URL in Vercel.
+   During the short initial-farm handoff only, add a separate sensitive
+   `FFL_PILOT_SETUP_APPROVAL_TOKEN`. It is required together with the launch
+   session to accept the first real farm; it is not a browser credential.
+   Rotate and remove it immediately after the one-time acceptance succeeds.
 5. Configure a durable private evidence-store integration before permitting
    evidence uploads. Vercel's `/tmp` is only a disposable preview fallback.
 

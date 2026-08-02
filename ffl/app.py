@@ -20,6 +20,7 @@ from ffl.api.trial_routes import router as trial_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
+from ffl.pilot_setup_auth import configured_pilot_setup_approval_token
 from ffl.config import FFL_DATABASE_PATH
 from ffl.launch_auth import (
     SESSION_FLAG,
@@ -137,7 +138,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
@@ -152,6 +153,11 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
     app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
     app.state.launch_password = launch_password if launch_password is not None else configured_launch_password()
+    app.state.pilot_setup_approval_token = (
+        pilot_setup_approval_token
+        if pilot_setup_approval_token is not None
+        else configured_pilot_setup_approval_token()
+    )
 
     @app.middleware("http")
     async def private_postgres_request_connection(request: Request, call_next):

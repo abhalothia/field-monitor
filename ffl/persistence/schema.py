@@ -125,6 +125,30 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        -- A first farm is a privileged bootstrap action, not ordinary CRUD.
+        -- The singleton guard makes the one-time invariant durable even when
+        -- two application processes accept requests at the same instant.
+        CREATE TABLE IF NOT EXISTS pilot_setup_acceptances (
+            id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash = lower(content_hash)),
+            operating_unit_id TEXT NOT NULL REFERENCES operating_units(id),
+            manager_person_id TEXT NOT NULL REFERENCES people(id),
+            first_work_item_id TEXT NOT NULL REFERENCES work_items(id),
+            first_work_required_evidence_json TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status = 'accepted'),
+            accepted_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (operating_unit_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS pilot_setup_bootstrap_guard (
+            id TEXT PRIMARY KEY CHECK (id = 'initial_setup'),
+            acceptance_id TEXT NOT NULL UNIQUE REFERENCES pilot_setup_acceptances(id),
+            created_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS evidence_artifacts (
             id TEXT PRIMARY KEY,
             content_hash TEXT NOT NULL UNIQUE,
@@ -437,6 +461,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trial_confounders (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trial_conclusions_trial
             ON trial_conclusions (trial_id);
+        CREATE INDEX IF NOT EXISTS idx_pilot_setup_acceptances_manager_created
+            ON pilot_setup_acceptances (manager_person_id, created_at);
         """
     )
     # ``CREATE TABLE IF NOT EXISTS`` cannot add columns to V1 pilot databases

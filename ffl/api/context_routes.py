@@ -4,10 +4,11 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from ffl.persistence import repository
+from ffl.pilot_setup_auth import require_pilot_setup_approval
 from ffl.services import morning_brief, pilot_readiness, pilot_setup
 
 
@@ -47,6 +48,13 @@ class PilotSetupProposalRequest(BaseModel):
     first_work: Dict[str, Any]
 
 
+class PilotSetupAcceptanceRequest(PilotSetupProposalRequest):
+    """A proposed first farm plus the durable replay key and named approver."""
+
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    approving_manager_reference: str = Field(min_length=1, max_length=80)
+
+
 def _connection(request: Request):
     return getattr(request.state, "conn", request.app.state.conn)
 
@@ -67,6 +75,35 @@ def validate_pilot_setup(payload: PilotSetupProposalRequest) -> dict:
     try:
         values = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
         return pilot_setup.validate_up_pilot_setup(values)
+    except ValueError as error:
+        raise _unprocessable(error)
+
+
+@router.post("/pilot/setup/accept", status_code=status.HTTP_201_CREATED)
+def accept_pilot_setup(
+    payload: PilotSetupAcceptanceRequest,
+    request: Request,
+    response: Response,
+    _approval: str = Depends(require_pilot_setup_approval),
+) -> dict:
+    """Create the first real UP farm exactly once after independent approval.
+
+    This route remains behind the launch session.  The additional server-side
+    approval header exists only to bootstrap the first durable manager record;
+    later manager operations use the normal named-manager boundary instead.
+    """
+
+    try:
+        values = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        result = pilot_setup.accept_up_pilot_setup(
+            _connection(request),
+            values,
+            idempotency_key=values.pop("idempotency_key"),
+            approving_manager_reference=values.pop("approving_manager_reference"),
+        )
+        if result["idempotent"]:
+            response.status_code = status.HTTP_200_OK
+        return result
     except ValueError as error:
         raise _unprocessable(error)
 

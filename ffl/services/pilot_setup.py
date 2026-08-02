@@ -1,21 +1,28 @@
-"""Validate the first Uttar Pradesh farm pack without creating any records.
+"""Validate and atomically accept the first Uttar Pradesh farm pack.
 
 The route using this service is deliberately a rehearsal.  It gives a manager
-one precise place to check the real farm's facts before a separate, reviewed
-acceptance flow writes the operating record.  A proposal never creates people,
-rights, land, work, or a location by implication.
+one precise place to check the real farm's facts before a separately authorised
+acceptance writes the operating record.  Validation never creates people,
+rights, land, work, or a location by implication.  Acceptance is a single,
+idempotent transaction guarded by a durable singleton record, so an HTTP retry
+or a competing request cannot create a second "first farm".
 """
 
 from datetime import date, datetime, timezone
+import hashlib
+import json
 import math
 import re
+import sqlite3
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+import uuid
 
 
 _PINCODE = re.compile(r"[0-9]{6}")
 _UP_CONTEXT_KEY = re.compile(r"up:[a-z0-9][a-z0-9-]{1,118}")
 _UP_ALIASES = {"up", "u.p", "u.p.", "uttar pradesh"}
 _ROLES = {"farm_manager", "operations_lead", "agronomist", "field_operator"}
+_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
 
 
 class PilotSetupValidationError(ValueError):
@@ -148,16 +155,17 @@ def _normalise_blocks(value: Any, parcels: Mapping[str, Dict[str, Any]]) -> Dict
 
 
 def _normalise_allocations(value: Any, blocks: Mapping[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    allocations = _items(value, "allocations")
+    allocations = _unique_references(_items(value, "allocations"), "allocation")
     totals: Dict[str, float] = {reference: 0.0 for reference in blocks}
     result: List[Dict[str, Any]] = []
-    for item in allocations:
+    for reference, item in allocations.items():
         block_reference = _text(item.get("block_reference"), "allocation.block_reference", 80)
         if block_reference not in blocks:
             raise PilotSetupValidationError("allocation.block_reference must identify a proposed block")
         area = _finite_area(item.get("area_hectares"), "allocation.area_hectares")
         totals[block_reference] += area
         result.append({
+            "reference": reference,
             "block_reference": block_reference,
             "crop_name": _text(item.get("crop_name"), "allocation.crop_name"),
             "cultivar": _text(item.get("cultivar"), "allocation.cultivar", 120) if item.get("cultivar") else None,
@@ -186,21 +194,31 @@ def _normalise_location(value: Any) -> Dict[str, Optional[str]]:
         "village_name": _text(value.get("village_name"), "location.village_name") if value.get("village_name") else None,
         "pincode": pincode,
         "verification_method": "field_verified",
+        # Field observation time is retained separately from the later
+        # acceptance timestamp.  A manager's click must never rewrite when a
+        # location was actually verified.
+        "verified_at": _iso_timestamp(value.get("verified_at"), "location.verified_at"),
     }
 
 
-def _normalise_first_work(value: Any, people: Sequence[Mapping[str, str]]) -> Dict[str, Any]:
+def _normalise_first_work(
+    value: Any, people: Sequence[Mapping[str, str]], allocations: Sequence[Mapping[str, Any]]
+) -> Dict[str, Any]:
     if not isinstance(value, Mapping):
         raise PilotSetupValidationError("first_work must be an object")
     owner_reference = _text(value.get("owner_reference"), "first_work.owner_reference", 80)
     if owner_reference not in {person["reference"] for person in people}:
         raise PilotSetupValidationError("first_work.owner_reference must identify a proposed person")
+    allocation_reference = _text(value.get("allocation_reference"), "first_work.allocation_reference", 80)
+    if allocation_reference not in {allocation["reference"] for allocation in allocations}:
+        raise PilotSetupValidationError("first_work.allocation_reference must identify a proposed allocation")
     evidence = value.get("required_evidence")
     if not isinstance(evidence, list) or not evidence or not all(isinstance(item, str) and item.strip() for item in evidence):
         raise PilotSetupValidationError("first_work.required_evidence must name at least one evidence requirement")
     return {
         "title": _text(value.get("title"), "first_work.title"),
         "owner_reference": owner_reference,
+        "allocation_reference": allocation_reference,
         "due_at": _iso_timestamp(value.get("due_at"), "first_work.due_at"),
         "required_evidence": [item.strip() for item in evidence],
     }
@@ -223,7 +241,7 @@ def validate_up_pilot_setup(draft: Mapping[str, Any]) -> Dict[str, Any]:
     blocks = _normalise_blocks(draft.get("blocks"), parcels)
     allocations = _normalise_allocations(draft.get("allocations"), blocks)
     location = _normalise_location(draft.get("location"))
-    first_work = _normalise_first_work(draft.get("first_work"), people)
+    first_work = _normalise_first_work(draft.get("first_work"), people, allocations)
     return {
         "status": "ready_for_human_acceptance",
         "scope": {"state_name": "Uttar Pradesh", "mode": "first_farm_pilot"},
@@ -243,7 +261,250 @@ def validate_up_pilot_setup(draft: Mapping[str, Any]) -> Dict[str, Any]:
         ],
         "write_order": [
             "operating_unit", "people", "parcels_and_rights", "blocks_and_links", "season_and_allocations",
-            "verified_location", "soil_evidence_then_baseline", "first_work_and_signal_template",
+            "verified_location", "soil_evidence_then_baseline", "first_work",
         ],
         "persistence": "not_written_by_validation",
     }
+
+
+def _acceptance_row(connection: Any, idempotency_key: str):
+    return connection.execute(
+        """SELECT id, content_hash, result_json FROM pilot_setup_acceptances
+           WHERE idempotency_key = ?""",
+        (idempotency_key,),
+    ).fetchone()
+
+
+def _canonical_json(value: Any) -> str:
+    """Create the exact content form used for durable idempotency checks."""
+
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _replay_result(row: Any, content_hash: str) -> Dict[str, Any]:
+    if row["content_hash"] != content_hash:
+        raise PilotSetupValidationError("idempotency key was already used for a different pilot setup")
+    result = json.loads(row["result_json"])
+    result["idempotent"] = True
+    return result
+
+
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _acceptance_result(
+    acceptance_id: str, operating_unit_id: str, manager_person_id: str, location_id: str,
+    season_id: str, allocation_ids: Sequence[str], first_work_item_id: str,
+) -> Dict[str, Any]:
+    """Return only durable identifiers; proposal details stay in private tables."""
+
+    return {
+        "status": "accepted",
+        "idempotent": False,
+        "acceptance_id": acceptance_id,
+        "operating_unit_id": operating_unit_id,
+        "manager_person_id": manager_person_id,
+        "location_id": location_id,
+        "season_id": season_id,
+        "allocation_ids": list(allocation_ids),
+        "first_work_item_id": first_work_item_id,
+    }
+
+
+def _initial_setup_already_accepted(connection: Any) -> bool:
+    return connection.execute(
+        "SELECT id FROM pilot_setup_bootstrap_guard WHERE id = ?", ("initial_setup",)
+    ).fetchone() is not None
+
+
+def _assert_bootstrap_is_available(connection: Any) -> None:
+    if _initial_setup_already_accepted(connection):
+        raise PilotSetupValidationError("the first-farm setup has already been accepted")
+    count = connection.execute("SELECT COUNT(*) FROM operating_units").fetchone()[0]
+    if count:
+        raise PilotSetupValidationError("the first-farm setup cannot be accepted after operating data exists")
+
+
+def accept_up_pilot_setup(
+    connection: Any,
+    draft: Mapping[str, Any],
+    *,
+    idempotency_key: str,
+    approving_manager_reference: str,
+) -> Dict[str, Any]:
+    """Persist one reviewed UP pilot pack in a single, durable transaction.
+
+    The caller needs the independently configured bootstrap approval boundary;
+    this service additionally binds the audit actor to a proposed farm manager
+    or operations lead.  The proposal itself contains no database identifiers,
+    and no individual repository helper is used because those helpers commit
+    independently.
+    """
+
+    if not isinstance(idempotency_key, str) or _IDEMPOTENCY_KEY.fullmatch(idempotency_key) is None:
+        raise PilotSetupValidationError("idempotency_key must be 8-128 safe characters")
+    normalized = validate_up_pilot_setup(draft)
+    approving_manager_reference = _text(
+        approving_manager_reference, "approving_manager_reference", 80
+    )
+    manager = next(
+        (person for person in normalized["people"] if person["reference"] == approving_manager_reference),
+        None,
+    )
+    if manager is None or manager["role"] not in {"farm_manager", "operations_lead"}:
+        raise PilotSetupValidationError(
+            "approving_manager_reference must identify the proposed farm_manager or operations_lead"
+        )
+    content_hash = hashlib.sha256(_canonical_json({
+        "proposal": normalized,
+        "approving_manager_reference": approving_manager_reference,
+    }).encode("utf-8")).hexdigest()
+    existing = _acceptance_row(connection, idempotency_key)
+    if existing is not None:
+        return _replay_result(existing, content_hash)
+
+    try:
+        with connection:
+            # Recheck inside the transaction because a previous request can
+            # finish between the optimistic lookup and this transaction.
+            existing = _acceptance_row(connection, idempotency_key)
+            if existing is not None:
+                return _replay_result(existing, content_hash)
+            _assert_bootstrap_is_available(connection)
+
+            accepted_at = datetime.now(timezone.utc).isoformat()
+            operating_unit_id = _new_id()
+            connection.execute(
+                "INSERT INTO operating_units (id, name, created_at) VALUES (?, ?, ?)",
+                (operating_unit_id, normalized["farm"]["name"], accepted_at),
+            )
+
+            people = {}
+            for person in normalized["people"]:
+                person_id = _new_id()
+                people[person["reference"]] = person_id
+                connection.execute(
+                    "INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)",
+                    (person_id, person["name"], person["role"], accepted_at),
+                )
+            manager_person_id = people[approving_manager_reference]
+
+            parcels = {}
+            for parcel in normalized["parcels"]:
+                parcel_id = _new_id()
+                parcels[parcel["reference"]] = parcel_id
+                connection.execute(
+                    """INSERT INTO land_parcels
+                       (id, operating_unit_id, name, area_hectares, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (parcel_id, operating_unit_id, parcel["name"], parcel["area_hectares"], accepted_at),
+                )
+                connection.execute(
+                    """INSERT INTO rights_to_operate
+                       (id, land_parcel_id, right_type, starts_on, ends_on, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    ("right-" + _new_id(), parcel_id, parcel["right_type"], parcel["right_starts_on"],
+                     parcel["right_ends_on"], accepted_at),
+                )
+
+            blocks = {}
+            for block in normalized["blocks"]:
+                block_id = _new_id()
+                blocks[block["reference"]] = block_id
+                connection.execute(
+                    """INSERT INTO operational_blocks
+                       (id, operating_unit_id, name, area_hectares, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (block_id, operating_unit_id, block["name"], block["area_hectares"], accepted_at),
+                )
+                for parcel_reference in block["parcel_references"]:
+                    connection.execute(
+                        """INSERT INTO block_parcels
+                           (operational_block_id, land_parcel_id, created_at) VALUES (?, ?, ?)""",
+                        (block_id, parcels[parcel_reference], accepted_at),
+                    )
+
+            season_id = _new_id()
+            connection.execute(
+                """INSERT INTO seasons (id, operating_unit_id, name, starts_on, ends_on, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (season_id, operating_unit_id, normalized["season"]["name"], normalized["season"]["starts_on"],
+                 normalized["season"]["ends_on"], accepted_at),
+            )
+            allocations = {}
+            for allocation in normalized["allocations"]:
+                allocation_id = _new_id()
+                allocations[allocation["reference"]] = allocation_id
+                connection.execute(
+                    """INSERT INTO crop_allocations
+                       (id, operating_unit_id, operational_block_id, season_id, crop_name, cultivar,
+                        area_hectares, status, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (allocation_id, operating_unit_id, blocks[allocation["block_reference"]], season_id,
+                     allocation["crop_name"], allocation["cultivar"], allocation["area_hectares"], "active", accepted_at),
+                )
+
+            location = normalized["location"]
+            location_id = _new_id()
+            connection.execute(
+                """INSERT INTO operating_unit_locations
+                   (id, operating_unit_id, country_code, state_name, district_name, district_context_key,
+                    subdistrict_name, village_name, pincode, verification_method, verified_by_person_id,
+                    verified_at, status, supersedes_location_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (location_id, operating_unit_id, "IN", location["state_name"], location["district_name"],
+                 location["district_context_key"], location["subdistrict_name"], location["village_name"],
+                 location["pincode"], location["verification_method"], manager_person_id,
+                 location["verified_at"], "active", None, accepted_at),
+            )
+
+            first_work = normalized["first_work"]
+            first_work_item_id = _new_id()
+            connection.execute(
+                """INSERT INTO work_items (id, allocation_id, title, owner_id, due_at, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (first_work_item_id, allocations[first_work["allocation_reference"]], first_work["title"],
+                 people[first_work["owner_reference"]], first_work["due_at"], "planned", accepted_at),
+            )
+
+            acceptance_id = _new_id()
+            result = _acceptance_result(
+                acceptance_id, operating_unit_id, manager_person_id, location_id, season_id,
+                list(allocations.values()), first_work_item_id,
+            )
+            connection.execute(
+                """INSERT INTO pilot_setup_acceptances
+                   (id, idempotency_key, content_hash, operating_unit_id, manager_person_id,
+                    first_work_item_id, first_work_required_evidence_json, result_json, status, accepted_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (acceptance_id, idempotency_key, content_hash, operating_unit_id, manager_person_id,
+                 first_work_item_id, _canonical_json(first_work["required_evidence"]), _canonical_json(result),
+                 "accepted", accepted_at, accepted_at),
+            )
+            # A unique singleton is the cross-process gate.  A loser rolls
+            # back every prior insert in this transaction rather than leaving
+            # a partly-created farm behind.
+            connection.execute(
+                """INSERT INTO pilot_setup_bootstrap_guard (id, acceptance_id, created_at)
+                   VALUES (?, ?, ?)""",
+                ("initial_setup", acceptance_id, accepted_at),
+            )
+            connection.execute(
+                """INSERT INTO audit_events
+                   (id, entity_type, entity_id, from_status, to_status, actor_id, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (_new_id(), "pilot_setup", acceptance_id, "none", "accepted", manager_person_id,
+                 "bootstrap_setup_accepted", accepted_at),
+            )
+            return result
+    except sqlite3.IntegrityError:
+        # PostgreSQL's compatibility facade maps unique-constraint races to
+        # sqlite3.IntegrityError.  Re-read only after the transaction has been
+        # rolled back, then distinguish a retry from another accepted setup.
+        existing = _acceptance_row(connection, idempotency_key)
+        if existing is not None:
+            return _replay_result(existing, content_hash)
+        if _initial_setup_already_accepted(connection):
+            raise PilotSetupValidationError("the first-farm setup has already been accepted")
+        raise

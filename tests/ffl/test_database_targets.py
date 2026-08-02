@@ -88,6 +88,9 @@ def test_postgres_translation_includes_follow_on_private_migrations():
     assert translate_sqlite_sql("SELECT * FROM soil_baselines WHERE operating_unit_id = ?") == (
         "SELECT * FROM agro_soil_baselines WHERE operating_unit_id = %s"
     )
+    assert translate_sqlite_sql("SELECT * FROM pilot_setup_acceptances WHERE idempotency_key = ?") == (
+        "SELECT * FROM agro_pilot_setup_acceptances WHERE idempotency_key = %s"
+    )
 
 
 def test_postgres_connection_preserves_repository_row_contract_without_a_network_call():

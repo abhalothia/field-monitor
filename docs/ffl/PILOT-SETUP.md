@@ -29,9 +29,34 @@ archive.
 
 `POST /api/v1/pilot/setup/validate` accepts the same structured pack and
 returns a normalised, reviewable UP-only proposal. It **does not write** the
-farm, people, land, rights, or work: a named manager must review and accept a
-later write flow. This prevents an incomplete form or HTTP retry from creating
-a fictional operating record.
+farm, people, land, rights, or work.
+
+## One-time initial acceptance
+
+After a named proposed `farm_manager` or `operations_lead` has reviewed the
+validated pack, an authorised operator may call
+`POST /api/v1/pilot/setup/accept`. It additionally requires:
+
+- the normal Fortune launch session;
+- a server-only `X-FFL-Pilot-Setup-Approval` value matching
+  `FFL_PILOT_SETUP_APPROVAL_TOKEN`;
+- an 8–128 character idempotency key; and
+- `approving_manager_reference`, which must identify the proposed manager.
+
+The acceptance writes the farm, people, parcels, dated operating rights,
+blocks, season, allocations, field-verified administrative context, first
+planned work item, and an audit event in one database transaction. The first
+work item names its exact allocation; its required evidence is retained for
+later review but does not manufacture an evidence artifact or mark work done.
+`location.verified_at` is mandatory and remains the field verification time,
+separate from the acceptance timestamp.
+
+The same key and identical content replay the original result without writing
+anything. A changed request using that key is rejected. A durable singleton
+guard rejects every later, distinct first-farm acceptance; remove and rotate
+the bootstrap approval secret after the real initial setup completes. This
+prevents an incomplete form, HTTP retry, or competing request from creating a
+fictional or duplicate operating record.
 
 ## Geography and public data
 

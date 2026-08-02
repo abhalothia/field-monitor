@@ -1,6 +1,12 @@
+import copy
+
 import pytest
 
-from ffl.services.pilot_setup import PilotSetupValidationError, validate_up_pilot_setup
+from ffl.services.pilot_setup import (
+    PilotSetupValidationError,
+    accept_up_pilot_setup,
+    validate_up_pilot_setup,
+)
 
 
 def _proposal():
@@ -19,14 +25,19 @@ def _proposal():
             "parcel_references": ["parcel-a"],
         }],
         "season": {"name": "Kharif 2026", "starts_on": "2026-06-01", "ends_on": "2026-11-30"},
-        "allocations": [{"block_reference": "block-a", "crop_name": "Rice", "cultivar": "Pusa 1121", "area_hectares": 2.5}],
+        "allocations": [{
+            "reference": "rice-2026", "block_reference": "block-a", "crop_name": "Rice",
+            "cultivar": "Pusa 1121", "area_hectares": 2.5,
+        }],
         "location": {
             "state_name": "UP", "district_name": "Meerut", "district_context_key": "up:meerut",
             "village_name": "Field verified village", "pincode": "250001",
+            "verified_at": "2026-08-01T07:30:00+05:30",
         },
         "first_work": {
             "title": "Inspect irrigation readiness", "owner_reference": "field",
-            "due_at": "2026-08-02T08:00:00+05:30", "required_evidence": ["field photo", "water source note"],
+            "allocation_reference": "rice-2026", "due_at": "2026-08-02T08:00:00+05:30",
+            "required_evidence": ["field photo", "water source note"],
         },
     }
 
@@ -38,7 +49,9 @@ def test_up_pilot_setup_normalises_a_complete_real_farm_proposal_without_writing
     assert result["persistence"] == "not_written_by_validation"
     assert result["location"]["state_name"] == "Uttar Pradesh"
     assert result["location"]["district_context_key"] == "up:meerut"
+    assert result["location"]["verified_at"] == "2026-08-01T02:00:00+00:00"
     assert result["first_work"]["due_at"] == "2026-08-02T02:30:00+00:00"
+    assert result["first_work"]["allocation_reference"] == "rice-2026"
     assert result["allocations"][0]["area_hectares"] == 2.5
 
 
@@ -50,6 +63,8 @@ def test_up_pilot_setup_normalises_a_complete_real_farm_proposal_without_writing
         (lambda draft: draft["allocations"][0].update({"area_hectares": 2.6}), "exceed the area"),
         (lambda draft: draft["parcels"][0].update({"right_ends_on": "2026-10-01"}), "cover the proposed active season"),
         (lambda draft: draft["first_work"].update({"required_evidence": []}), "at least one evidence"),
+        (lambda draft: draft["first_work"].update({"allocation_reference": "missing"}), "proposed allocation"),
+        (lambda draft: draft["location"].pop("verified_at"), "location.verified_at"),
     ],
 )
 def test_up_pilot_setup_refuses_unsafe_or_incomplete_proposals(change, message):
@@ -71,3 +86,77 @@ def test_up_pilot_setup_route_only_validates_and_never_creates_a_farm(tmp_path):
         assert response.status_code == 200
         assert response.json()["persistence"] == "not_written_by_validation"
         assert client.get("/api/v1/pilot/readiness").json()["counts"]["operating_units"] == 0
+
+
+def test_up_pilot_setup_acceptance_is_atomic_and_idempotent(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from ffl.app import create_app
+
+    app = create_app(
+        str(tmp_path / "acceptance.db"),
+        pilot_setup_approval_token="setup-approval-test",
+    )
+    payload = _proposal()
+    payload.update({"idempotency_key": "up-pilot-setup-0001", "approving_manager_reference": "manager"})
+    with TestClient(app) as client:
+        denied = client.post("/api/v1/pilot/setup/accept", json=payload)
+        assert denied.status_code == 403
+
+        accepted = client.post(
+            "/api/v1/pilot/setup/accept",
+            json=payload,
+            headers={"x-ffl-pilot-setup-approval": "setup-approval-test"},
+        )
+        assert accepted.status_code == 201
+        accepted_body = accepted.json()
+        assert accepted_body["status"] == "accepted"
+        assert accepted_body["idempotent"] is False
+
+        replay = client.post(
+            "/api/v1/pilot/setup/accept",
+            json=payload,
+            headers={"x-ffl-pilot-setup-approval": "setup-approval-test"},
+        )
+        assert replay.status_code == 200
+        assert replay.json() == {**accepted_body, "idempotent": True}
+
+        connection = app.state.conn
+        assert connection.execute("SELECT COUNT(*) FROM operating_units").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM people").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM rights_to_operate").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM crop_allocations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM pilot_setup_acceptances").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM pilot_setup_bootstrap_guard").fetchone()[0] == 1
+        location = connection.execute("SELECT verified_at FROM operating_unit_locations").fetchone()
+        assert location["verified_at"] == "2026-08-01T02:00:00+00:00"
+        work = connection.execute("SELECT status FROM work_items").fetchone()
+        assert work["status"] == "planned"
+        audit = connection.execute("SELECT actor_id, reason FROM audit_events").fetchone()
+        assert audit["actor_id"] == accepted_body["manager_person_id"]
+        assert audit["reason"] == "bootstrap_setup_accepted"
+
+
+def test_up_pilot_setup_rejects_changed_replay_and_any_second_first_farm(tmp_path):
+    from ffl.persistence.database import open_connection
+    from ffl.persistence.schema import create_schema
+
+    connection = open_connection(str(tmp_path / "second-acceptance.db"))
+    create_schema(connection)
+    proposal = _proposal()
+    first = accept_up_pilot_setup(
+        connection, proposal, idempotency_key="up-pilot-setup-0002", approving_manager_reference="manager"
+    )
+    changed = copy.deepcopy(proposal)
+    changed["farm_name"] = "A different farm"
+    with pytest.raises(PilotSetupValidationError, match="idempotency key"):
+        accept_up_pilot_setup(
+            connection, changed, idempotency_key="up-pilot-setup-0002", approving_manager_reference="manager"
+        )
+    with pytest.raises(PilotSetupValidationError, match="already been accepted"):
+        accept_up_pilot_setup(
+            connection, proposal, idempotency_key="up-pilot-setup-0003", approving_manager_reference="manager"
+        )
+    assert connection.execute("SELECT COUNT(*) FROM operating_units").fetchone()[0] == 1
+    assert connection.execute("SELECT COUNT(*) FROM pilot_setup_acceptances").fetchone()[0] == 1
+    assert first["idempotent"] is False
