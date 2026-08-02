@@ -33,18 +33,27 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "/api/v1/data-lanes" in app_js
     assert "/api/v1/operating-profile" in app_js
     assert "/api/v1/pilot/readiness" in app_js
-    assert "/api/v1/pilot/setup/validate" in app_js
+    assert "/api/v1/pilot/quick-start/validate" in app_js
     assert "/api/v1/pilot/setup/accept" not in app_js
     assert "FFL_PILOT_SETUP_APPROVAL_TOKEN" not in app_js
-    assert "Make the farm real." in index_html
-    assert "Nothing is saved from this screen." in index_html
-    assert "Check this farm pack" in index_html
+    assert "Start with one field." in index_html
+    assert "Six facts now." in index_html
+    assert "Just the first field." in index_html
+    assert "Use a CSV" in index_html
+    assert 'id="setup-file"' in index_html
+    assert "Check this field" in index_html
     assert "renderPilotReadiness" in app_js
-    assert "buildSetupProposal" in app_js
-    assert "renderPreparedSetup" in app_js
-    assert "Prepare first farm" in app_js
-    assert "allocation.crop_name" in app_js
-    assert "allocation.cultivar" in app_js
+    assert "buildQuickSetup" in app_js
+    assert "renderQuickSetup" in app_js
+    assert "recognizeCsvFile" in app_js
+    assert "Nothing from this file has left this device." in app_js
+    assert "Purchase history recognized." in app_js
+    assert "Farm / plot list recognized." in app_js
+    assert "buildSetupProposal" not in app_js
+    assert "renderPreparedSetup" not in app_js
+    assert "Operating right" not in index_html
+    assert "Right starts" not in index_html
+    assert "First work" not in index_html
     assert "Risk &amp; action" in index_html
     assert "Five data lanes" in index_html
     assert "What is usable now, what is missing, and the next safe move." in index_html

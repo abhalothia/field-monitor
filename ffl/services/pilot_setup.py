@@ -201,6 +201,46 @@ def _normalise_location(value: Any) -> Dict[str, Optional[str]]:
     }
 
 
+def validate_quick_start(value: Any) -> Dict[str, Any]:
+    """Check the six facts needed to begin a first-field conversation.
+
+    This intentionally is not a shortcut around canonical first-farm
+    acceptance. It writes nothing and does not invent rights, dates, field
+    boundaries, owners, or work. It gives a non-technical operator a small,
+    honest first step before a manager supplies the remaining governed facts.
+    """
+    if not isinstance(value, Mapping):
+        raise PilotSetupValidationError("quick start must be an object")
+    pincode = value.get("pincode")
+    village = _text(value.get("village_name"), "village_name") if value.get("village_name") else None
+    if pincode is not None and pincode != "" and (not isinstance(pincode, str) or _PINCODE.fullmatch(pincode) is None):
+        raise PilotSetupValidationError("pincode must be a six-digit Indian PIN when supplied")
+    if not village and not pincode:
+        raise PilotSetupValidationError("add a village or PIN so the field has useful location context")
+    return {
+        "farm": {"name": _text(value.get("farm_name"), "farm_name")},
+        "field": {
+            "name": _text(value.get("field_name"), "field_name"),
+            "area_hectares": _finite_area(value.get("area_hectares"), "area_hectares"),
+            "crop_name": _text(value.get("crop_name"), "crop_name"),
+        },
+        "manager_name": _text(value.get("manager_name"), "manager_name"),
+        "location": {
+            "state_name": _normalise_up_state(value.get("state_name")),
+            "district_name": _text(value.get("district_name"), "district_name"),
+            "village_name": village,
+            "pincode": pincode or None,
+        },
+        "writes": False,
+        "still_needed_before_acceptance": [
+            "Confirm the land or operating right and its dates.",
+            "Confirm the active season and its dates.",
+            "Name the field reporter and the first piece of work.",
+            "Retain location and field evidence before a map pin or decision.",
+        ],
+    }
+
+
 def _normalise_first_work(
     value: Any, people: Sequence[Mapping[str, str]], allocations: Sequence[Mapping[str, Any]]
 ) -> Dict[str, Any]:

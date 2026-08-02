@@ -5,6 +5,7 @@ import pytest
 from ffl.services.pilot_setup import (
     PilotSetupValidationError,
     accept_up_pilot_setup,
+    validate_quick_start,
     validate_up_pilot_setup,
 )
 
@@ -55,6 +56,56 @@ def test_up_pilot_setup_normalises_a_complete_real_farm_proposal_without_writing
     assert result["allocations"][0]["area_hectares"] == 2.5
 
 
+def test_quick_start_only_checks_the_few_facts_needed_to_begin():
+    result = validate_quick_start({
+        "farm_name": "Fortune UP Pilot",
+        "manager_name": "Farm Manager",
+        "field_name": "North block",
+        "crop_name": "Pusa basmati",
+        "area_hectares": 2.5,
+        "state_name": "UP",
+        "district_name": "Meerut",
+        "pincode": "250001",
+    })
+
+    assert result["farm"] == {"name": "Fortune UP Pilot"}
+    assert result["field"]["name"] == "North block"
+    assert result["location"] == {
+        "state_name": "Uttar Pradesh",
+        "district_name": "Meerut",
+        "village_name": None,
+        "pincode": "250001",
+    }
+    assert result["writes"] is False
+    assert "land or operating right" in result["still_needed_before_acceptance"][0]
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        (lambda draft: draft.pop("village_name"), "village or PIN"),
+        (lambda draft: draft.update({"pincode": "2500"}), "six-digit"),
+        (lambda draft: draft.update({"area_hectares": 0}), "finite positive"),
+        (lambda draft: draft.update({"state_name": "Bihar"}), "Uttar Pradesh only"),
+    ],
+)
+def test_quick_start_rejects_missing_or_unsafe_basics(change, message):
+    draft = {
+        "farm_name": "Fortune UP Pilot",
+        "manager_name": "Farm Manager",
+        "field_name": "North block",
+        "crop_name": "Pusa basmati",
+        "area_hectares": 2.5,
+        "state_name": "Uttar Pradesh",
+        "district_name": "Meerut",
+        "village_name": "Kheri",
+    }
+    change(draft)
+
+    with pytest.raises(PilotSetupValidationError, match=message):
+        validate_quick_start(draft)
+
+
 @pytest.mark.parametrize(
     "change, message",
     [
@@ -85,6 +136,29 @@ def test_up_pilot_setup_route_only_validates_and_never_creates_a_farm(tmp_path):
 
         assert response.status_code == 200
         assert response.json()["persistence"] == "not_written_by_validation"
+        assert client.get("/api/v1/pilot/readiness").json()["counts"]["operating_units"] == 0
+
+
+def test_quick_start_route_writes_nothing(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from ffl.app import create_app
+
+    payload = {
+        "farm_name": "Fortune UP Pilot",
+        "manager_name": "Farm Manager",
+        "field_name": "North block",
+        "crop_name": "Pusa basmati",
+        "area_hectares": 2.5,
+        "state_name": "UP",
+        "district_name": "Meerut",
+        "village_name": "Kheri",
+    }
+    with TestClient(create_app(str(tmp_path / "quick-start.db"))) as client:
+        response = client.post("/api/v1/pilot/quick-start/validate", json=payload)
+
+        assert response.status_code == 200
+        assert response.json()["writes"] is False
         assert client.get("/api/v1/pilot/readiness").json()["counts"]["operating_units"] == 0
 
 

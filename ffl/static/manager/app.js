@@ -6,7 +6,7 @@
   var dataLanesUrl = "/api/v1/data-lanes";
   var operatingProfileUrl = "/api/v1/operating-profile";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
-  var pilotValidationUrl = "/api/v1/pilot/setup/validate";
+  var quickStartValidationUrl = "/api/v1/pilot/quick-start/validate";
   var currentRuntime = null;
   var currentAttention = [];
   var pendingAction = null;
@@ -117,24 +117,6 @@
 
   function formValue(form, name) {
     return String(new FormData(form).get(name) || "").trim();
-  }
-
-  function localTimestamp(value) {
-    var date = new Date(value);
-    if (!value || isNaN(date.getTime())) {
-      return "";
-    }
-    var offset = -date.getTimezoneOffset();
-    var sign = offset >= 0 ? "+" : "-";
-    var absolute = Math.abs(offset);
-    var hours = String(Math.floor(absolute / 60)).padStart(2, "0");
-    var minutes = String(absolute % 60).padStart(2, "0");
-    return (value.length === 16 ? value + ":00" : value) + sign + hours + ":" + minutes;
-  }
-
-  function districtContextKey(districtName) {
-    var slug = districtName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    return slug ? "up:" + slug : "";
   }
 
   function showView(viewName) {
@@ -709,74 +691,123 @@
     element("setup-error").hidden = false;
   }
 
-  function buildSetupProposal(form) {
-    var districtName = formValue(form, "district_name");
+  function buildQuickSetup(form) {
     var area = Number(formValue(form, "area_hectares"));
-    var verifiedAt = localTimestamp(formValue(form, "verified_at"));
-    var workDueAt = localTimestamp(formValue(form, "first_work_due_at"));
-    if (!districtContextKey(districtName)) {
-      throw new Error("Enter the district in English so its reviewed UP source context can be matched.");
-    }
     if (!isFinite(area) || area <= 0) {
-      throw new Error("Usable hectares must be a positive number.");
-    }
-    if (!verifiedAt || !workDueAt) {
-      throw new Error("Location verification time and first work due time are both required.");
-    }
-    var location = {
-      state_name: "Uttar Pradesh",
-      district_name: districtName,
-      district_context_key: districtContextKey(districtName),
-      verified_at: verifiedAt
-    };
-    var village = formValue(form, "village_name");
-    var pincode = formValue(form, "pincode");
-    if (village) {
-      location.village_name = village;
-    }
-    if (pincode) {
-      location.pincode = pincode;
+      throw new Error("Area must be a positive number.");
     }
     return {
       farm_name: formValue(form, "farm_name"),
-      people: [
-        { reference: "manager", name: formValue(form, "manager_name"), role: "farm_manager" },
-        { reference: "field", name: formValue(form, "operator_name"), role: "field_operator" }
-      ],
-      parcels: [{
-        reference: "first-parcel", name: formValue(form, "parcel_name"), area_hectares: area,
-        right_type: formValue(form, "right_type"),
-        right_starts_on: formValue(form, "right_starts_on"), right_ends_on: formValue(form, "right_ends_on")
-      }],
-      blocks: [{
-        reference: "first-block", name: formValue(form, "block_name"), area_hectares: area,
-        parcel_references: ["first-parcel"]
-      }],
-      season: {
-        name: formValue(form, "season_name"),
-        starts_on: formValue(form, "season_starts_on"), ends_on: formValue(form, "season_ends_on")
-      },
-      allocations: [{
-        reference: "first-allocation", block_reference: "first-block", crop_name: formValue(form, "crop_name"),
-        cultivar: formValue(form, "cultivar") || null, area_hectares: area
-      }],
-      location: location,
-      first_work: {
-        title: formValue(form, "first_work_title"), owner_reference: "field",
-        allocation_reference: "first-allocation", due_at: workDueAt,
-        required_evidence: [formValue(form, "required_evidence")]
-      }
+      manager_name: formValue(form, "manager_name"),
+      field_name: formValue(form, "field_name"),
+      crop_name: formValue(form, "crop_name"),
+      area_hectares: area,
+      state_name: formValue(form, "state_name"),
+      district_name: formValue(form, "district_name"),
+      village_name: formValue(form, "village_name") || null,
+      pincode: formValue(form, "pincode") || null
     };
   }
 
-  function renderPreparedSetup(result) {
-    var required = Array.isArray(result.required_before_acceptance) ? result.required_before_acceptance : [];
-    element("setup-result").innerHTML = '<h3>Ready for a named manager to accept.</h3><p>' +
-      escapeHtml(result.farm.name) + ' · ' + escapeHtml(result.location.district_name) + ' · ' +
-      escapeHtml(result.allocations[0].crop_name) + '</p><ul>' + required.map(function (item) {
+  function renderQuickSetup(result) {
+    var remaining = Array.isArray(result.still_needed_before_acceptance) ? result.still_needed_before_acceptance : [];
+    element("setup-result").innerHTML = '<h3>Good starting point.</h3><p>' +
+      escapeHtml(result.farm.name) + ' · ' + escapeHtml(result.field.name) + ' · ' +
+      escapeHtml(result.field.crop_name) + ' · ' + escapeHtml(result.location.district_name) + '</p><ul>' + remaining.map(function (item) {
         return '<li>' + escapeHtml(item) + '</li>';
-      }).join("") + '</ul><p>This screen only checked the pack. It did not create a farm, people, land, or work.</p>';
+      }).join("") + '</ul><p>Nothing has been saved, mapped, or assigned from this check.</p>';
     element("setup-result").hidden = false;
+  }
+
+  function setSetupMode(mode) {
+    var fieldMode = mode !== "file";
+    element("setup-field-mode").hidden = !fieldMode;
+    element("setup-file-mode").hidden = fieldMode;
+    element("validate-setup").hidden = !fieldMode;
+    element("setup-footer-copy").textContent = fieldMode
+      ? "You will only add land rights, season dates, and the first work after this basic check."
+      : "The file stays on this device while we recognize its header. A manager reviews any real import before it is retained.";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-setup-mode]"), function (button) {
+      var selected = button.getAttribute("data-setup-mode") === (fieldMode ? "field" : "file");
+      button.classList.toggle("is-active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
+    clearSetupFeedback();
+  }
+
+  function csvHeader(source) {
+    var cells = [];
+    var cell = "";
+    var quoted = false;
+    var index;
+    for (index = 0; index < source.length; index += 1) {
+      var character = source.charAt(index);
+      if (character === '"') {
+        if (quoted && source.charAt(index + 1) === '"') {
+          cell += '"';
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (character === "," && !quoted) {
+        cells.push(cell.trim());
+        cell = "";
+      } else if ((character === "\n" || character === "\r") && !quoted) {
+        if (character === "\r" && source.charAt(index + 1) === "\n") {
+          index += 1;
+        }
+        cells.push(cell.trim());
+        return cells;
+      } else {
+        cell += character;
+      }
+    }
+    cells.push(cell.trim());
+    return cells;
+  }
+
+  function canonicalCsvHeader(value) {
+    return String(value || "").replace(/^\uFEFF/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function setFileResult(html, status) {
+    var result = element("setup-file-result");
+    result.className = "file-result" + (status ? " is-" + status : "");
+    result.innerHTML = html;
+  }
+
+  function recognizeCsvFile(file) {
+    element("setup-file-name").textContent = file ? file.name : "No file chosen.";
+    if (!file) {
+      setFileResult("<p>A farm/plot list helps map verified fields. A purchase ledger helps show village and variety history. They stay separate.</p>");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setFileResult("<p>This file is larger than the quick check. Use a CSV under 3 MB, or ask the team to split an export.</p>", "warning");
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () {
+      setFileResult("<p>We could not read that file. Please choose a UTF-8 CSV.</p>", "warning");
+    };
+    reader.onload = function () {
+      var headers = csvHeader(String(reader.result || "")).map(canonicalCsvHeader);
+      var present = {};
+      headers.forEach(function (header) { present[header] = true; });
+      var procurement = ["entry_date", "village", "rate_per_qtl", "paddy_quantity_qtl", "variety_type"];
+      var manifest = ["source_farm_id", "record_status", "state_name", "district_name", "village_name", "pincode", "source_recorded_at", "source_record_ref"];
+      var isProcurement = procurement.every(function (header) { return present[header]; });
+      var isManifest = manifest.every(function (header) { return present[header]; });
+      if (isProcurement) {
+        setFileResult("<h3>Purchase history recognized.</h3><p>We will keep only monthly village, variety, quantity, bag, and rate cohorts—not names, purchase numbers, PO names, or bills. A manager reviews it before retention.</p>", "ready");
+      } else if (isManifest) {
+        setFileResult("<h3>Farm / plot list recognized.</h3><p>We will check IDs, location hierarchy, and any verified field proof before it can appear on the map. Village and PIN never create a field pin on their own.</p>", "ready");
+      } else {
+        setFileResult("<h3>We do not recognize this safely yet.</h3><p>Use a farm / plot CSV or the purchase-history format. Nothing from this file has left this device.</p>", "warning");
+      }
+    };
+    reader.readAsText(file.slice(0, 65536));
   }
 
   function openSetupDialog() {
@@ -800,15 +831,15 @@
     }
     var proposal;
     try {
-      proposal = buildSetupProposal(form);
+      proposal = buildQuickSetup(form);
     } catch (error) {
-      showSetupError(error.message || "Complete the first farm details.");
+      showSetupError(error.message || "Complete the basic field details.");
       return;
     }
     var submit = element("validate-setup");
     submit.disabled = true;
     submit.textContent = "Checking…";
-    fetch(pilotValidationUrl, {
+    fetch(quickStartValidationUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(proposal)
@@ -816,18 +847,18 @@
       .then(function (response) {
         return response.json().then(function (body) {
           if (!response.ok) {
-            throw new Error(body.detail || "The farm pack could not be checked.");
+            throw new Error(body.detail || "The field could not be checked.");
           }
           return body;
         });
       })
-      .then(renderPreparedSetup)
+      .then(renderQuickSetup)
       .catch(function (error) {
-        showSetupError(error.message || "The farm pack could not be checked.");
+        showSetupError(error.message || "The field could not be checked.");
       })
       .finally(function () {
         submit.disabled = false;
-        submit.innerHTML = 'Check this farm pack <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
+        submit.innerHTML = 'Check this field <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
       });
   }
 
@@ -892,6 +923,14 @@
     clearSetupFeedback();
   });
   element("setup-form").addEventListener("submit", validateSetup);
+  Array.prototype.forEach.call(document.querySelectorAll("[data-setup-mode]"), function (button) {
+    button.addEventListener("click", function () {
+      setSetupMode(button.getAttribute("data-setup-mode"));
+    });
+  });
+  element("setup-file").addEventListener("change", function (event) {
+    recognizeCsvFile(event.target.files && event.target.files[0]);
+  });
   element("close-action").addEventListener("click", function () {
     element("action-dialog").close();
   });

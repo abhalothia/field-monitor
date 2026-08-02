@@ -199,72 +199,64 @@
           <header class="setup-header">
             <div>
               <p class="eyebrow">First farm</p>
-              <h2 id="setup-title">Make the farm real.</h2>
-              <p class="setup-intro">Prepare one reviewed pack. Nothing is saved from this screen.</p>
+              <h2 id="setup-title">Start with one field.</h2>
+              <p class="setup-intro">Six facts now. The formal farm pack comes later, when there is something real to review.</p>
             </div>
             <button id="close-setup" class="dialog-close" type="button" aria-label="Close first farm setup">
               <span class="material-symbols-outlined" aria-hidden="true">close</span>
             </button>
           </header>
 
-          <form id="setup-form" class="setup-form" novalidate>
-            <section class="setup-step" aria-labelledby="setup-farm-heading">
-              <p class="step-number">01</p>
-              <div class="setup-step-copy">
-                <h3 id="setup-farm-heading">Farm &amp; team</h3>
-                <p>Who runs it, and what do we call the operating farm?</p>
-              </div>
-              <div class="setup-fields">
-                <label>Farm name<input name="farm_name" maxlength="200" required></label>
-                <label>Manager name<input name="manager_name" maxlength="200" required></label>
-                <label>Field operator name<input name="operator_name" maxlength="200" required></label>
-              </div>
-            </section>
+          <div class="setup-mode-tabs" role="tablist" aria-label="How to begin">
+            <button class="setup-mode is-active" type="button" role="tab" aria-selected="true" data-setup-mode="field">Add one field</button>
+            <button class="setup-mode" type="button" role="tab" aria-selected="false" data-setup-mode="file">Use a CSV</button>
+          </div>
 
-            <section class="setup-step" aria-labelledby="setup-field-heading">
-              <p class="step-number">02</p>
-              <div class="setup-step-copy">
-                <h3 id="setup-field-heading">One live field</h3>
-                <p>Start with the first block and its current crop. We can add the rest later.</p>
+          <form id="setup-form" class="setup-form quick-setup-form" novalidate>
+            <section id="setup-field-mode" class="setup-mode-panel" aria-labelledby="setup-field-heading">
+              <div class="quick-setup-copy">
+                <p class="step-number">01</p>
+                <div>
+                  <h3 id="setup-field-heading">Just the first field.</h3>
+                  <p>We need a name, crop, place, and the person accountable. Nothing is saved yet.</p>
+                </div>
               </div>
-              <div class="setup-fields setup-fields-wide">
-                <label>Parcel name<input name="parcel_name" maxlength="200" required></label>
-                <label>Usable hectares<input name="area_hectares" type="number" min="0.01" step="0.01" required></label>
-                <label>Operating right<select name="right_type" required><option value="lease">Lease</option><option value="owned">Owned</option><option value="management">Management</option></select></label>
-                <label>Right starts<input name="right_starts_on" type="date" required></label>
-                <label>Right ends<input name="right_ends_on" type="date" required></label>
-                <label>Block name<input name="block_name" maxlength="200" required></label>
-                <label>Season name<input name="season_name" maxlength="200" required></label>
-                <label>Season starts<input name="season_starts_on" type="date" required></label>
-                <label>Season ends<input name="season_ends_on" type="date" required></label>
-                <label>Crop<input name="crop_name" maxlength="200" required></label>
-                <label>Variety <span class="optional">optional</span><input name="cultivar" maxlength="120"></label>
-              </div>
-            </section>
-
-            <section class="setup-step" aria-labelledby="setup-place-heading">
-              <p class="step-number">03</p>
-              <div class="setup-step-copy">
-                <h3 id="setup-place-heading">Place &amp; first loop</h3>
-                <p>District context guides public data. It never claims a field boundary.</p>
-              </div>
-              <div class="setup-fields setup-fields-wide">
-                <label>State<input value="Uttar Pradesh" readonly aria-readonly="true"></label>
+              <div class="quick-setup-fields">
+                <label>Farm name<input name="farm_name" maxlength="200" autocomplete="organization" required></label>
+                <label>Your name<input name="manager_name" maxlength="200" autocomplete="name" required></label>
+                <label>Field or block name<input name="field_name" maxlength="200" required></label>
+                <label>Crop<input name="crop_name" maxlength="200" placeholder="e.g. Pusa basmati" required></label>
+                <label>Area in hectares<input name="area_hectares" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
                 <label>District<input name="district_name" maxlength="200" required></label>
-                <label>Village <span class="optional">optional</span><input name="village_name" maxlength="200"></label>
-                <label>PIN <span class="optional">optional</span><input name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"></label>
-                <label>Location verified at<input name="verified_at" type="datetime-local" required></label>
-                <label>First work<input name="first_work_title" maxlength="200" required></label>
-                <label>Due at<input name="first_work_due_at" type="datetime-local" required></label>
-                <label>Required proof<input name="required_evidence" maxlength="200" placeholder="e.g. field photo" required></label>
+                <label>Village <span class="optional">or PIN below</span><input name="village_name" maxlength="200"></label>
+                <label>PIN <span class="optional">or village above</span><input name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"></label>
+              </div>
+              <input name="state_name" value="Uttar Pradesh" type="hidden">
+            </section>
+
+            <section id="setup-file-mode" class="setup-mode-panel setup-file-panel" hidden aria-labelledby="setup-file-heading">
+              <div class="quick-setup-copy">
+                <p class="step-number">02</p>
+                <div>
+                  <h3 id="setup-file-heading">Start from a file.</h3>
+                  <p>Choose a CSV. We check what it can safely do before we keep anything.</p>
+                </div>
+              </div>
+              <label class="file-picker" for="setup-file">
+                <span>Choose CSV</span>
+                <input id="setup-file" type="file" accept=".csv,text/csv">
+                <small id="setup-file-name">No file chosen.</small>
+              </label>
+              <div id="setup-file-result" class="file-result" aria-live="polite">
+                <p>A farm/plot list helps map verified fields. A purchase ledger helps show village and variety history. They stay separate.</p>
               </div>
             </section>
 
             <div id="setup-error" class="setup-message" role="alert" aria-live="assertive" hidden></div>
             <div id="setup-result" class="setup-result" aria-live="polite" hidden></div>
             <footer class="setup-footer">
-              <p>Keep the original soil report ready. It is reviewed as evidence after this first pack is accepted.</p>
-              <button id="validate-setup" class="setup-submit" type="submit">Check this farm pack <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+              <p id="setup-footer-copy">You will only add land rights, season dates, and the first work after this basic check.</p>
+              <button id="validate-setup" class="setup-submit" type="submit">Check this field <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
             </footer>
           </form>
         </section>

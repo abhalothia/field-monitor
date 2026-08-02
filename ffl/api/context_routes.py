@@ -48,6 +48,18 @@ class PilotSetupProposalRequest(BaseModel):
     first_work: Dict[str, Any]
 
 
+class QuickPilotSetupRequest(BaseModel):
+    farm_name: str
+    field_name: str
+    area_hectares: float
+    crop_name: str
+    manager_name: str
+    state_name: str = "Uttar Pradesh"
+    district_name: str
+    village_name: Optional[str] = None
+    pincode: Optional[str] = None
+
+
 class PilotSetupAcceptanceRequest(PilotSetupProposalRequest):
     """A proposed first farm plus the durable replay key and named approver."""
 
@@ -75,6 +87,15 @@ def validate_pilot_setup(payload: PilotSetupProposalRequest) -> dict:
     try:
         values = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
         return pilot_setup.validate_up_pilot_setup(values)
+    except ValueError as error:
+        raise _unprocessable(error)
+
+
+@router.post("/pilot/quick-start/validate")
+def validate_quick_pilot_start(payload: QuickPilotSetupRequest) -> dict:
+    try:
+        values = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        return pilot_setup.validate_quick_start(values)
     except ValueError as error:
         raise _unprocessable(error)
 
