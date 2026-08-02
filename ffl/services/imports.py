@@ -14,13 +14,31 @@ from ffl.services.evidence import retain_evidence
 from ffl.services.evidence_store import EvidenceStore
 
 
-KNOWN_PURPOSES = {"land_register", "field_visit", "soil_measurement"}
+KNOWN_PURPOSES = {"land_register", "field_visit", "soil_measurement", "farm_manifest"}
 PURPOSE_COLUMNS = {
     "land_register": ("land_parcel_id",),
     "field_visit": ("allocation_id", "observed_at", "observation"),
     "soil_measurement": ("land_parcel_id", "sampled_on", "measurement", "value", "unit"),
+    # This manifest deliberately names an opaque upstream farm record rather
+    # than a person.  It provides reviewed location context and crop/season
+    # context; it does not establish land rights or create a canonical field.
+    "farm_manifest": (
+        "source_farm_id", "record_status", "state_name", "district_name",
+        "village_name", "pincode", "source_recorded_at", "source_record_ref",
+    ),
 }
 IDENTITY_LIKE_COLUMNS = {"name", "phone", "plot", "plot_name", "parcel", "farmer_name"}
+FARM_MANIFEST_OPTIONAL_COLUMNS = {
+    "crop_name", "cultivar", "season_name", "latitude", "longitude",
+    "location_precision", "boundary_evidence_ref",
+}
+FARM_MANIFEST_FORBIDDEN_COLUMNS = {
+    "name", "farmer_name", "farmer_phone", "phone", "mobile", "email",
+    "contact_name", "contact_phone", "person_name", "account_number",
+    "bank_account", "aadhaar",
+}
+FARM_MANIFEST_STATUSES = {"active", "inactive", "pending_review"}
+FARM_MANIFEST_PRECISIONS = {"village", "field_verified"}
 _IMPORT_LOCK = threading.RLock()
 
 
@@ -76,6 +94,8 @@ def _profile(headers: List[str], rows: Iterable[Tuple[int, List[str]]], parse_er
 
 
 def _reference_exists(conn, purpose: str, mapped: Dict[str, str]) -> Optional[Dict[str, str]]:
+    if purpose == "farm_manifest":
+        return None
     if purpose in ("land_register", "soil_measurement"):
         identifier = mapped.get("land_parcel_id", "")
         table, column = "land_parcels", "land_parcel_id"
@@ -95,9 +115,83 @@ def _is_iso_date(value: str) -> bool:
         return False
 
 
+def _is_iso_timestamp(value: str) -> bool:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _slug(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value.lower()).strip("-")
+
+
+def _canonical_header(value: str) -> str:
+    return "_".join(_slug(value).split("-"))
+
+
+def _farm_manifest_row(
+    normalized_headers: List[str], row: List[str], header_problems: bool,
+) -> Tuple[Dict[str, str], str, List[Dict[str, str]]]:
+    raw = {normalized_headers[index]: value for index, value in enumerate(row) if index < len(normalized_headers)}
+    if len(row) != len(normalized_headers):
+        return raw, "quarantined", [_error("malformed_row", "row has a different number of cells than its header")]
+    if header_problems:
+        return raw, "quarantined", [_error("ambiguous_headers", "CSV headers are blank, duplicated, or unsafe")]
+    required = PURPOSE_COLUMNS["farm_manifest"]
+    missing_columns = [column for column in required if column not in normalized_headers]
+    if missing_columns:
+        return raw, "quarantined", [
+            _error("missing_required_columns", "farm manifest requires stable, non-person columns", column)
+            for column in missing_columns
+        ]
+    mapped = {column: raw.get(column, "").strip() for column in required + tuple(FARM_MANIFEST_OPTIONAL_COLUMNS)}
+    mapped = {key: value for key, value in mapped.items() if value}
+    errors: List[Dict[str, str]] = []
+    for column in required:
+        if not mapped.get(column):
+            errors.append(_error("missing_value", "required value is blank", column))
+    source_farm_id = mapped.get("source_farm_id", "")
+    if source_farm_id and (len(source_farm_id) > 128 or not all(character.isalnum() or character in "._:-" for character in source_farm_id)):
+        errors.append(_error("invalid_source_farm_id", "source_farm_id must be an opaque stable identifier", "source_farm_id"))
+    if mapped.get("record_status") and mapped["record_status"] not in FARM_MANIFEST_STATUSES:
+        errors.append(_error("invalid_record_status", "record_status must be active, inactive, or pending_review", "record_status"))
+    if mapped.get("pincode") and (len(mapped["pincode"]) != 6 or not mapped["pincode"].isdigit()):
+        errors.append(_error("invalid_pincode", "pincode must be a six-digit Indian PIN", "pincode"))
+    if mapped.get("source_recorded_at") and not _is_iso_timestamp(mapped["source_recorded_at"]):
+        errors.append(_error("invalid_timestamp", "source_recorded_at must be an ISO-8601 timestamp with timezone", "source_recorded_at"))
+    has_latitude = "latitude" in mapped
+    has_longitude = "longitude" in mapped
+    if has_latitude != has_longitude:
+        errors.append(_error("incomplete_coordinate", "latitude and longitude must be supplied together", "latitude"))
+    if has_latitude and has_longitude:
+        try:
+            latitude, longitude = float(mapped["latitude"]), float(mapped["longitude"])
+        except ValueError:
+            errors.append(_error("invalid_coordinate", "coordinates must be numeric", "latitude"))
+        else:
+            if not (6.0 <= latitude <= 38.0 and 68.0 <= longitude <= 98.0):
+                errors.append(_error("coordinate_outside_india", "coordinates must be within India", "latitude"))
+        if mapped.get("location_precision") != "field_verified":
+            errors.append(_error("unverified_coordinate", "coordinates require location_precision=field_verified", "location_precision"))
+        if not mapped.get("boundary_evidence_ref"):
+            errors.append(_error("missing_boundary_evidence", "coordinates require a boundary_evidence_ref", "boundary_evidence_ref"))
+    elif mapped.get("location_precision") and mapped["location_precision"] not in FARM_MANIFEST_PRECISIONS:
+        errors.append(_error("invalid_location_precision", "location_precision must be village or field_verified", "location_precision"))
+    elif mapped.get("location_precision") == "field_verified":
+        errors.append(_error("missing_coordinate", "field_verified location_precision requires coordinates", "latitude"))
+    if not errors:
+        mapped["district_context_key"] = "in:" + _slug(mapped["state_name"]) + ":" + _slug(mapped["district_name"])
+        mapped["map_eligibility"] = "field_verified" if has_latitude else "village_context_only"
+    return mapped, "invalid" if errors else "valid", errors
+
+
 def _validate_row(
     conn, purpose: str, normalized_headers: List[str], row: List[str], header_problems: bool,
 ) -> Tuple[Dict[str, str], str, List[Dict[str, str]]]:
+    if purpose == "farm_manifest":
+        return _farm_manifest_row(normalized_headers, row, header_problems)
     raw = {normalized_headers[index]: value for index, value in enumerate(row) if index < len(normalized_headers)}
     if len(row) != len(normalized_headers):
         return raw, "quarantined", [_error("malformed_row", "row has a different number of cells than its header")]
@@ -214,6 +308,96 @@ def register_csv_import(
             conn.rollback()
             raise
     return _summary(conn, batch)
+
+
+def register_farm_manifest(
+    conn,
+    content: bytes,
+    owner_id: str,
+    original_filename: Optional[str] = None,
+    evidence_directory: Optional[str] = None,
+    evidence_store: Optional[EvidenceStore] = None,
+) -> Dict[str, Any]:
+    """Retain a minimal, non-person farm manifest after strict preflight.
+
+    This has no side effect on operating units, land, fields, or maps. A
+    named manager must still review and publish the retained batch. The CSV is
+    checked before evidence retention so an accidental contact roster is never
+    copied into FFL storage.
+    """
+    headers, rows, parse_errors = _parse_csv(content)
+    normalized_headers = [header.strip() for header in headers]
+    canonical_headers = [_canonical_header(header) for header in normalized_headers]
+    forbidden = sorted(set(canonical_headers).intersection(FARM_MANIFEST_FORBIDDEN_COLUMNS))
+    if forbidden:
+        raise ValueError("farm manifest must not contain personal or payment columns: " + ", ".join(forbidden))
+    required = set(PURPOSE_COLUMNS["farm_manifest"])
+    missing = sorted(required - set(canonical_headers))
+    if missing:
+        raise ValueError("farm manifest is missing required columns: " + ", ".join(missing))
+    schema_columns = required.union(FARM_MANIFEST_OPTIONAL_COLUMNS)
+    aliases = sorted(
+        header for header, canonical in zip(normalized_headers, canonical_headers)
+        if canonical in schema_columns and header != canonical
+    )
+    if aliases:
+        raise ValueError("farm manifest columns must use the documented snake_case names: " + ", ".join(aliases))
+    if parse_errors:
+        raise ValueError("farm manifest CSV is malformed")
+    id_index = canonical_headers.index("source_farm_id")
+    identifiers = [row[id_index].strip() for _, row in rows if len(row) > id_index and row[id_index].strip()]
+    duplicates = sorted({identifier for identifier in identifiers if identifiers.count(identifier) > 1})
+    if duplicates:
+        raise ValueError("farm manifest contains duplicate source_farm_id values")
+    return register_csv_import(
+        conn, content, "farm_manifest", owner_id, original_filename,
+        evidence_directory=evidence_directory, evidence_store=evidence_store,
+    )
+
+
+def farm_manifest_summary(conn, import_batch_id: str) -> Dict[str, Any]:
+    """Return manager-safe coverage counters, never raw rows or coordinates."""
+    batch = repository.get_import_batch(conn, import_batch_id)
+    if batch is None or batch.purpose != "farm_manifest":
+        raise LookupError("farm manifest not found")
+    rows = repository.list_import_rows(conn, batch.id)
+    counts = Counter(row.status for row in rows)
+    mapped = [row.mapped for row in rows if row.status in {"valid", "published"}]
+    districts = sorted({row.get("district_context_key") for row in mapped if row.get("district_context_key")})
+    return {
+        "batch": batch,
+        "counters": {
+            "total": len(rows),
+            "valid": counts["valid"],
+            "invalid": counts["invalid"],
+            "quarantined": counts["quarantined"],
+            "published": counts["published"],
+            "field_verified": sum(row.get("map_eligibility") == "field_verified" for row in mapped),
+            "village_context_only": sum(row.get("map_eligibility") == "village_context_only" for row in mapped),
+        },
+        "district_context_keys": districts,
+        "map_policy": "only field_verified rows with boundary evidence may become field markers",
+    }
+
+
+def review_farm_manifest(conn, import_batch_id: str, reviewer_id: str) -> ImportBatch:
+    person = conn.execute("SELECT role FROM people WHERE id = ?", (reviewer_id,)).fetchone()
+    if person is None or person["role"] not in {"farm_manager", "operations_lead", "agronomist"}:
+        raise ValueError("farm manifest requires a named manager reviewer")
+    batch = repository.get_import_batch(conn, import_batch_id)
+    if batch is None or batch.purpose != "farm_manifest":
+        raise ValueError("farm manifest does not exist")
+    return review_import(conn, import_batch_id, reviewer_id)
+
+
+def publish_farm_manifest(conn, import_batch_id: str, manager_id: str) -> Dict[str, Any]:
+    batch = repository.get_import_batch(conn, import_batch_id)
+    if batch is None or batch.purpose != "farm_manifest":
+        raise LookupError("farm manifest not found")
+    if batch.reviewed_by_id != manager_id:
+        raise ValueError("only the named manager reviewer may publish this farm manifest")
+    publish_import(conn, import_batch_id)
+    return farm_manifest_summary(conn, import_batch_id)
 
 
 def get_import(conn, import_batch_id: str) -> Dict[str, Any]:

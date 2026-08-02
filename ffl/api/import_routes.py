@@ -75,6 +75,11 @@ def create_evidence(payload: EvidenceCreateRequest, request: Request, response: 
 
 @router.post("/imports/csv", status_code=status.HTTP_201_CREATED)
 def create_csv_import(payload: CsvImportRequest, request: Request, response: Response) -> dict:
+    if payload.purpose == "farm_manifest":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="farm_manifest imports require the manager-only /farm-manifests/csv route",
+        )
     try:
         result = imports.register_csv_import(
             _connection(request), _content(payload.content_base64), payload.purpose, payload.owner_id,
@@ -92,7 +97,10 @@ def create_csv_import(payload: CsvImportRequest, request: Request, response: Res
 @router.get("/imports/{import_batch_id}")
 def get_csv_import(import_batch_id: str, request: Request) -> dict:
     try:
-        return _result(imports.get_import(_connection(request), import_batch_id))
+        result = imports.get_import(_connection(request), import_batch_id)
+        if result["batch"].purpose == "farm_manifest":
+            raise LookupError("import batch not found")
+        return _result(result)
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
 
