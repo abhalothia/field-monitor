@@ -3,7 +3,6 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
-  var readinessUrl = "/api/v1/pilot/readiness";
   var currentRuntime = null;
   var focusExceptionId = null;
 
@@ -76,34 +75,44 @@
     return ["critical", "high", "medium", "low", "info"].indexOf(value) === -1 ? "medium" : value;
   }
 
+  function showView(viewName) {
+    var tabs = document.querySelectorAll(".command-tab");
+    var views = document.querySelectorAll(".command-view");
+    Array.prototype.forEach.call(tabs, function (tab) {
+      var selected = tab.getAttribute("data-view") === viewName;
+      tab.classList.toggle("is-active", selected);
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    Array.prototype.forEach.call(views, function (view) {
+      var selected = view.id === "panel-" + viewName;
+      view.hidden = !selected;
+      view.classList.toggle("is-active", selected);
+    });
+  }
+
+  function activateView(event) {
+    showView(event.currentTarget.getAttribute("data-view"));
+  }
+
+  function moveTab(event) {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll(".command-tab"));
+    var currentIndex = tabs.indexOf(event.currentTarget);
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].indexOf(event.key) === -1) {
+      return;
+    }
+    event.preventDefault();
+    var nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 :
+      (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[nextIndex].focus();
+    showView(tabs[nextIndex].getAttribute("data-view"));
+  }
+
   function renderPortfolioUnavailable() {
-    element("portfolio-status").textContent = "Portfolio context is unavailable. Current action centre data is still usable.";
+    element("portfolio-status").textContent = "Tools are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
     setHtml("portfolio-context", '<p class="empty-state portfolio-unavailable">Source and import context is unavailable right now.</p>');
     setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
-  }
-
-  function renderReadinessUnavailable() {
-    element("foundation-progress").textContent = "Foundation check is unavailable.";
-    setHtml("foundation-list", '<li class="foundation-item foundation-unavailable"><strong>Start with the real farm record.</strong><span>The ledger is waiting for a verified farm, team, land, season, and field evidence plan.</span></li>');
-  }
-
-  function renderReadiness(readiness) {
-    var progress = readiness && readiness.progress ? readiness.progress : {};
-    var completed = typeof progress.completed === "number" ? progress.completed : 0;
-    var total = typeof progress.total === "number" ? progress.total : 0;
-    var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
-    var remaining = stages.filter(function (stage) { return stage.status !== "ready"; });
-    element("foundation-progress").textContent = completed === total && total ?
-      "Foundation complete · ready for the field loop" : completed + " of " + total + " foundations recorded";
-    if (!remaining.length) {
-      setHtml("foundation-list", '<li class="foundation-item foundation-ready"><strong>Foundation complete.</strong><span>Keep every next signal attached to the active allocation, responsible person, observed time, and evidence.</span></li>');
-      return;
-    }
-    setHtml("foundation-list", remaining.slice(0, 3).map(function (stage, index) {
-      return '<li class="foundation-item"><span class="foundation-index">0' + (index + 1) + '</span><div><strong>' +
-        escapeHtml(stage.title) + '</strong><span>' + escapeHtml(stage.next_action) + '</span></div></li>';
-    }).join(""));
   }
 
   function renderRiskLedger(portfolio) {
@@ -184,7 +193,7 @@
     renderRiskLedger(portfolio);
     renderDataContext(portfolio);
     renderLearning(portfolio);
-    element("portfolio-status").textContent = "Portfolio context updated with the action centre.";
+    element("portfolio-status").textContent = "Tools updated just now.";
   }
 
   function renderCards(runtime) {
@@ -211,6 +220,33 @@
     element("exception-summary").textContent = exceptions.length ?
       exceptions.length + (exceptions.length === 1 ? " open field signal needs a decision." : " open field signals need decisions.") :
       "No open field signals. Keep the evidence loop moving.";
+  }
+
+  function personFor(personId) {
+    var people = currentRuntime && Array.isArray(currentRuntime.people) ? currentRuntime.people : [];
+    return people.filter(function (person) { return person.id === personId; })[0] || null;
+  }
+
+  function personName(personId) {
+    var person = personFor(personId);
+    return person ? person.name : "Unassigned";
+  }
+
+  function renderPeople(runtime) {
+    var people = Array.isArray(runtime.people) ? runtime.people : [];
+    var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    if (!people.length) {
+      setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
+      return;
+    }
+    setHtml("people-list", people.map(function (person) {
+      var assigned = workItems.filter(function (item) {
+        return item.owner_id === person.id && isOpenWork(item);
+      }).length;
+      return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
+        '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
+        '<p class="person-work">' + assigned + (assigned === 1 ? ' open item' : ' open items') + '</p></article>';
+    }).join(""));
   }
 
   function renderFieldFocus(runtime) {
@@ -246,7 +282,7 @@
       return "<article class=\"queue-item\">" +
         "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
         "<span class=\"status status-" + escapeHtml(item.status) + "\">" + escapeHtml(item.status) + "</span></div>" +
-        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(item.owner_id) + "</dd></div>" +
+        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(personName(item.owner_id)) + "</dd></div>" +
         "<div><dt>Due</dt><dd>" + escapeHtml(formatTime(item.due_at)) + "</dd></div>" +
         "<div><dt>Timing</dt><dd class=\"" + (overdue ? "overdue" : "") + "\">" + (overdue ? "Overdue" : "On schedule") + "</dd></div></dl>" +
         "</article>";
@@ -265,8 +301,8 @@
       return "<article class=\"queue-item exception-item\">" +
         "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
         "<span class=\"severity severity-" + escapeHtml(item.severity) + "\">" + escapeHtml(item.severity) + "</span></div>" +
-        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(item.owner_id) + "</dd></div>" +
-        "<div><dt>Fallback owner</dt><dd>" + escapeHtml(item.fallback_owner_id) + "</dd></div>" +
+        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(personName(item.owner_id)) + "</dd></div>" +
+        "<div><dt>Fallback owner</dt><dd>" + escapeHtml(personName(item.fallback_owner_id)) + "</dd></div>" +
         "<div><dt>Observed</dt><dd>" + escapeHtml(formatTime(item.observed_at)) + "</dd></div>" +
         "<div><dt>Current state</dt><dd>" + state + "</dd></div>" +
         "<div><dt>Next action</dt><dd>" + escapeHtml(action) + "</dd></div></dl>" +
@@ -279,22 +315,24 @@
     currentRuntime = runtime;
     element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderCards(runtime);
+    renderPeople(runtime);
     renderFieldFocus(runtime);
     renderWork(runtime.work_items || []);
     renderExceptions(runtime.exceptions || []);
   }
 
   function renderRuntimeUnavailable() {
-    element("operating-unit").textContent = "Pilot foundation in progress — no farm facts have been entered.";
+    element("operating-unit").textContent = "No farm has been set up yet.";
     element("allocation-count").textContent = "0";
-    element("focus-crop").textContent = "Pilot foundation";
-    element("focus-title").textContent = "Start with the real farm, not a sample.";
-    element("focus-note").textContent = "Record the verified operating context before any external source or field signal is treated as useful.";
+    element("focus-crop").textContent = "Farm setup";
+    element("focus-title").textContent = "Start with the real farm.";
+    element("focus-note").textContent = "Add the operating context before field signals or outside data can be useful.";
     element("focus-severity").textContent = "Set up";
     element("focus-severity").className = "severity severity-medium";
     element("exception-count").textContent = "0";
-    element("exception-summary").textContent = "No field record exists yet. The foundation ledger names the next verified input.";
+    element("exception-summary").textContent = "No field record exists yet.";
     setHtml("allocation-list", "<span>No active allocation.</span>");
+    setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
     setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
     setHtml("exception-list", '<p class="empty-state">No field signals yet.</p>');
   }
@@ -326,8 +364,8 @@
   }
 
   function loadActionCentre() {
-    element("load-status").textContent = "Loading action centre…";
-    element("portfolio-status").textContent = "Loading portfolio context…";
+    element("load-status").textContent = "Loading…";
+    element("portfolio-status").textContent = "Loading tools…";
     fetch(runtimeUrl)
       .then(function (response) {
         if (!response.ok) {
@@ -341,18 +379,8 @@
       })
       .catch(function () {
         renderRuntimeUnavailable();
-        element("load-status").textContent = "Pilot foundation needs its first verified record.";
+        element("load-status").textContent = "Set up the farm to begin.";
       });
-
-    fetch(readinessUrl)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load pilot readiness.");
-        }
-        return response.json();
-      })
-      .then(renderReadiness)
-      .catch(renderReadinessUnavailable);
 
     fetch(portfolioUrl)
       .then(function (response) {
@@ -365,8 +393,13 @@
       .catch(renderPortfolioUnavailable);
   }
 
+  Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
+    tab.addEventListener("click", activateView);
+    tab.addEventListener("keydown", moveTab);
+  });
   element("refresh").addEventListener("click", loadActionCentre);
   element("review-focus").addEventListener("click", function () {
+    showView("fields");
     if (focusExceptionId) {
       loadException(focusExceptionId);
       element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -377,6 +410,7 @@
   element("exception-list").addEventListener("click", function (event) {
     var button = event.target.closest("[data-exception-id]");
     if (button) {
+      showView("fields");
       loadException(button.getAttribute("data-exception-id"));
     }
   });

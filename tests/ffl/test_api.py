@@ -27,6 +27,10 @@ def test_runtime_returns_seeded_pilot_state(seeded_client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["operating_unit"]["id"] == seeded_client.seed["operating_unit_id"]
+    assert {person["name"] for person in payload["people"]} == {
+        "Farm Manager", "Field Operator", "Operations Lead"
+    }
+    assert all(set(person) == {"id", "name", "role"} for person in payload["people"])
     assert payload["allocations"][0]["id"] == seeded_client.seed["allocation_id"]
     assert payload["work_items"]
     assert payload["exceptions"] == []

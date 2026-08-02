@@ -98,18 +98,30 @@ def get_runtime(request: Request) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="operating unit not found")
 
     operating_unit = dict(row)
+    people = [
+        dict(person) for person in conn.execute(
+            "SELECT id, name, role FROM people ORDER BY name, created_at"
+        ).fetchall()
+    ]
     allocations = _runtime_rows(
         conn, "crop_allocations", "operating_unit_id = ? AND status = 'active'", (operating_unit["id"],)
     )
     allocation_ids = [allocation["id"] for allocation in allocations]
     if not allocation_ids:
-        return {"operating_unit": operating_unit, "allocations": [], "work_items": [], "exceptions": []}
+        return {
+            "operating_unit": operating_unit,
+            "people": people,
+            "allocations": [],
+            "work_items": [],
+            "exceptions": [],
+        }
 
     placeholders = ", ".join("?" for _ in allocation_ids)
     work_items = _runtime_rows(conn, "work_items", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
     exceptions = _runtime_rows(conn, "exception_records", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
     return {
         "operating_unit": operating_unit,
+        "people": people,
         "allocations": allocations,
         "work_items": work_items,
         "exceptions": exceptions,
