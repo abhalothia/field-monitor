@@ -5,6 +5,7 @@
   var portfolioUrl = "/api/v1/portfolio";
   var currentRuntime = null;
   var focusExceptionId = null;
+  var focusTargetView = "fields";
 
   function element(id) {
     return document.getElementById(id);
@@ -232,6 +233,23 @@
     return person ? person.name : "Unassigned";
   }
 
+  function workFor(workId) {
+    var workItems = currentRuntime && Array.isArray(currentRuntime.work_items) ? currentRuntime.work_items : [];
+    return workItems.filter(function (item) { return item.id === workId; })[0] || null;
+  }
+
+  function exceptionFor(exceptionId) {
+    var exceptions = currentRuntime && Array.isArray(currentRuntime.exceptions) ? currentRuntime.exceptions : [];
+    return exceptions.filter(function (item) { return item.id === exceptionId; })[0] || null;
+  }
+
+  function setFocusAction(label, targetView, exceptionId, ownerId) {
+    focusTargetView = targetView;
+    focusExceptionId = exceptionId || null;
+    element("focus-action-label").textContent = label;
+    element("focus-owner").textContent = ownerId ? "Owner · " + personName(ownerId) : "";
+  }
+
   function renderPeople(runtime) {
     var people = Array.isArray(runtime.people) ? runtime.people : [];
     var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
@@ -256,19 +274,79 @@
     var allocation = allocations[0] || null;
     var crop = allocation ? allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "") : "Field ledger";
 
+    element("focus-kicker").textContent = "Field focus";
     element("focus-crop").textContent = crop;
-    focusExceptionId = focus ? focus.id : null;
     if (focus) {
       element("focus-title").textContent = focus.title;
       element("focus-note").textContent = nextAction(focus) || "Review the field signal with its linked evidence.";
       element("focus-severity").textContent = focus.severity;
       element("focus-severity").className = "severity severity-" + safeSeverity(focus.severity);
+      setFocusAction("Review signal", "fields", focus.id, focus.owner_id);
       return;
     }
     element("focus-title").textContent = allocation ? "Keep the next pass close." : "The field is ready for its first allocation.";
     element("focus-note").textContent = allocation ? "No open exception is blocking this allocation right now." : "Add a crop allocation to begin the evidence ledger.";
     element("focus-severity").textContent = "Clear";
     element("focus-severity").className = "severity severity-low";
+    setFocusAction("Open field work", "fields", null, null);
+  }
+
+  function renderMorningBrief(brief) {
+    var attention = brief && Array.isArray(brief.attention) ? brief.attention : [];
+    var item = attention[0];
+    if (!item || !item.entity) {
+      return;
+    }
+    var entityType = item.entity.type;
+    var entityId = item.entity.id;
+    var contextLabels = {
+      operating_unit: "Farm context",
+      soil_baseline: "Soil baseline",
+      source_registry: "Data source",
+      regional_signal: "District context",
+      crop_stage_checkpoint: "Field checkpoint"
+    };
+    var ownerId = null;
+    var targetView = "tools";
+    var actionLabel = "Open tools";
+    var exception = entityType === "exception_record" ? exceptionFor(entityId) : null;
+    var work = entityType === "work_item" ? workFor(entityId) : null;
+    if (exception) {
+      ownerId = exception.owner_id;
+      targetView = "fields";
+      actionLabel = "Review signal";
+    } else if (work) {
+      ownerId = work.owner_id;
+      targetView = "fields";
+      actionLabel = "Open field work";
+    }
+    element("focus-kicker").textContent = "Next move · " + readable(item.priority);
+    if (Object.prototype.hasOwnProperty.call(contextLabels, entityType)) {
+      element("focus-crop").textContent = contextLabels[entityType];
+    }
+    element("focus-title").textContent = item.title;
+    element("focus-note").textContent = item.detail;
+    element("focus-severity").textContent = item.priority;
+    element("focus-severity").className = "severity severity-" + safeSeverity(item.priority);
+    setFocusAction(actionLabel, targetView, exception ? exception.id : null, ownerId);
+  }
+
+  function loadMorningBrief(runtime) {
+    if (!runtime || !runtime.operating_unit || !runtime.operating_unit.id) {
+      return;
+    }
+    fetch("/api/v1/operating-units/" + encodeURIComponent(runtime.operating_unit.id) + "/morning-brief")
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load the operating brief.");
+        }
+        return response.json();
+      })
+      .then(renderMorningBrief)
+      .catch(function () {
+        // The Home view remains fully useful from runtime data when the brief
+        // cannot be composed. It is a decision aid, never a source of record.
+      });
   }
 
   function renderWork(workItems) {
@@ -319,16 +397,19 @@
     renderFieldFocus(runtime);
     renderWork(runtime.work_items || []);
     renderExceptions(runtime.exceptions || []);
+    loadMorningBrief(runtime);
   }
 
   function renderRuntimeUnavailable() {
     element("operating-unit").textContent = "No farm has been set up yet.";
     element("allocation-count").textContent = "0";
     element("focus-crop").textContent = "Farm setup";
+    element("focus-kicker").textContent = "Farm setup";
     element("focus-title").textContent = "Start with the real farm.";
     element("focus-note").textContent = "Add the operating context before field signals or outside data can be useful.";
     element("focus-severity").textContent = "Set up";
     element("focus-severity").className = "severity severity-medium";
+    setFocusAction("Open field work", "fields", null, null);
     element("exception-count").textContent = "0";
     element("exception-summary").textContent = "No field record exists yet.";
     setHtml("allocation-list", "<span>No active allocation.</span>");
@@ -399,13 +480,15 @@
   });
   element("refresh").addEventListener("click", loadActionCentre);
   element("review-focus").addEventListener("click", function () {
-    showView("fields");
+    showView(focusTargetView);
     if (focusExceptionId) {
       loadException(focusExceptionId);
       element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (focusTargetView === "fields") {
+      element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   });
   element("exception-list").addEventListener("click", function (event) {
     var button = event.target.closest("[data-exception-id]");

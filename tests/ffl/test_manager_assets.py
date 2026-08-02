@@ -37,6 +37,9 @@ def test_manager_assets_define_a_three_view_farm_command():
     assert "showView" in app_js
     assert "moveTab" in app_js
     assert "renderPeople" in app_js
+    assert "/morning-brief" in app_js
+    assert "loadMorningBrief" in app_js
+    assert "Next move · " in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "private_storage_uri" not in app_js

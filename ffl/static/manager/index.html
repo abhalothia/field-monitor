@@ -41,17 +41,18 @@
           <article class="command-card focus-card">
             <img class="focus-image" src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
             <div class="map-copy">
-              <p class="map-kicker"><span class="material-symbols-outlined" aria-hidden="true">location_on</span> Field focus</p>
+              <p id="focus-kicker" class="map-kicker"><span class="material-symbols-outlined" aria-hidden="true">location_on</span> Field focus</p>
               <p id="focus-crop" class="map-crop">Reading the field</p>
               <h2 id="focus-title">Current evidence is loading.</h2>
               <p id="focus-note">The next reviewable signal will appear here.</p>
+              <p id="focus-owner" class="focus-owner"></p>
             </div>
             <div class="map-meta">
               <span id="focus-severity" class="severity severity-medium">Watch</span>
               <span><strong id="allocation-count">—</strong> active plots</span>
             </div>
             <button id="review-focus" class="map-action" type="button">
-              Review field signal
+              <span id="focus-action-label">Review field signal</span>
               <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
             </button>
           </article>
