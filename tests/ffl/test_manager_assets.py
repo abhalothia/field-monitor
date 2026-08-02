@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
+def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
@@ -12,17 +12,26 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "Loading the field." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
-    assert index_html.count('<button id="tab-') == 4
+    assert index_html.count('<button id="tab-') == 5
     assert 'data-view="home"' in index_html
     assert 'data-view="fields"' in index_html
     assert 'data-view="farmers"' in index_html
-    assert 'data-view="tools"' in index_html
+    assert 'data-view="actions"' in index_html
+    assert 'data-view="settings"' in index_html
+    assert "Tools" not in index_html
+    assert "Actions" in index_html
+    assert "Data connections" in index_html
+    assert "Network map" in index_html
+    assert "Public coverage only" in index_html
+    assert 'id="language-toggle"' in index_html
+    assert 'id="action-dialog"' in index_html
     assert "The facts we need before we steer." not in index_html
     assert "Pilot foundation" not in index_html
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
     assert "/api/v1/data-lanes" in app_js
+    assert "/api/v1/operating-profile" in app_js
     assert "/api/v1/pilot/readiness" in app_js
     assert "/api/v1/pilot/setup/validate" in app_js
     assert "/api/v1/pilot/setup/accept" not in app_js
@@ -47,7 +56,7 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "AGMARKNET / data.gov.in" in app_js
     assert "renderDataLanes" in app_js
     assert "fetch(dataLanesUrl)" in app_js
-    assert "Tools are unavailable. Home is still usable." in app_js
+    assert "Actions are unavailable. Home is still usable." in app_js
     assert "fetch(runtimeUrl)" in app_js
     assert "fetch(portfolioUrl)" in app_js
     assert ".catch(renderPortfolioUnavailable)" in app_js
@@ -69,6 +78,13 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "Latest update is recorded." in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
+    assert "renderOperatingProfile" in app_js
+    assert "map_embed_url" in app_js
+    assert "currentAttention" in app_js
+    assert "openActionDetail" in app_js
+    assert "data-first-farm" in app_js
+    assert "ffl.manager.interface-locale" in app_js
+    assert "Farm records remain exactly as entered." in index_html
     assert "private_storage_uri" not in app_js
     assert "evidence_artifact_id" not in app_js
     assert "content_base64" not in app_js

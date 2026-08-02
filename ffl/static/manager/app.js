@@ -4,11 +4,40 @@
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
   var dataLanesUrl = "/api/v1/data-lanes";
+  var operatingProfileUrl = "/api/v1/operating-profile";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
   var pilotValidationUrl = "/api/v1/pilot/setup/validate";
   var currentRuntime = null;
+  var currentAttention = [];
+  var pendingAction = null;
   var focusExceptionId = null;
   var focusTargetView = "fields";
+  var localeStorageKey = "ffl.manager.interface-locale";
+  var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
+  var copy = {
+    en: {
+      navHome: "Home", navFields: "Fields", navFarmers: "Farmers", navActions: "Actions", navSettings: "Settings",
+      refresh: "Refresh", pageTitle: "Today.", fieldPulse: "Field pulse", lastUpdate: "Last update", from: "From",
+      openFieldWork: "Open field work", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
+      currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
+      priority: "Priority", riskAction: "Risk & action", learning: "Learning", trialsPlaybooks: "Trials & playbooks",
+      operatingProfile: "Operating profile", coverage: "Coverage", interface: "Interface", language: "Language",
+      languageHelp: "Choose Hindi or English for the interface. Farm records remain exactly as entered.",
+      dataConnections: "Data connections", fiveDataLanes: "Five data lanes",
+      lanesIntro: "What is usable now, what is missing, and the next safe move.", nextMove: "Next move"
+    },
+    hi: {
+      navHome: "होम", navFields: "खेत", navFarmers: "किसान", navActions: "काम", navSettings: "सेटिंग्स",
+      refresh: "ताज़ा करें", pageTitle: "आज।", fieldPulse: "खेत की स्थिति", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      openFieldWork: "खेत का काम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
+      currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
+      priority: "प्राथमिकता", riskAction: "जोखिम और अगला काम", learning: "सीख", trialsPlaybooks: "परीक्षण और तरीके",
+      operatingProfile: "ऑपरेटिंग प्रोफ़ाइल", coverage: "कवरेज", interface: "इंटरफ़ेस", language: "भाषा",
+      languageHelp: "इंटरफ़ेस के लिए हिंदी या अंग्रेज़ी चुनें। खेत के रिकॉर्ड जैसे दर्ज किए गए हैं वैसे ही रहेंगे।",
+      dataConnections: "डेटा कनेक्शन", fiveDataLanes: "पांच डेटा लेन",
+      lanesIntro: "क्या उपयोगी है, क्या नहीं है, और अगला सुरक्षित कदम।", nextMove: "अगला कदम"
+    }
+  };
 
   function element(id) {
     return document.getElementById(id);
@@ -18,12 +47,38 @@
     return value === null || value === undefined || value === "" ? "Not assigned" : String(value);
   }
 
+  function t(key) {
+    return (copy[interfaceLocale] && copy[interfaceLocale][key]) || (copy.en[key] || key);
+  }
+
+  function applyLanguage() {
+    document.documentElement.lang = interfaceLocale === "hi" ? "hi" : "en";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (node) {
+      node.textContent = t(node.getAttribute("data-i18n"));
+    });
+    element("language-toggle").textContent = interfaceLocale === "hi" ? "EN" : "हिं";
+    element("language-toggle").setAttribute(
+      "aria-label", interfaceLocale === "hi" ? "Switch interface language to English" : "इंटरफ़ेस भाषा हिंदी में बदलें"
+    );
+    Array.prototype.forEach.call(document.querySelectorAll("[data-locale]"), function (button) {
+      var selected = button.getAttribute("data-locale") === interfaceLocale;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  }
+
+  function setLocale(locale) {
+    interfaceLocale = locale === "hi" ? "hi" : "en";
+    window.localStorage.setItem(localeStorageKey, interfaceLocale);
+    applyLanguage();
+  }
+
   function formatTime(value) {
     if (!value) {
       return "Not scheduled";
     }
     var date = new Date(value);
-    return isNaN(date.getTime()) ? value : date.toLocaleString();
+    return isNaN(date.getTime()) ? value : date.toLocaleString(interfaceLocale === "hi" ? "hi-IN" : "en-IN");
   }
 
   function isOpenException(exceptionRecord) {
@@ -116,7 +171,7 @@
   }
 
   function renderPortfolioUnavailable() {
-    element("portfolio-status").textContent = "Tools are unavailable. Home is still usable.";
+    element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
     setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
   }
@@ -192,6 +247,57 @@
     renderDataLanes({ lanes: fallbackDataLanes() });
   }
 
+  function setProfileLink(id, url, label) {
+    var link = element(id);
+    if (!url) {
+      link.hidden = true;
+      link.removeAttribute("href");
+      return;
+    }
+    link.href = url;
+    link.textContent = label;
+    link.hidden = false;
+  }
+
+  function renderOperatingProfile(profile) {
+    var configured = profile && profile.configured === true;
+    var displayName = configured ? text(profile.display_name) : "No operating profile set";
+    element("wordmark-name").textContent = configured ? displayName : "AGRO CEO";
+    element("profile-heading").textContent = displayName;
+    if (!configured) {
+      element("profile-summary").textContent = "Add approved public operating context in deployment settings. No farm locations are guessed.";
+      setHtml("profile-facts", "");
+      setProfileLink("profile-website", null, "");
+      setProfileLink("profile-source", null, "");
+      element("home-coverage-note").textContent = "No public operating map is configured. Individual farm locations are never shown by default.";
+      setHtml("home-coverage-map", '<p class="map-empty">Add a reviewed public hub or network area to show a map here.</p>');
+      return;
+    }
+    element("profile-summary").textContent = "Public operating context only. It is not a field map or a source of record.";
+    var facts = [];
+    if (profile.coverage_label) {
+      facts.push('<div><dt>Operating area</dt><dd>' + escapeHtml(profile.coverage_label) + "</dd></div>");
+    }
+    if (profile.public_hub_label) {
+      facts.push('<div><dt>Public hub</dt><dd>' + escapeHtml(profile.public_hub_label) + "</dd></div>");
+    }
+    setHtml("profile-facts", facts.join("") || '<p class="empty-state">No public coverage details configured.</p>');
+    setProfileLink("profile-website", profile.website_url, "Open company site");
+    setProfileLink("profile-source", profile.source_url, "View public source");
+    if (!profile.map_embed_url) {
+      element("home-coverage-note").textContent = "Public coverage is noted above. No map has been approved yet.";
+      setHtml("home-coverage-map", '<p class="map-empty">No public map configured. Partner farms and field boundaries are not displayed here.</p>');
+      return;
+    }
+    element("home-coverage-note").textContent = "Public network coverage and hub only — no partner farms or field boundaries.";
+    setHtml("home-coverage-map", '<iframe title="Approved public operating coverage" loading="lazy" referrerpolicy="no-referrer" src="' +
+      escapeHtml(profile.map_embed_url) + '"></iframe>');
+  }
+
+  function renderOperatingProfileUnavailable() {
+    renderOperatingProfile({ configured: false });
+  }
+
   function countStatusItems(statuses) {
     if (!statuses || typeof statuses !== "object") {
       return 0;
@@ -223,25 +329,25 @@
     }
     renderRiskLedger(portfolio);
     renderLearning(portfolio);
-    element("portfolio-status").textContent = "Tools updated just now.";
+    element("portfolio-status").textContent = "Actions updated just now.";
   }
 
   function renderPilotReadiness(readiness) {
     var progress = readiness && readiness.progress ? readiness.progress : { completed: 0, total: 6 };
     var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
     var nextStage = readiness && readiness.next_stage ? readiness.next_stage : null;
-    element("today-heading").textContent = "First farm";
+    element("today-heading").textContent = interfaceLocale === "hi" ? "पहला खेत" : "First farm";
     element("today-count").textContent = progress.completed + "/" + progress.total;
     element("today-summary").textContent = nextStage ?
       "Start with " + nextStage.title.toLowerCase() + "." :
       "The minimum field loop is ready.";
     setHtml("today-list", stages.slice(0, 3).map(function (stage) {
       var ready = stage.status === "ready";
-      return '<article class="queue-item foundation-item"><div class="item-title"><h3>' +
+      return '<button class="queue-item foundation-item foundation-action" type="button" data-first-farm="true"><span class="item-title"><h3>' +
         escapeHtml(stage.title) + '</h3><span class="status">' +
-        (ready ? "ready" : "next") + '</span></div><p>' +
+        (ready ? "ready" : "next") + '</span></span><span>' +
         escapeHtml(ready ? "Recorded and ready for the field loop." : stage.next_action) +
-        '</p></article>';
+        '</span></button>';
     }).join("") || '<p class="empty-state">The first farm has not been prepared yet.</p>');
     element("active-work-count").textContent = progress.completed;
     element("submitted-work-count").textContent = progress.total;
@@ -259,7 +365,7 @@
       })
       .then(renderPilotReadiness)
       .catch(function () {
-        element("today-heading").textContent = "First farm";
+        element("today-heading").textContent = interfaceLocale === "hi" ? "पहला खेत" : "First farm";
         element("today-count").textContent = "0/6";
         element("today-summary").textContent = "Prepare one real farm before external data can help.";
         setHtml("today-list", '<p class="empty-state">Farm, field, people, place, soil report, then the first work loop.</p>');
@@ -417,6 +523,7 @@
 
   function renderToday(items) {
     var currentItems = Array.isArray(items) ? items.slice(0, 3) : [];
+    currentAttention = currentItems;
     element("today-count").textContent = currentItems.length;
     element("today-summary").textContent = currentItems.length ?
       (currentItems.length === 1 ? "One item needs a look." : currentItems.length + " items need a look.") :
@@ -425,16 +532,15 @@
       setHtml("today-list", '<p class="empty-state">No due work or open issue.</p>');
       return;
     }
-    setHtml("today-list", currentItems.map(function (item) {
+    setHtml("today-list", currentItems.map(function (item, index) {
       var entity = item.entity || {};
-      var exception = entity.type === "exception_record" ? exceptionFor(entity.id) : null;
-      return '<article class="queue-item today-item">' +
+      return '<button class="queue-item today-item today-action" type="button" data-today-index="' + index + '">' +
         '<div class="item-title"><h3>' + escapeHtml(item.title) + '</h3><span class="severity severity-' +
         safeSeverity(item.priority) + '">' + escapeHtml(item.priority) + '</span></div>' +
         '<p class="today-item-detail">' + escapeHtml(todayDetail(item)) + '</p>' +
         '<p class="today-item-next"><strong>Next</strong> ' + escapeHtml(todayNext(item)) + '</p>' +
-        (exception ? '<button class="detail-button" type="button" data-exception-id="' + escapeHtml(exception.id) + '">Open</button>' : '') +
-        '</article>';
+        '<span class="detail-button">Open</span>' +
+        '</button>';
     }).join(""));
   }
 
@@ -491,7 +597,7 @@
 
   function renderRuntime(runtime) {
     currentRuntime = runtime;
-    element("today-heading").textContent = "Today";
+    element("today-heading").textContent = t("today");
     element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderCards(runtime);
     renderPeople(runtime);
@@ -544,6 +650,51 @@
       .catch(function (error) {
         element("exception-detail").textContent = error.message;
       });
+  }
+
+  function actionDestination(item) {
+    var entity = item && item.entity ? item.entity : {};
+    if (entity.type === "exception_record") {
+      return { view: "fields", exceptionId: entity.id, label: "Open issue" };
+    }
+    if (entity.type === "regional_signal" || entity.type === "source_registry") {
+      return { view: "settings", exceptionId: null, label: "Open data connections" };
+    }
+    return { view: "fields", exceptionId: null, label: "Open field work" };
+  }
+
+  function openActionDetail(item) {
+    if (!item) {
+      return;
+    }
+    pendingAction = actionDestination(item);
+    element("action-dialog-title").textContent = text(item.title);
+    element("action-dialog-detail").textContent = todayDetail(item);
+    element("action-dialog-next").textContent = "Next: " + todayNext(item);
+    element("action-go").innerHTML = escapeHtml(pendingAction.label) +
+      ' <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
+    var dialog = element("action-dialog");
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+  }
+
+  function followActionDetail() {
+    if (!pendingAction) {
+      return;
+    }
+    var action = pendingAction;
+    element("action-dialog").close();
+    showView(action.view);
+    if (action.exceptionId) {
+      loadException(action.exceptionId);
+      element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    var target = action.view === "settings" ? element("context-heading") : element("work-heading");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function clearSetupFeedback() {
@@ -682,7 +833,7 @@
 
   function loadActionCentre() {
     element("load-status").textContent = "Loading…";
-    element("portfolio-status").textContent = "Loading tools…";
+    element("portfolio-status").textContent = "Loading actions…";
     fetch(runtimeUrl)
       .then(function (response) {
         if (!response.ok) {
@@ -718,6 +869,16 @@
       })
       .then(renderDataLanes)
       .catch(renderDataLanesUnavailable);
+
+    fetch(operatingProfileUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load operating profile.");
+        }
+        return response.json();
+      })
+      .then(renderOperatingProfile)
+      .catch(renderOperatingProfileUnavailable);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
@@ -731,6 +892,21 @@
     clearSetupFeedback();
   });
   element("setup-form").addEventListener("submit", validateSetup);
+  element("close-action").addEventListener("click", function () {
+    element("action-dialog").close();
+  });
+  element("action-dialog").addEventListener("cancel", function () {
+    pendingAction = null;
+  });
+  element("action-go").addEventListener("click", followActionDetail);
+  element("language-toggle").addEventListener("click", function () {
+    setLocale(interfaceLocale === "en" ? "hi" : "en");
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-locale]"), function (button) {
+    button.addEventListener("click", function () {
+      setLocale(button.getAttribute("data-locale"));
+    });
+  });
   element("refresh").addEventListener("click", loadActionCentre);
   element("review-focus").addEventListener("click", function () {
     if (focusTargetView === "setup") {
@@ -748,11 +924,16 @@
     }
   });
   element("today-list").addEventListener("click", function (event) {
-    var button = event.target.closest("[data-exception-id]");
+    var firstFarm = event.target.closest("[data-first-farm]");
+    if (firstFarm) {
+      openSetupDialog();
+      return;
+    }
+    var button = event.target.closest("[data-today-index]");
     if (button) {
-      showView("fields");
-      loadException(button.getAttribute("data-exception-id"));
+      openActionDetail(currentAttention[Number(button.getAttribute("data-today-index"))]);
     }
   });
+  applyLanguage();
   loadActionCentre();
 }());
