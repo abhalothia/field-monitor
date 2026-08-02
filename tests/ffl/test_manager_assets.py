@@ -2,11 +2,12 @@ from pathlib import Path
 import re
 
 
-def test_manager_assets_define_action_centre():
+def test_manager_assets_define_field_ledger():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     app_js = (root / "app.js").read_text()
 
-    assert "FFL Action Centre" in (root / "index.html").read_text()
+    assert "Today on the farm." in (root / "index.html").read_text()
+    assert "Review field signal" in (root / "index.html").read_text()
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
@@ -22,6 +23,9 @@ def test_manager_assets_define_action_centre():
     assert ".catch(renderPortfolioUnavailable)" in app_js
     assert "ledger.slice(0, 6)" in app_js
     assert "Sources needing attention" in app_js
+    assert "renderFieldFocus" in app_js
+    assert "focusExceptionId" in app_js
+    assert 'element("audit").scrollIntoView' in app_js
     assert "private_storage_uri" not in app_js
     assert "evidence_artifact_id" not in app_js
     assert "content_base64" not in app_js

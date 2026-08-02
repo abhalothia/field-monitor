@@ -17,15 +17,18 @@ def test_public_landing_is_data_free_and_has_absolute_share_metadata(tmp_path, m
 
 def test_brand_assets_and_legacy_favicon_are_public_with_launch_gate_enabled(tmp_path):
     with TestClient(create_app(str(tmp_path / "brand.db"), launch_password="pilot-password")) as client:
-        assert client.get("/favicon.svg").headers["content-type"].startswith("image/svg+xml")
+        assert client.get("/favicon.png").headers["content-type"].startswith("image/png")
         assert client.get("/site.webmanifest").headers["content-type"].startswith("application/manifest+json")
         social_card = client.get("/brand/agro-ceo-social.png")
         assert social_card.headers["content-type"].startswith("image/png")
         assert social_card.content.startswith(b"\x89PNG\r\n\x1a\n")
         assert client.get("/brand/apple-touch-icon.png").content.startswith(b"\x89PNG\r\n\x1a\n")
+        assert client.get("/assets/field-ledger-paddies.png").content.startswith(b"\x89PNG\r\n\x1a\n")
+        assert client.get("/assets/rice-paper.png").content.startswith(b"\x89PNG\r\n\x1a\n")
         assert client.get("/assets/public.css").headers["content-type"].startswith("text/css")
         assert client.get("/assets/not-a-file.txt").status_code == 404
-        assert client.get("/favicon.ico", follow_redirects=False).headers["location"] == "/favicon.svg"
+        assert client.get("/favicon.svg", follow_redirects=False).headers["location"] == "/favicon.png"
+        assert client.get("/favicon.ico", follow_redirects=False).headers["location"] == "/favicon.png"
         assert client.get("/manager", follow_redirects=False).status_code == 303
 
 

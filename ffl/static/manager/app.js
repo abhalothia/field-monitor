@@ -4,6 +4,7 @@
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
   var currentRuntime = null;
+  var focusExceptionId = null;
 
   function element(id) {
     return document.getElementById(id);
@@ -183,7 +184,31 @@
     element("submitted-work-count").textContent = submitted.length;
     setHtml("submitted-work-summary", "<span>Requires manager review</span>");
     element("exception-count").textContent = exceptions.length;
-    setHtml("exception-summary", "<span>Needs triage or follow-through</span>");
+    element("exception-summary").textContent = exceptions.length ?
+      exceptions.length + (exceptions.length === 1 ? " open field signal needs a decision." : " open field signals need decisions.") :
+      "No open field signals. Keep the evidence loop moving.";
+  }
+
+  function renderFieldFocus(runtime) {
+    var allocations = runtime.allocations || [];
+    var exceptions = (runtime.exceptions || []).filter(isOpenException);
+    var focus = exceptions[0] || null;
+    var allocation = allocations[0] || null;
+    var crop = allocation ? allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "") : "Field ledger";
+
+    element("focus-crop").textContent = crop;
+    focusExceptionId = focus ? focus.id : null;
+    if (focus) {
+      element("focus-title").textContent = focus.title;
+      element("focus-note").textContent = nextAction(focus) || "Review the field signal with its linked evidence.";
+      element("focus-severity").textContent = focus.severity;
+      element("focus-severity").className = "severity severity-" + safeSeverity(focus.severity);
+      return;
+    }
+    element("focus-title").textContent = allocation ? "Keep the next pass close." : "The field is ready for its first allocation.";
+    element("focus-note").textContent = allocation ? "No open exception is blocking this allocation right now." : "Add a crop allocation to begin the evidence ledger.";
+    element("focus-severity").textContent = "Clear";
+    element("focus-severity").className = "severity severity-low";
   }
 
   function renderWork(workItems) {
@@ -230,6 +255,7 @@
     currentRuntime = runtime;
     element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderCards(runtime);
+    renderFieldFocus(runtime);
     renderWork(runtime.work_items || []);
     renderExceptions(runtime.exceptions || []);
   }
@@ -290,6 +316,14 @@
   }
 
   element("refresh").addEventListener("click", loadActionCentre);
+  element("review-focus").addEventListener("click", function () {
+    if (focusExceptionId) {
+      loadException(focusExceptionId);
+      element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   element("exception-list").addEventListener("click", function (event) {
     var button = event.target.closest("[data-exception-id]");
     if (button) {

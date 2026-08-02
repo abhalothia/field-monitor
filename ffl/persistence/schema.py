@@ -138,6 +138,46 @@ def create_schema(conn: sqlite3.Connection) -> None:
             CHECK (length(content_hash) = 64 AND content_hash = lower(content_hash))
         );
 
+        -- Administrative context is deliberately separate from geometry or
+        -- land-right evidence.  It lets FFL safely join district context now
+        -- without pretending a village/PIN identifies a farm boundary.
+        CREATE TABLE IF NOT EXISTS operating_unit_locations (
+            id TEXT PRIMARY KEY,
+            operating_unit_id TEXT NOT NULL REFERENCES operating_units(id),
+            country_code TEXT NOT NULL CHECK (country_code = 'IN'),
+            state_name TEXT NOT NULL,
+            district_name TEXT NOT NULL,
+            district_context_key TEXT NOT NULL,
+            subdistrict_name TEXT,
+            village_name TEXT,
+            pincode TEXT CHECK (
+                pincode IS NULL OR (length(pincode) = 6 AND pincode NOT GLOB '*[^0-9]*')
+            ),
+            verification_method TEXT NOT NULL CHECK (verification_method IN ('field_verified', 'lgd_reference')),
+            verified_by_person_id TEXT NOT NULL REFERENCES people(id),
+            verified_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+            supersedes_location_id TEXT REFERENCES operating_unit_locations(id),
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS soil_baselines (
+            id TEXT PRIMARY KEY,
+            operating_unit_id TEXT NOT NULL REFERENCES operating_units(id),
+            sampled_on TEXT NOT NULL,
+            depth_cm_start REAL CHECK (depth_cm_start IS NULL OR depth_cm_start >= 0),
+            depth_cm_end REAL CHECK (depth_cm_end IS NULL OR depth_cm_end >= 0),
+            lab_name TEXT NOT NULL,
+            measurements_json TEXT NOT NULL,
+            evidence_artifact_id TEXT NOT NULL REFERENCES evidence_artifacts(id),
+            reviewed_by_person_id TEXT NOT NULL REFERENCES people(id),
+            status TEXT NOT NULL CHECK (status IN ('reviewed', 'superseded')),
+            created_at TEXT NOT NULL,
+            CHECK (
+                depth_cm_start IS NULL OR depth_cm_end IS NULL OR depth_cm_end >= depth_cm_start
+            )
+        );
+
         CREATE TABLE IF NOT EXISTS field_signals (
             id TEXT PRIMARY KEY,
             allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
@@ -369,6 +409,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_field_signals_allocation_observed
             ON field_signals (allocation_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_operating_unit_locations_operating_unit
+            ON operating_unit_locations (operating_unit_id, verified_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_operating_unit_locations_one_active
+            ON operating_unit_locations (operating_unit_id) WHERE status = 'active';
+        CREATE INDEX IF NOT EXISTS idx_soil_baselines_operating_unit_sampled
+            ON soil_baselines (operating_unit_id, sampled_on, created_at);
         CREATE INDEX IF NOT EXISTS idx_crop_stage_checkpoints_allocation_planned
             ON crop_stage_checkpoints (allocation_id, planned_for);
         CREATE INDEX IF NOT EXISTS idx_harvest_records_allocation_created

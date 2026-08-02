@@ -10,6 +10,27 @@ class OperatingUnit:
 
 
 @dataclass(frozen=True)
+class OperatingUnitLocation:
+    """A reviewed administrative context, explicitly not farm geometry."""
+
+    id: str
+    operating_unit_id: str
+    country_code: str
+    state_name: str
+    district_name: str
+    district_context_key: str
+    subdistrict_name: Optional[str]
+    village_name: Optional[str]
+    pincode: Optional[str]
+    verification_method: str
+    verified_by_person_id: str
+    verified_at: str
+    status: str
+    supersedes_location_id: Optional[str]
+    created_at: str
+
+
+@dataclass(frozen=True)
 class LandParcel:
     id: str
     operating_unit_id: str
@@ -137,6 +158,23 @@ class EvidenceArtifact:
     size_bytes: Optional[int]
     source_uri: Optional[str]
     created_by_person_id: Optional[str]
+    created_at: str
+
+
+@dataclass(frozen=True)
+class SoilBaseline:
+    """A reviewed, evidence-linked soil measurement set for one operating unit."""
+
+    id: str
+    operating_unit_id: str
+    sampled_on: str
+    depth_cm_start: Optional[float]
+    depth_cm_end: Optional[float]
+    lab_name: str
+    measurements: Any
+    evidence_artifact_id: str
+    reviewed_by_person_id: str
+    status: str
     created_at: str
 
 
