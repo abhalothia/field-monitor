@@ -38,21 +38,6 @@
     return isOpenWork(workItem) && workItem.due_at && new Date(workItem.due_at).getTime() < Date.now();
   }
 
-  function nextAction(exceptionRecord) {
-    var actions = {
-      reported: "Triage the exception and record the assessment.",
-      triaged: "Assign an accountable owner or accept the risk.",
-      owned: "Owner to mitigate the exception and record progress.",
-      mitigated: "Start monitoring to verify the mitigation.",
-      monitoring: "Verify the outcome and resolve, or reopen if it recurs.",
-      resolved: "Review the outcome; reopen if conditions recur.",
-      accepted_risk: "Review the accepted risk; reopen if conditions change.",
-      reopened: "Return the exception to triage and reassess ownership."
-    };
-    return Object.prototype.hasOwnProperty.call(actions, exceptionRecord.status) ?
-      actions[exceptionRecord.status] : "";
-  }
-
   function setHtml(id, markup) {
     element(id).innerHTML = markup;
   }
@@ -291,7 +276,6 @@
       return item.status === "submitted";
     });
 
-    element("allocation-count").textContent = allocations.length;
     setHtml("allocation-list", allocations.length ? allocations.map(function (allocation) {
       return "<span>" + escapeHtml(allocation.operational_block_name || "Field") + " · " + escapeHtml(allocation.crop_name) +
         (allocation.cultivar ? " · " + escapeHtml(allocation.cultivar) : "") + "</span>";
@@ -332,11 +316,10 @@
     return exceptions.filter(function (item) { return item.id === exceptionId; })[0] || null;
   }
 
-  function setFocusAction(label, targetView, exceptionId, ownerId) {
+  function setFocusAction(label, targetView, exceptionId) {
     focusTargetView = targetView;
     focusExceptionId = exceptionId || null;
     element("focus-action-label").textContent = label;
-    element("focus-owner").textContent = ownerId ? "Owner · " + personName(ownerId) : "";
   }
 
   function renderPeople(runtime) {
@@ -359,69 +342,41 @@
     }).join(""));
   }
 
-  function renderFieldFocus(runtime) {
+  function latestFieldUpdate(runtime) {
+    return runtime && runtime.latest_field_update && typeof runtime.latest_field_update === "object" ?
+      runtime.latest_field_update : null;
+  }
+
+  function renderFieldPulse(runtime) {
     var allocations = runtime.allocations || [];
     var exceptions = (runtime.exceptions || []).filter(isOpenException);
     var focus = exceptions[0] || null;
     var allocation = allocations[0] || null;
-    var crop = allocation ? allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "") : "Field ledger";
+    var update = latestFieldUpdate(runtime);
+    var crop = allocation ? allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "") : "No active crop";
 
-    element("focus-kicker").textContent = "Field focus";
-    element("focus-crop").textContent = crop;
+    element("field-crop").textContent = crop;
+    element("field-update").textContent = update ? formatTime(update.observed_at) : "No field update recorded.";
+    element("field-reporter").textContent = update ? update.submitted_by : "—";
     if (focus) {
-      element("focus-title").textContent = focus.title;
-      element("focus-note").textContent = nextAction(focus) || "Review the field report and its proof.";
-      element("focus-severity").textContent = focus.severity;
-      element("focus-severity").className = "severity severity-" + safeSeverity(focus.severity);
-      setFocusAction("Review signal", "fields", focus.id, focus.owner_id);
+      element("field-title").textContent = fieldNameFor(focus.allocation_id);
+      element("field-note").textContent = focus.title;
+      element("field-status").textContent = focus.severity;
+      element("field-status").className = "severity severity-" + safeSeverity(focus.severity);
+      setFocusAction("Open issue", "fields", focus.id);
       return;
     }
-    element("focus-title").textContent = allocation ? "No open issue." : "No active crop.";
-    element("focus-note").textContent = allocation ? "Open field work is listed under Fields." : "Add the first crop allocation to begin.";
-    element("focus-severity").textContent = "Clear";
-    element("focus-severity").className = "severity severity-low";
-    setFocusAction("Open field work", "fields", null, null);
+    element("field-title").textContent = allocation ? (allocation.operational_block_name || "Field") : "First field";
+    element("field-note").textContent = update ? "Latest update is recorded." :
+      (allocation ? "Waiting for the first field update." : "Add the first crop allocation to begin.");
+    element("field-status").textContent = update ? readable(update.status) : "waiting";
+    element("field-status").className = "status";
+    setFocusAction("Open field work", "fields", null);
   }
 
   function renderMorningBrief(brief) {
     var attention = brief && Array.isArray(brief.attention) ? brief.attention : [];
     renderToday(attention);
-    var item = attention[0];
-    if (!item || !item.entity) {
-      return;
-    }
-    var entityType = item.entity.type;
-    var entityId = item.entity.id;
-    var contextLabels = {
-      operating_unit: "Farm context",
-      soil_baseline: "Soil baseline",
-      source_registry: "Data source",
-      regional_signal: "District context",
-      crop_stage_checkpoint: "Field checkpoint"
-    };
-    var ownerId = null;
-    var targetView = "tools";
-    var actionLabel = "Open tools";
-    var exception = entityType === "exception_record" ? exceptionFor(entityId) : null;
-    var work = entityType === "work_item" ? workFor(entityId) : null;
-    if (exception) {
-      ownerId = exception.owner_id;
-      targetView = "fields";
-      actionLabel = "Review signal";
-    } else if (work) {
-      ownerId = work.owner_id;
-      targetView = "fields";
-      actionLabel = "Open field work";
-    }
-    element("focus-kicker").textContent = "Next move · " + readable(item.priority);
-    if (Object.prototype.hasOwnProperty.call(contextLabels, entityType)) {
-      element("focus-crop").textContent = contextLabels[entityType];
-    }
-    element("focus-title").textContent = item.title;
-    element("focus-note").textContent = item.detail;
-    element("focus-severity").textContent = item.priority;
-    element("focus-severity").className = "severity severity-" + safeSeverity(item.priority);
-    setFocusAction(actionLabel, targetView, exception ? exception.id : null, ownerId);
   }
 
   function todayDetail(item) {
@@ -540,7 +495,7 @@
     element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderCards(runtime);
     renderPeople(runtime);
-    renderFieldFocus(runtime);
+    renderFieldPulse(runtime);
     renderWork(runtime.work_items || []);
     renderTodayFallback(runtime);
     loadMorningBrief(runtime);
@@ -548,14 +503,14 @@
 
   function renderRuntimeUnavailable() {
     element("operating-unit").textContent = "No farm has been set up yet.";
-    element("allocation-count").textContent = "0";
-    element("focus-crop").textContent = "Farm setup";
-    element("focus-kicker").textContent = "Farm setup";
-    element("focus-title").textContent = "Make the first field real.";
-    element("focus-note").textContent = "One farm, one live field, named people, and the next proof. Nothing invented.";
-    element("focus-severity").textContent = "Set up";
-    element("focus-severity").className = "severity severity-medium";
-    setFocusAction("Prepare first farm", "setup", null, null);
+    element("field-crop").textContent = "Farm setup";
+    element("field-title").textContent = "First field";
+    element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
+    element("field-update").textContent = "No field update recorded.";
+    element("field-reporter").textContent = "—";
+    element("field-status").textContent = "set up";
+    element("field-status").className = "status";
+    setFocusAction("Prepare first farm", "setup", null);
     element("today-count").textContent = "0";
     element("today-summary").textContent = "Reading the first-farm checklist…";
     setHtml("allocation-list", "<span>No active allocation.</span>");

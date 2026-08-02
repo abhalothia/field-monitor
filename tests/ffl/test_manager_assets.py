@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 
 def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
@@ -7,9 +6,10 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
 
-    assert "Farm command." in index_html
+    assert "Today." in index_html
     assert "Open field work" in index_html
-    assert "Loading today’s work…" in index_html
+    assert "Field pulse" in index_html
+    assert "Loading the field." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
     assert index_html.count('<button id="tab-') == 4
@@ -53,7 +53,8 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert ".catch(renderPortfolioUnavailable)" in app_js
     assert "ledger.slice(0, 6)" in app_js
     assert "Public context never replaces field evidence." in app_js
-    assert "renderFieldFocus" in app_js
+    assert "renderFieldPulse" in app_js
+    assert "latest_field_update" in app_js
     assert "renderTodayFallback" in app_js
     assert "renderToday(attention)" in app_js
     assert "Nothing needs a look right now." in app_js
@@ -65,32 +66,11 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "renderPeople" in app_js
     assert "/morning-brief" in app_js
     assert "loadMorningBrief" in app_js
-    assert "Next move · " in app_js
+    assert "Latest update is recorded." in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "private_storage_uri" not in app_js
     assert "evidence_artifact_id" not in app_js
     assert "content_base64" not in app_js
 
-    expected_exception_states = (
-        "reported",
-        "triaged",
-        "owned",
-        "mitigated",
-        "monitoring",
-        "resolved",
-        "accepted_risk",
-        "reopened",
-    )
-    actions_match = re.search(
-        r"var actions = \{(?P<entries>.*?)\n    \};", app_js, re.DOTALL
-    )
-
-    assert actions_match is not None
-    assert tuple(re.findall(r"^      ([a-z_]+):", actions_match.group("entries"), re.MULTILINE)) == expected_exception_states
-    assert 'actions[exceptionRecord.status] : ""' in app_js
-    assert 'nextAction(focus) || "Review the field report and its proof."' in app_js
     assert "Review the record and assign the next action." not in app_js
-
-    for unsupported_status in ("assigned", "in_progress", "escalated"):
-        assert "{0}:".format(unsupported_status) not in app_js

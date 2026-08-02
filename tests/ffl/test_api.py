@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from ffl.app import create_app
 from ffl.seed import seed_pilot
+from ffl.services import season, templates
 
 
 @pytest.fixture
@@ -35,6 +36,41 @@ def test_runtime_returns_seeded_pilot_state(seeded_client):
     assert payload["allocations"][0]["operational_block_name"] == "North Block"
     assert payload["work_items"]
     assert payload["exceptions"] == []
+    assert payload["latest_field_update"] is None
+
+
+def test_runtime_exposes_only_safe_latest_field_update_metadata(seeded_client):
+    connection = seeded_client.client.app.state.conn
+    template = templates.publish_signal_template(
+        connection,
+        "runtime-field-update",
+        1,
+        [{"key": "condition", "type": "text", "required": True}],
+        seeded_client.seed["lead_id"],
+    )
+    season.record_field_signal(
+        connection,
+        seeded_client.seed["allocation_id"],
+        template.id,
+        1,
+        "2026-08-02T08:00:00+00:00",
+        seeded_client.seed["operator_id"],
+        {"condition": "standing water"},
+        status="submitted",
+    )
+
+    update = seeded_client.client.get("/api/v1/runtime").json()["latest_field_update"]
+
+    assert update == {
+        "operational_block_name": "North Block",
+        "crop_name": "Rice",
+        "submitted_by": "Field Operator",
+        "status": "submitted",
+        "observed_at": "2026-08-02T08:00:00+00:00",
+        "received_at": update["received_at"],
+    }
+    assert "standing water" not in repr(update)
+    assert "evidence_artifact_id" not in update
 
 
 def test_exception_post_is_idempotent(seeded_client):

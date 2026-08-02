@@ -32,26 +32,27 @@
       </header>
 
       <section class="command-intro" aria-labelledby="page-title">
-        <h1 id="page-title">Farm command.</h1>
+        <h1 id="page-title">Today.</h1>
         <p id="operating-unit" class="subtle">Loading current field operations…</p>
       </section>
 
       <section id="panel-home" class="command-view is-active" role="tabpanel" aria-labelledby="tab-home">
         <section class="home-grid" aria-label="Field focus and today's work">
-          <article class="command-card focus-card">
-            <img class="focus-image" src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
-            <div class="map-copy">
-              <p id="focus-kicker" class="map-kicker"><span class="material-symbols-outlined" aria-hidden="true">location_on</span> Field focus</p>
-              <p id="focus-crop" class="map-crop">Reading the field</p>
-              <h2 id="focus-title">Loading the farm.</h2>
-              <p id="focus-note">The next item will appear here.</p>
-              <p id="focus-owner" class="focus-owner"></p>
+          <article class="command-card field-pulse" aria-labelledby="field-title">
+            <div class="card-heading pulse-heading">
+              <div>
+                <p class="eyebrow">Field pulse</p>
+                <h2 id="field-title">Loading the field.</h2>
+              </div>
+              <span id="field-status" class="status">loading</span>
             </div>
-            <div class="map-meta">
-              <span id="focus-severity" class="severity severity-medium">Watch</span>
-              <span><strong id="allocation-count">—</strong> active plots</span>
-            </div>
-            <button id="review-focus" class="map-action" type="button">
+            <p id="field-crop" class="field-crop">Current crop</p>
+            <p id="field-note" class="field-note">The latest field update will appear here.</p>
+            <dl class="pulse-facts">
+              <div><dt>Last update</dt><dd id="field-update">—</dd></div>
+              <div><dt>From</dt><dd id="field-reporter">—</dd></div>
+            </dl>
+            <button id="review-focus" class="pulse-action" type="button">
               <span id="focus-action-label">Open field work</span>
               <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
             </button>
@@ -92,7 +93,7 @@
               <p class="eyebrow">Selected signal</p>
               <h2 id="audit-heading">Review</h2>
             </div>
-            <div id="exception-detail" class="empty-state">Choose a field signal to inspect its review history.</div>
+            <div id="exception-detail" class="empty-state">Choose an open issue to inspect its history.</div>
           </aside>
         </div>
       </section>

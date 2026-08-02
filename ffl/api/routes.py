@@ -121,17 +121,31 @@ def get_runtime(request: Request) -> dict:
             "allocations": [],
             "work_items": [],
             "exceptions": [],
+            "latest_field_update": None,
         }
 
     placeholders = ", ".join("?" for _ in allocation_ids)
     work_items = _runtime_rows(conn, "work_items", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
     exceptions = _runtime_rows(conn, "exception_records", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
+    latest_field_update = conn.execute(
+        """SELECT operational_blocks.name AS operational_block_name, crop_allocations.crop_name,
+                  people.name AS submitted_by, field_signals.status, field_signals.observed_at,
+                  field_signals.received_at
+           FROM field_signals
+           JOIN crop_allocations ON crop_allocations.id = field_signals.allocation_id
+           JOIN operational_blocks ON operational_blocks.id = crop_allocations.operational_block_id
+           JOIN people ON people.id = field_signals.actor_id
+           WHERE crop_allocations.operating_unit_id = ? AND field_signals.status != 'draft'
+           ORDER BY field_signals.received_at DESC, field_signals.created_at DESC LIMIT 1""",
+        (operating_unit["id"],),
+    ).fetchone()
     return {
         "operating_unit": operating_unit,
         "people": people,
         "allocations": allocations,
         "work_items": work_items,
         "exceptions": exceptions,
+        "latest_field_update": dict(latest_field_update) if latest_field_update is not None else None,
     }
 
 
