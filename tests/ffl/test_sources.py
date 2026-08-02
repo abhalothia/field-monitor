@@ -404,11 +404,13 @@ def test_india_candidates_are_discovery_only_and_do_not_claim_unverified_access(
     by_key = {candidate["source_key"]: candidate for candidate in candidates}
 
     assert by_key["imd-weather"]["onboarding_status"] == "access_review_and_ip_whitelisting_required"
+    assert by_key["lgd-up-geography"]["onboarding_status"] == "human_download_snapshot_and_mapping_review_required"
     assert by_key["agmarknet-market-context"]["onboarding_status"] == "programmatic_access_unverified"
     assert by_key["copernicus-sentinel-2-context"]["onboarding_status"] == "account_and_processing_design_review_required"
     assert by_key["nasa-power-weather-context"]["onboarding_status"] == "parameter_and_validation_review_required"
     assert by_key["soilgrids-baseline-context"]["onboarding_status"] == "licence_resolution_and_validation_review_required"
     assert set(by_key) == {
+        "lgd-up-geography",
         "imd-weather",
         "agmarknet-market-context",
         "copernicus-sentinel-2-context",

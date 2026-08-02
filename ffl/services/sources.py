@@ -44,6 +44,18 @@ _SOURCE_REGISTRY_LOCK = threading.RLock()
 # are not a substitute for attributable field evidence or laboratory results.
 INDIA_SOURCE_CANDIDATES = (
     {
+        "source_key": "lgd-up-geography",
+        "display_name": "Local Government Directory — Uttar Pradesh administrative reference",
+        "authority_level": "official",
+        "purpose": "verified Uttar Pradesh administrative context",
+        "documentation_url": "https://lgdirectory.gov.in/demo/downloadDirectory.do",
+        "onboarding_status": "human_download_snapshot_and_mapping_review_required",
+        "access_notes": "LGD's Download Directory supports state/district/subdistrict/village reference downloads, but its human-facing workflow includes CAPTCHA. Retain a reviewed, immutable export as private evidence; do not scrape or automate the CAPTCHA flow.",
+        "authority_notes": "The Ministry of Panchayati Raj Local Government Directory is the authoritative administrative-reference candidate for the Uttar Pradesh pilot. Preserve LGD code, hierarchy, snapshot date, and source reference if admitted.",
+        "limitations": "LGD administrative geography is not a farm parcel boundary, land-right proof, field coordinate, or a substitute for a field-verified operating location.",
+        "allowed_data_classes": ("administrative_geography", "administrative_code"),
+    },
+    {
         "source_key": "imd-weather",
         "display_name": "India Meteorological Department weather and warnings",
         "authority_level": "official",

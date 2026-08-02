@@ -27,12 +27,24 @@ team can see only aggregate completion counts and the next missing foundation.
 It does not expose people, evidence contents, land rights, or a conversation
 archive.
 
+`POST /api/v1/pilot/setup/validate` accepts the same structured pack and
+returns a normalised, reviewable UP-only proposal. It **does not write** the
+farm, people, land, rights, or work: a named manager must review and accept a
+later write flow. This prevents an incomplete form or HTTP retry from creating
+a fictional operating record.
+
 ## Geography and public data
 
 Village Finder is a reference candidate for Andhra Pradesh, Telangana,
 Karnataka, Tamil Nadu, and Kerala only. It preserves LGD hierarchy and PIN
 text after a reviewed immutable release is pinned. It is not a farm geocoder
 and must not be forced onto a farm in another state, including Uttar Pradesh.
+
+For the UP pilot, the correct follow-on source is the Ministry of Panchayati
+Raj's official Local Government Directory (LGD) Download Directory. Its
+human-facing download uses CAPTCHA, so FFL will retain a manager-reviewed
+snapshot with hash/date/mapping provenance; we will not scrape CAPTCHA or
+pretend the directory proves a parcel boundary or land right.
 
 IMD is the next official context source, still disabled. Before any request,
 we need a reviewed product, approved runtime egress, cached parser fixtures,

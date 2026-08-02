@@ -22,6 +22,7 @@ def test_v1_operating_routes_are_mounted_on_the_app():
     trial = client.post("/api/v1/trials", json={})
     candidates = client.get("/api/v1/sources/india-candidates")
     village_finder = client.get("/api/v1/geography/village-finder")
+    up_geography = client.get("/api/v1/geography/uttar-pradesh")
     readiness = client.get("/api/v1/pilot/readiness")
     portfolio = client.get("/api/v1/portfolio")
 
@@ -32,6 +33,9 @@ def test_v1_operating_routes_are_mounted_on_the_app():
     assert village_finder.status_code == 200
     assert village_finder.json()["status"] == "not_imported"
     assert "Uttar Pradesh" not in village_finder.json()["supported_states"]
+    assert up_geography.status_code == 200
+    assert up_geography.json()["source_key"] == "lgd-up-geography"
+    assert up_geography.json()["automation_policy"] == "no CAPTCHA scraping or unattended LGD download"
     assert readiness.status_code == 200
     assert readiness.json()["overall"] == "not_started"
     assert portfolio.status_code == 200

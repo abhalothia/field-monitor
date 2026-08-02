@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ffl.persistence import repository
-from ffl.services import morning_brief, pilot_readiness
+from ffl.services import morning_brief, pilot_readiness, pilot_setup
 
 
 router = APIRouter(prefix="/api/v1")
@@ -36,6 +36,17 @@ class SoilBaselineRequest(BaseModel):
     depth_cm_end: Optional[float] = None
 
 
+class PilotSetupProposalRequest(BaseModel):
+    farm_name: str
+    people: List[Dict[str, Any]]
+    parcels: List[Dict[str, Any]]
+    blocks: List[Dict[str, Any]]
+    season: Dict[str, Any]
+    allocations: List[Dict[str, Any]]
+    location: Dict[str, Any]
+    first_work: Dict[str, Any]
+
+
 def _connection(request: Request):
     return getattr(request.state, "conn", request.app.state.conn)
 
@@ -48,6 +59,16 @@ def _unprocessable(error: ValueError) -> HTTPException:
 def get_pilot_readiness(request: Request) -> dict:
     """Show the real pilot's setup gap without creating sample farm records."""
     return pilot_readiness.pilot_readiness(_connection(request))
+
+
+@router.post("/pilot/setup/validate")
+def validate_pilot_setup(payload: PilotSetupProposalRequest) -> dict:
+    """Rehearse an UP pilot pack; a separate human acceptance will persist it."""
+    try:
+        values = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        return pilot_setup.validate_up_pilot_setup(values)
+    except ValueError as error:
+        raise _unprocessable(error)
 
 
 @router.put("/operating-units/{operating_unit_id}/location", status_code=status.HTTP_201_CREATED)

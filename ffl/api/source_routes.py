@@ -73,6 +73,24 @@ def get_village_finder_coverage() -> dict:
     }
 
 
+@router.get("/geography/uttar-pradesh")
+def get_uttar_pradesh_geography_path() -> dict:
+    """Expose the official UP reference path without fetching or scraping it."""
+    candidate = next(
+        item for item in sources.INDIA_SOURCE_CANDIDATES if item["source_key"] == "lgd-up-geography"
+    )
+    return {
+        "source_key": candidate["source_key"],
+        "display_name": candidate["display_name"],
+        "documentation_url": candidate["documentation_url"],
+        "status": "not_imported",
+        "onboarding_status": candidate["onboarding_status"],
+        "required_provenance": ["human_review_reference", "snapshot_date", "content_sha256", "LGD hierarchy/code mapping version"],
+        "does_not_prove": ["farm boundary", "land right", "GPS coordinate", "field observation"],
+        "automation_policy": "no CAPTCHA scraping or unattended LGD download",
+    }
+
+
 @router.get("/regional-context")
 def get_regional_context(region: str, request: Request) -> dict:
     try:
