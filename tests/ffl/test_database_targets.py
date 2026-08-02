@@ -6,6 +6,7 @@ import pytest
 from ffl.persistence.database import (
     POSTGRES_BOOTSTRAP_PATH,
     DatabaseConfigurationError,
+    _psycopg_compatible_dsn,
     database_target,
     open_connection,
     translate_sqlite_sql,
@@ -61,6 +62,14 @@ def test_postgres_target_is_explicit_without_echoing_dsn():
     assert target.dialect == "postgres"
     assert target.schema == "agro"
     assert target.dsn == dsn
+
+
+def test_psycopg_dsn_drops_only_the_node_pooler_flag():
+    dsn = "postgresql://ffl_runtime:secret-never-logged@pooler.example.test:6543/postgres?pgbouncer=true&sslmode=require"
+
+    assert _psycopg_compatible_dsn(dsn) == (
+        "postgresql://ffl_runtime:secret-never-logged@pooler.example.test:6543/postgres?sslmode=require"
+    )
 
 
 def test_sqlite_sql_translation_keeps_values_safe_and_uses_private_relation_names():

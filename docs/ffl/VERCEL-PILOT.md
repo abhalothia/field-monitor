@@ -1,9 +1,10 @@
 # AGRO CEO Vercel pilot
 
-Vercel is suitable for the authenticated Fortune pilot web/API surface and its
-custom domain. It is not the home for the LoopMessage worker, scheduled source
-workers, or durable evidence files. Those retain the private Hetzner worker and
-private object-storage path.
+Vercel is the authenticated Fortune pilot web/API runtime and custom-domain
+edge. Its server functions connect only to the private `agro` schema through
+Supabase's transaction pooler. No LoopMessage or scheduled-source worker is
+enabled in this pilot deployment; those capabilities remain deliberately off
+until their separate product gates are complete.
 
 ## What this repository deploys
 
@@ -26,9 +27,11 @@ Fortune launch-password session.
    header from changing cached link-preview metadata.
 4. Add the production-only secrets in Vercel's encrypted environment store:
    `FFL_DATABASE_URL`, `FFL_POSTGRES_SCHEMA=agro`, `FFL_LAUNCH_PASSWORD`, and
-   `FFL_LAUNCH_COOKIE_SECURE=true`. The database URL must be a dedicated,
-   least-privilege runtime role restricted to the private `agro` schema—never
-   a browser key, Supabase secret key, or a migration/superuser URL.
+   `FFL_LAUNCH_COOKIE_SECURE=true`. `FFL_DATABASE_URL` must use Supabase's
+   transaction-pooler endpoint and the dedicated `agro_vc_runtime` role. That
+   role has DML access to the private `agro` tables and no schema-creation
+   privilege. Never use a browser key, Supabase secret key, or a
+   migration/superuser URL in Vercel.
 5. Configure a durable private evidence-store integration before permitting
    evidence uploads. Vercel's `/tmp` is only a disposable preview fallback.
 
@@ -62,6 +65,8 @@ Fortune launch-password session.
 
 ## Deliberate boundary
 
-Vercel is a request/response surface. Do not enable the LoopMessage worker or
-source-fetch scheduler there. Run those on private Hetzner under the existing
-worker runbook, with their own server-only credentials and alerting.
+Vercel is currently a request/response pilot surface. Do not enable the
+LoopMessage worker or source-fetch scheduler in this deployment. They require
+their own reviewed execution, retry, alerting, and credential boundary before
+they are switched on. This is a product-safety gate, not a reason to mirror
+the API elsewhere.

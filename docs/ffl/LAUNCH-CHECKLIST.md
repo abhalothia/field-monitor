@@ -11,10 +11,12 @@
 
 ## Required before a real Fortune URL
 
-1. Run on private Hetzner HTTPS, not Vercel. Set `FFL_DATABASE_URL` to the
-   reviewed session/direct Postgres URL, `FFL_POSTGRES_SCHEMA=agro`,
-   `FFL_LAUNCH_PASSWORD`, and `FFL_LAUNCH_COOKIE_SECURE=true` in the server
-   secret store. Do not put any of these in browser configuration or git.
+1. Run the pilot web/API on Vercel HTTPS. Set `FFL_DATABASE_URL` to the
+   reviewed Supabase **transaction-pooler** DSN for the least-privilege
+   `agro_vc_runtime` role, plus `FFL_POSTGRES_SCHEMA=agro`,
+   `FFL_LAUNCH_PASSWORD`, `FFL_LAUNCH_COOKIE_SECURE=true`, and
+   `FFL_PUBLIC_ORIGIN=https://www.agroceo.co` in Vercel's encrypted Production
+   environment. Do not put any of these in browser configuration or git.
 2. Configure private durable evidence storage. `/tmp/ffl-evidence` is only a
    local/test fallback and is not a launch-grade evidence store.
 3. Create the real Fortune operating unit, people, blocks, rights, current

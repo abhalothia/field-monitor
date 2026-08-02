@@ -14,7 +14,7 @@ import re
 import sqlite3
 from datetime import date, datetime
 from typing import Any, Optional, Sequence, Union
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 
 POSTGRES_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "postgres"
@@ -221,6 +221,26 @@ def _private_schema(value: Optional[str]) -> str:
     return schema
 
 
+def _psycopg_compatible_dsn(dsn: str) -> str:
+    """Drop client-library flags that libpq/psycopg deliberately reject.
+
+    Supabase's serverless pooler connection string can include
+    ``pgbouncer=true`` for Node clients.  psycopg passes URI query arguments to
+    libpq, which does not recognise that flag.  FFL already disables prepared
+    statements for the transaction pooler via ``prepare_threshold=None`` below,
+    so removing only this client-specific flag preserves the connection's host,
+    credentials, SSL options, and all supported query parameters.
+    """
+
+    parsed = urlsplit(dsn)
+    filtered = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() != "pgbouncer"
+    ]
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(filtered), parsed.fragment))
+
+
 def _sqlite_path_from_url(url: str) -> str:
     if url == "sqlite:///:memory:":
         return ":memory:"
@@ -240,9 +260,9 @@ def database_target(
 ) -> DatabaseTarget:
     """Resolve the explicit target without opening a network connection.
 
-    ``FFL_DATABASE_URL`` wins over the legacy ``FFL_DATABASE_PATH``.  A
-    Postgres target is intentionally recognised but cannot be opened until the
-    query/repository adapter is implemented and reviewed.
+    ``FFL_DATABASE_URL`` wins over the legacy ``FFL_DATABASE_PATH``. A
+    PostgreSQL target is always explicit and is opened only through the
+    private-relation adapter below; it is never a browser-facing data API.
     """
     url = database_url if database_url is not None else os.environ.get("FFL_DATABASE_URL")
     schema = _private_schema(
@@ -279,7 +299,7 @@ def _open_postgres_connection(target: DatabaseTarget) -> PostgresConnection:
         ) from error
     try:
         raw = connect(
-            target.dsn,
+            _psycopg_compatible_dsn(target.dsn),
             row_factory=dict_row,
             prepare_threshold=None,
             options="-c search_path={0},pg_catalog".format(target.schema),
