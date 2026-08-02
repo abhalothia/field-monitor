@@ -41,6 +41,7 @@ BRAND_DIR = STATIC_DIR / "brand"
 MANIFEST = BRAND_DIR / "site.webmanifest"
 SOCIAL_CARD = BRAND_DIR / "agro-ceo-social.png"
 APPLE_TOUCH_ICON = BRAND_DIR / "apple-touch-icon.png"
+FAVICON_PNG = BRAND_DIR / "favicon.png"
 WEB_ASSETS = {
     "public.css": STATIC_DIR / "landing" / "styles.css",
     "launch.css": STATIC_DIR / "launch" / "styles.css",
@@ -88,9 +89,9 @@ def _public_landing(origin: str) -> str:
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f2e8d3">
+    <meta name="theme-color" content="#173b2c">
     <title>AGRO CEO — Fortune Farms</title>
-    <meta name="description" content="The private operating system for real-time farm steering.">
+    <meta name="description" content="Know what changed. Know who owns the next move.">
     <link rel="canonical" href="{origin}/">
     <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
@@ -98,7 +99,7 @@ def _public_landing(origin: str) -> str:
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Fortune Farms">
     <meta property="og:title" content="AGRO CEO — Fortune Farms">
-    <meta property="og:description" content="The private operating system for real-time farm steering.">
+    <meta property="og:description" content="Know what changed. Know who owns the next move.">
     <meta property="og:url" content="{origin}/">
     <meta property="og:image" content="{social_image}">
     <meta property="og:image:secure_url" content="{social_image}">
@@ -107,7 +108,7 @@ def _public_landing(origin: str) -> str:
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="AGRO CEO — Fortune Farms">
-    <meta name="twitter:description" content="The private operating system for real-time farm steering.">
+    <meta name="twitter:description" content="Know what changed. Know who owns the next move.">
     <meta name="twitter:image" content="{social_image}">
     <link rel="stylesheet" href="/assets/public.css">
   </head>
@@ -118,8 +119,8 @@ def _public_landing(origin: str) -> str:
         <div class="landing-copy">
           <p class="eyebrow">Private operating system</p>
           <h1>AGRO CEO</h1>
-          <p class="statement">Real-time farm steering, held to evidence in the field.</p>
-          <a href="/login">Enter the field ledger <span aria-hidden="true">→</span></a>
+          <p class="statement">Know what changed. Know who owns the next move.</p>
+          <a href="/login">Open AGRO CEO <span aria-hidden="true">→</span></a>
         </div>
         <figure class="landing-field">
           <img src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
@@ -231,7 +232,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
 
     @app.get("/favicon.png", include_in_schema=False)
     def favicon() -> FileResponse:
-        return FileResponse(APPLE_TOUCH_ICON, media_type="image/png")
+        return FileResponse(FAVICON_PNG, media_type="image/png")
 
     @app.get("/favicon.svg", include_in_schema=False)
     def legacy_svg_favicon() -> RedirectResponse:

@@ -70,7 +70,7 @@ Fortune launch-password session.
 2. An anonymous `GET /manager` redirects to `/login`; an anonymous API request
    returns `401`.
 3. `GET /` contains `og:title`, `og:image`, `twitter:card`, and canonical URLs
-   rooted at `FFL_PUBLIC_ORIGIN`; `/favicon.svg` and
+   rooted at `FFL_PUBLIC_ORIGIN`; `/favicon.png` and
    `/static/brand/agro-ceo-social.png` return successfully.
 4. Use the Slack/WhatsApp/X preview inspector appropriate to the recipient to
    refresh its cache after changing the social card. Social platforms cache

@@ -1,16 +1,16 @@
 {
   "name": "AGRO CEO — Fortune Farms",
   "short_name": "AGRO CEO",
-  "description": "The private operating system for real-time farm steering.",
+  "description": "Know what changed. Know who owns the next move.",
   "start_url": "/manager",
   "display": "standalone",
   "background_color": "#101716",
-  "theme_color": "#101716",
+  "theme_color": "#173b2c",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any"
     },
     {
