@@ -112,11 +112,17 @@ def _public_landing(origin: str) -> str:
   <body>
     <main class="shell">
       <p class="wordmark"><img src="/assets/rice-sheaf-icon.png" alt=""> Fortune Farms</p>
-      <section>
-        <p class="eyebrow">Private operating system</p>
-        <h1>AGRO CEO</h1>
-        <p class="statement">Real-time farm steering, held to evidence in the field.</p>
-        <a href="/login">Enter the field ledger <span aria-hidden="true">→</span></a>
+      <section class="landing-hero">
+        <div class="landing-copy">
+          <p class="eyebrow">Private operating system</p>
+          <h1>AGRO CEO</h1>
+          <p class="statement">Real-time farm steering, held to evidence in the field.</p>
+          <a href="/login">Enter the field ledger <span aria-hidden="true">→</span></a>
+        </div>
+        <figure class="landing-field">
+          <img src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
+          <figcaption>Evidence begins in the field.</figcaption>
+        </figure>
       </section>
     </main>
   </body>

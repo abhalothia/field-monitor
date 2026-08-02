@@ -7,11 +7,16 @@ body { min-height: 100vh; margin: 0; background-color: #efe4cf; background-image
 .wordmark, .eyebrow { margin: 0; font-family: "DM Mono", monospace; font-size: .68rem; font-weight: 500; letter-spacing: .11em; text-transform: uppercase; }
 .wordmark { display: inline-flex; align-items: center; width: fit-content; color: #193c2e; }
 .wordmark img { width: 29px; height: 29px; margin-right: 9px; border-radius: 50%; object-fit: cover; }
-section { align-self: center; max-width: 900px; padding-bottom: 7vh; }
+.landing-hero { align-self: center; display: grid; grid-template-columns: minmax(0, .9fr) minmax(340px, 1.1fr); align-items: end; gap: clamp(36px, 7vw, 112px); padding-bottom: 7vh; }
+.landing-copy { padding-bottom: 18px; }
 .eyebrow { color: #66734e; }
 h1 { margin: .7rem 0 .82rem; color: #12372b; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(4rem, 14vw, 10rem); font-weight: 400; letter-spacing: -.08em; line-height: .8; }
 .statement { max-width: 30ch; margin: 0 0 2rem; color: #526859; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(1.25rem, 2vw, 1.8rem); line-height: 1.28; }
 a { display: inline-flex; align-items: center; gap: .8rem; border-radius: 3px; background: #173f2c; color: #fff8e8; font-size: .8rem; font-weight: 800; padding: .95rem 1.15rem; text-decoration: none; }
 a:hover { background: #255a3d; }
 a:focus-visible { outline: 3px solid #caa22f; outline-offset: 3px; }
-@media (max-width: 560px) { .shell { width: min(100% - 32px, 520px); padding-top: 20px; } section { padding-bottom: 4vh; } h1 { font-size: clamp(3.65rem, 20vw, 6.3rem); } }
+.landing-field { position: relative; min-height: min(57vw, 530px); margin: 0; overflow: hidden; border-left: 4px solid #a47b1c; background: #435b39; }
+.landing-field img { width: 100%; height: 100%; min-height: min(57vw, 530px); object-fit: cover; object-position: center; vertical-align: bottom; }
+.landing-field figcaption { position: absolute; right: 14px; bottom: 13px; margin: 0; padding: 7px 8px; background: rgba(20, 57, 42, .91); color: #f9efd9; font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .08em; text-transform: uppercase; }
+@media (max-width: 760px) { .landing-hero { grid-template-columns: 1fr; align-items: start; gap: 34px; padding-bottom: 4vh; } .landing-copy { padding-bottom: 0; } .landing-field, .landing-field img { min-height: 330px; } }
+@media (max-width: 560px) { .shell { width: min(100% - 32px, 520px); padding-top: 20px; } h1 { font-size: clamp(3.65rem, 20vw, 6.3rem); } .landing-field, .landing-field img { min-height: 280px; } }
