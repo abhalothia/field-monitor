@@ -20,6 +20,7 @@
           <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Home</button>
           <button id="tab-fields" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-fields" data-view="fields" tabindex="-1" data-i18n="navFields">Fields</button>
           <button id="tab-farmers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farmers" data-view="farmers" tabindex="-1" data-i18n="navFarmers">Farmers</button>
+          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Map</button>
           <button id="tab-actions" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-actions" data-view="actions" tabindex="-1" data-i18n="navActions">Actions</button>
           <button id="tab-settings" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1" data-i18n="navSettings">Settings</button>
         </nav>
@@ -83,7 +84,7 @@
               <p class="eyebrow">Network map</p>
               <h2 id="home-coverage-heading">Where we operate</h2>
             </div>
-            <p class="map-guard">Public coverage only</p>
+            <button id="open-map" class="detail-button" type="button" data-i18n="openMap">Open map</button>
           </div>
           <p id="home-coverage-note" class="coverage-note">Loading public coverage…</p>
           <div id="home-coverage-map" class="coverage-map" aria-live="polite"></div>
@@ -114,6 +115,47 @@
       <section id="panel-farmers" class="command-view" role="tabpanel" aria-labelledby="tab-farmers" hidden>
         <section aria-label="Farmers">
           <div id="people-list" class="people-list" aria-live="polite"></div>
+        </section>
+      </section>
+
+      <section id="panel-map" class="command-view map-view" role="tabpanel" aria-labelledby="tab-map" hidden>
+        <header class="map-intro">
+          <p class="eyebrow">Operating geography</p>
+          <h1>See the ground.<br><em>Know the edge.</em></h1>
+          <p>Start with what is publicly known. Add supply villages, then verified fields, only when the records support them.</p>
+        </header>
+        <section class="map-stage" aria-labelledby="map-stage-heading">
+          <div class="map-canvas">
+            <div class="map-stage-heading">
+              <div>
+                <p class="eyebrow">Map</p>
+                <h2 id="map-stage-heading">Operating footprint</h2>
+              </div>
+              <p id="map-stage-guard" class="map-guard">Public coverage only</p>
+            </div>
+            <p id="map-stage-note" class="coverage-note">Loading map context…</p>
+            <div id="map-explorer" class="map-explorer" aria-live="polite"></div>
+          </div>
+          <aside class="map-context" aria-labelledby="map-context-heading">
+            <p class="eyebrow">What is here</p>
+            <h2 id="map-context-heading">Map truth</h2>
+            <dl id="map-facts" class="map-facts"></dl>
+            <a id="map-source" class="detail-button" href="#" target="_blank" rel="noopener" hidden>View public source</a>
+          </aside>
+        </section>
+        <section class="map-path" aria-labelledby="map-path-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">From broad to precise</p>
+              <h2 id="map-path-heading">How this map earns detail</h2>
+            </div>
+          </div>
+          <ol class="map-steps">
+            <li><span>01</span><div><h3>Public network</h3><p>One public hub and a disclosed operating area. Useful orientation, not farm geography.</p></div></li>
+            <li><span>02</span><div><h3>Supply villages</h3><p>Historical purchase cohorts appear only after Fortune confirms village hierarchy and source provenance.</p></div></li>
+            <li><span>03</span><div><h3>Verified fields</h3><p>A point or boundary needs a reviewed farm manifest and evidence. A village name never becomes a field pin.</p></div></li>
+            <li><span>04</span><div><h3>Conditions around the field</h3><p>Weather, market, and satellite context attach only at the right reviewed geography and stay context—not decisions.</p></div></li>
+          </ol>
         </section>
       </section>
 

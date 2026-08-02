@@ -12,15 +12,20 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "Loading the field." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
-    assert index_html.count('<button id="tab-') == 5
+    assert index_html.count('<button id="tab-') == 6
     assert 'data-view="home"' in index_html
     assert 'data-view="fields"' in index_html
     assert 'data-view="farmers"' in index_html
+    assert 'data-view="map"' in index_html
     assert 'data-view="actions"' in index_html
     assert 'data-view="settings"' in index_html
     assert "Tools" not in index_html
     assert "Actions" in index_html
     assert "Data connections" in index_html
+    assert 'id="open-map"' in index_html
+    assert 'id="map-explorer"' in index_html
+    assert "How this map earns detail" in index_html
+    assert "A village name never becomes a field pin." in index_html
     assert "Network map" in index_html
     assert "Public coverage only" in index_html
     assert 'id="language-toggle"' in index_html
@@ -88,6 +93,8 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "renderOperatingProfile" in app_js
+    assert "renderMapExplorer" in app_js
+    assert 'showView("map")' in app_js
     assert "map_embed_url" in app_js
     assert "currentAttention" in app_js
     assert "openActionDetail" in app_js

@@ -16,8 +16,8 @@
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
     en: {
-      navHome: "Home", navFields: "Fields", navFarmers: "Farmers", navActions: "Actions", navSettings: "Settings",
-      refresh: "Refresh", pageTitle: "Today.", fieldPulse: "Field pulse", lastUpdate: "Last update", from: "From",
+      navHome: "Home", navFields: "Fields", navFarmers: "Farmers", navMap: "Map", navActions: "Actions", navSettings: "Settings",
+      refresh: "Refresh", openMap: "Open map", pageTitle: "Today.", fieldPulse: "Field pulse", lastUpdate: "Last update", from: "From",
       openFieldWork: "Open field work", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
       priority: "Priority", riskAction: "Risk & action", learning: "Learning", trialsPlaybooks: "Trials & playbooks",
@@ -27,8 +27,8 @@
       lanesIntro: "What is usable now, what is missing, and the next safe move.", nextMove: "Next move"
     },
     hi: {
-      navHome: "होम", navFields: "खेत", navFarmers: "किसान", navActions: "काम", navSettings: "सेटिंग्स",
-      refresh: "ताज़ा करें", pageTitle: "आज।", fieldPulse: "खेत की स्थिति", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      navHome: "होम", navFields: "खेत", navFarmers: "किसान", navMap: "नक्शा", navActions: "काम", navSettings: "सेटिंग्स",
+      refresh: "ताज़ा करें", openMap: "नक्शा खोलें", pageTitle: "आज।", fieldPulse: "खेत की स्थिति", lastUpdate: "आख़िरी अपडेट", from: "किससे",
       openFieldWork: "खेत का काम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
       priority: "प्राथमिकता", riskAction: "जोखिम और अगला काम", learning: "सीख", trialsPlaybooks: "परीक्षण और तरीके",
@@ -241,6 +241,37 @@
     link.hidden = false;
   }
 
+  function renderMapExplorer(profile) {
+    var configured = profile && profile.configured === true;
+    element("map-stage-guard").textContent = "Public coverage only";
+    if (!configured) {
+      element("map-stage-note").textContent = "No approved public operating area is configured yet.";
+      setHtml("map-explorer", '<p class="map-empty">This map stays empty until a reviewed public hub or operating area is configured.</p>');
+      setHtml("map-facts", '<div><dt>Farm locations</dt><dd>Not supplied</dd></div><div><dt>Supply villages</dt><dd>Not supplied</dd></div>');
+      setProfileLink("map-source", null, "");
+      return;
+    }
+    var facts = [];
+    if (profile.public_hub_label) {
+      facts.push('<div><dt>Public anchor</dt><dd>' + escapeHtml(profile.public_hub_label) + "</dd></div>");
+    }
+    if (profile.network_summary) {
+      facts.push('<div><dt>Public network</dt><dd>' + escapeHtml(profile.network_summary) + "</dd></div>");
+    }
+    facts.push('<div><dt>Supply villages</dt><dd>Waiting for Fortune’s reviewed village hierarchy.</dd></div>');
+    facts.push('<div><dt>Verified fields</dt><dd>Waiting for a reviewed farm manifest with location proof.</dd></div>');
+    setHtml("map-facts", facts.join(""));
+    setProfileLink("map-source", profile.source_url, "View public source");
+    if (!profile.map_embed_url) {
+      element("map-stage-note").textContent = "Public context is configured, but no map anchor has been approved.";
+      setHtml("map-explorer", '<p class="map-empty">No map anchor is configured. Partner farms and field boundaries are never guessed here.</p>');
+      return;
+    }
+    element("map-stage-note").textContent = "The mark is a public hub or coverage anchor. It is not a partner farm or a field boundary.";
+    setHtml("map-explorer", '<iframe title="Approved public operating footprint" loading="lazy" referrerpolicy="no-referrer" src="' +
+      escapeHtml(profile.map_embed_url) + '"></iframe>');
+  }
+
   function renderOperatingProfile(profile) {
     var configured = profile && profile.configured === true;
     var displayName = configured ? text(profile.display_name) : "No operating profile set";
@@ -253,6 +284,7 @@
       setProfileLink("profile-source", null, "");
       element("home-coverage-note").textContent = "No public operating map is configured. Individual farm locations are never shown by default.";
       setHtml("home-coverage-map", '<p class="map-empty">Add a reviewed public hub or network area to show a map here.</p>');
+      renderMapExplorer(profile);
       return;
     }
     element("profile-summary").textContent = "Public operating context only. It is not a field map or a source of record.";
@@ -272,6 +304,7 @@
     if (!profile.map_embed_url) {
       element("home-coverage-note").textContent = "Public coverage is noted above. No map has been approved yet.";
       setHtml("home-coverage-map", '<p class="map-empty">No public map configured. Partner farms and field boundaries are not displayed here.</p>');
+      renderMapExplorer(profile);
       return;
     }
     element("home-coverage-note").textContent = profile.network_summary
@@ -279,6 +312,7 @@
       : "Public network coverage and hub only — no partner farms or field boundaries.";
     setHtml("home-coverage-map", '<iframe title="Approved public operating coverage" loading="lazy" referrerpolicy="no-referrer" src="' +
       escapeHtml(profile.map_embed_url) + '"></iframe>');
+    renderMapExplorer(profile);
   }
 
   function renderOperatingProfileUnavailable() {
@@ -935,6 +969,10 @@
   });
   element("setup-file").addEventListener("change", function (event) {
     recognizeCsvFile(event.target.files && event.target.files[0]);
+  });
+  element("open-map").addEventListener("click", function () {
+    showView("map");
+    element("map-stage-heading").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   element("close-action").addEventListener("click", function () {
     element("action-dialog").close();
