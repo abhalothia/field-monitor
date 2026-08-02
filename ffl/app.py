@@ -117,7 +117,6 @@ def _public_landing(origin: str) -> str:
       <p class="wordmark"><img src="/assets/rice-sheaf-icon.png" alt=""> Fortune Farms</p>
       <section class="landing-hero">
         <div class="landing-copy">
-          <p class="eyebrow">Fortune Farms <span aria-hidden="true">·</span> Farm command</p>
           <h1>AGRO CEO</h1>
           <p class="statement">Know what changed. Know who owns the next move.</p>
           <a href="/login">Open AGRO CEO <span aria-hidden="true">→</span></a>

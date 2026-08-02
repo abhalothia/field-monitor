@@ -4,13 +4,12 @@
 * { box-sizing: border-box; }
 body { min-height: 100vh; margin: 0; background-color: #efe4cf; background-image: url("/assets/rice-paper.png"); background-size: 980px 652px; }
 .shell { width: min(1120px, calc(100% - 48px)); min-height: 100vh; margin: auto; display: grid; grid-template-rows: auto 1fr; padding: 30px 0 70px; }
-.wordmark, .eyebrow { margin: 0; font-family: "DM Mono", monospace; font-size: .68rem; font-weight: 500; letter-spacing: .11em; text-transform: uppercase; }
+.wordmark { margin: 0; font-family: "DM Mono", monospace; font-size: .68rem; font-weight: 500; letter-spacing: .11em; text-transform: uppercase; }
 .wordmark { display: inline-flex; align-items: center; width: fit-content; color: #193c2e; }
 .wordmark img { width: 29px; height: 29px; margin-right: 9px; border-radius: 50%; object-fit: cover; }
 .landing-hero { align-self: center; display: grid; grid-template-columns: minmax(0, .9fr) minmax(340px, 1.1fr); align-items: end; gap: clamp(36px, 7vw, 112px); padding-bottom: 7vh; }
 .landing-copy { padding-bottom: 18px; }
-.eyebrow { color: #66734e; }
-h1 { margin: .7rem 0 .82rem; color: #12372b; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(4rem, 14vw, 10rem); font-weight: 400; letter-spacing: -.08em; line-height: .8; }
+h1 { margin: 0 0 .82rem; color: #12372b; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(4rem, 14vw, 10rem); font-weight: 400; letter-spacing: -.08em; line-height: .8; }
 .statement { max-width: 30ch; margin: 0 0 2rem; color: #526859; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(1.25rem, 2vw, 1.8rem); line-height: 1.28; }
 a { display: inline-flex; align-items: center; gap: .8rem; border-radius: 3px; background: #173f2c; color: #fff8e8; font-size: .8rem; font-weight: 800; padding: .95rem 1.15rem; text-decoration: none; }
 a:hover { background: #255a3d; }
