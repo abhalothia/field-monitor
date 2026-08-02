@@ -36,16 +36,17 @@ has been registered, enabled, and populated by a private worker. The required
 path is:
 
 ```text
-Official IMD access + fixed Hetzner egress/IP review
+Official IMD access + fixed future-worker egress/IP review
   → private source worker + cache/attribution
   → source run + normalised regional signal
   → brief candidate with provenance
 ```
 
-Vercel may serve the protected manager/field experience, but it must not be the
-IMD polling worker: IP allow-listing, durable retries, and source caching belong
-on the private Hetzner runtime. External context can raise a review item only;
-it never proves a field condition, closes work, or prescribes an intervention.
+The Vercel pilot serves the protected manager/field experience. IMD polling is
+not enabled there yet: IP allow-listing, durable retries, and source caching
+need their own reviewed worker execution boundary. External context can raise a
+review item only; it never proves a field condition, closes work, or prescribes
+an intervention.
 
 ## Brain/new-model boundary
 

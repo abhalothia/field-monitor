@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from ffl.persistence import repository
+from ffl.external_data.geography import VILLAGE_FINDER_REPOSITORY
 from ffl.services import sources
 
 
@@ -49,6 +50,27 @@ def _unprocessable(error: ValueError) -> HTTPException:
 @router.get("/sources/india-candidates")
 def get_india_source_candidates() -> List[dict]:
     return sources.india_source_candidates()
+
+
+@router.get("/geography/village-finder")
+def get_village_finder_coverage() -> dict:
+    """Describe the narrow reviewed-import lane without implying farm coverage.
+
+    The endpoint has no network or persistence side effect.  A real import
+    still needs an immutable upstream revision, content SHA-256, and an
+    operator review reference.
+    """
+    return {
+        "source_key": "village-finder-lgd",
+        "repository": VILLAGE_FINDER_REPOSITORY,
+        "status": "not_imported",
+        "supported_states": [
+            "Andhra Pradesh", "Telangana", "Karnataka", "Tamil Nadu", "Kerala",
+        ],
+        "not_a_geocoder": True,
+        "location_binding": "requires_named_manager_review",
+        "admission_gate": "immutable_git_sha_content_sha256_and_review_reference",
+    }
 
 
 @router.get("/regional-context")

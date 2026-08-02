@@ -3,6 +3,7 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
+  var readinessUrl = "/api/v1/pilot/readiness";
   var currentRuntime = null;
   var focusExceptionId = null;
 
@@ -80,6 +81,29 @@
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
     setHtml("portfolio-context", '<p class="empty-state portfolio-unavailable">Source and import context is unavailable right now.</p>');
     setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
+  }
+
+  function renderReadinessUnavailable() {
+    element("foundation-progress").textContent = "Foundation check is unavailable.";
+    setHtml("foundation-list", '<li class="foundation-item foundation-unavailable"><strong>Start with the real farm record.</strong><span>The ledger is waiting for a verified farm, team, land, season, and field evidence plan.</span></li>');
+  }
+
+  function renderReadiness(readiness) {
+    var progress = readiness && readiness.progress ? readiness.progress : {};
+    var completed = typeof progress.completed === "number" ? progress.completed : 0;
+    var total = typeof progress.total === "number" ? progress.total : 0;
+    var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
+    var remaining = stages.filter(function (stage) { return stage.status !== "ready"; });
+    element("foundation-progress").textContent = completed === total && total ?
+      "Foundation complete · ready for the field loop" : completed + " of " + total + " foundations recorded";
+    if (!remaining.length) {
+      setHtml("foundation-list", '<li class="foundation-item foundation-ready"><strong>Foundation complete.</strong><span>Keep every next signal attached to the active allocation, responsible person, observed time, and evidence.</span></li>');
+      return;
+    }
+    setHtml("foundation-list", remaining.slice(0, 3).map(function (stage, index) {
+      return '<li class="foundation-item"><span class="foundation-index">0' + (index + 1) + '</span><div><strong>' +
+        escapeHtml(stage.title) + '</strong><span>' + escapeHtml(stage.next_action) + '</span></div></li>';
+    }).join(""));
   }
 
   function renderRiskLedger(portfolio) {
@@ -260,6 +284,21 @@
     renderExceptions(runtime.exceptions || []);
   }
 
+  function renderRuntimeUnavailable() {
+    element("operating-unit").textContent = "Pilot foundation in progress — no farm facts have been entered.";
+    element("allocation-count").textContent = "0";
+    element("focus-crop").textContent = "Pilot foundation";
+    element("focus-title").textContent = "Start with the real farm, not a sample.";
+    element("focus-note").textContent = "Record the verified operating context before any external source or field signal is treated as useful.";
+    element("focus-severity").textContent = "Set up";
+    element("focus-severity").className = "severity severity-medium";
+    element("exception-count").textContent = "0";
+    element("exception-summary").textContent = "No field record exists yet. The foundation ledger names the next verified input.";
+    setHtml("allocation-list", "<span>No active allocation.</span>");
+    setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
+    setHtml("exception-list", '<p class="empty-state">No field signals yet.</p>');
+  }
+
   function renderAudit(detail) {
     var audit = detail.audit_events || [];
     var history = audit.length ? "<ol class=\"audit-list\">" + audit.map(function (event) {
@@ -300,9 +339,20 @@
         renderRuntime(runtime);
         element("load-status").textContent = "Updated just now.";
       })
-      .catch(function (error) {
-        element("load-status").textContent = error.message;
+      .catch(function () {
+        renderRuntimeUnavailable();
+        element("load-status").textContent = "Pilot foundation needs its first verified record.";
       });
+
+    fetch(readinessUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load pilot readiness.");
+        }
+        return response.json();
+      })
+      .then(renderReadiness)
+      .catch(renderReadinessUnavailable);
 
     fetch(portfolioUrl)
       .then(function (response) {

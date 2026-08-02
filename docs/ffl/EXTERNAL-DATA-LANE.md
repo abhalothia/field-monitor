@@ -55,7 +55,7 @@ in that transaction.
 IMD's official API page links to API documentation and IP-whitelisting, and
 asks clients to attribute IMD and cache responses. `IMDAccessReview` records
 only the non-secret access evidence: the `api.imd.gov.in` endpoint, selected
-product identifier, approved Hetzner egress identity, review reference, and a
+product identifier, approved future-worker egress identity, review reference, and a
 60–3600 second cache TTL.
 
 `IMDDryRunAdapter` conforms to the existing source-adapter port but deliberately
@@ -67,7 +67,7 @@ IMD result, storing a provider payload, or starting a polling loop.
 
 The future IMD worker may replace this dry-run adapter only after the source is
 reviewed and enabled, its exact official product schema is pinned, the selected
-Hetzner egress IP is whitelisted, response caching/attribution are implemented,
+worker egress identity is whitelisted, response caching/attribution are implemented,
 and parser fixtures cover normal, stale, and schema-drift responses. Its outputs
 may create regional `agro_regional_signals` and manager watches only—never a
 work completion, automatic reschedule, or agronomic recommendation.

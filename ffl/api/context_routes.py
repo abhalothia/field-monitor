@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ffl.persistence import repository
-from ffl.services import morning_brief
+from ffl.services import morning_brief, pilot_readiness
 
 
 router = APIRouter(prefix="/api/v1")
@@ -42,6 +42,12 @@ def _connection(request: Request):
 
 def _unprocessable(error: ValueError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+
+
+@router.get("/pilot/readiness")
+def get_pilot_readiness(request: Request) -> dict:
+    """Show the real pilot's setup gap without creating sample farm records."""
+    return pilot_readiness.pilot_readiness(_connection(request))
 
 
 @router.put("/operating-units/{operating_unit_id}/location", status_code=status.HTTP_201_CREATED)

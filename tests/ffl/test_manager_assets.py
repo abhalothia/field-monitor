@@ -11,10 +11,12 @@ def test_manager_assets_define_field_ledger():
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
+    assert "/api/v1/pilot/readiness" in app_js
     assert "allocation.crop_name" in app_js
     assert "allocation.cultivar" in app_js
     assert "Risk &amp; action ledger" in (root / "index.html").read_text()
     assert "Source &amp; import health" in (root / "index.html").read_text()
+    assert "The facts we need before we steer." in (root / "index.html").read_text()
     assert "Trials &amp; playbooks" in (root / "index.html").read_text()
     assert "Imports awaiting review" in app_js
     assert "Portfolio context is unavailable. Current action centre data is still usable." in app_js
@@ -24,6 +26,8 @@ def test_manager_assets_define_field_ledger():
     assert "ledger.slice(0, 6)" in app_js
     assert "Sources needing attention" in app_js
     assert "renderFieldFocus" in app_js
+    assert "renderRuntimeUnavailable" in app_js
+    assert "renderReadiness" in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "private_storage_uri" not in app_js
