@@ -2,6 +2,8 @@
 
 import csv
 import io
+import json
+import math
 import sqlite3
 import threading
 from collections import Counter
@@ -29,7 +31,8 @@ PURPOSE_COLUMNS = {
 }
 IDENTITY_LIKE_COLUMNS = {"name", "phone", "plot", "plot_name", "parcel", "farmer_name"}
 FARM_MANIFEST_OPTIONAL_COLUMNS = {
-    "crop_name", "cultivar", "season_name", "latitude", "longitude",
+    "source_plot_id", "plot_label", "area_hectares", "crop_name", "cultivar", "season_name",
+    "subdistrict_name", "village_lgd_code", "latitude", "longitude", "boundary_geojson",
     "location_precision", "boundary_evidence_ref",
 }
 FARM_MANIFEST_FORBIDDEN_COLUMNS = {
@@ -38,7 +41,8 @@ FARM_MANIFEST_FORBIDDEN_COLUMNS = {
     "bank_account", "aadhaar",
 }
 FARM_MANIFEST_STATUSES = {"active", "inactive", "pending_review"}
-FARM_MANIFEST_PRECISIONS = {"village", "field_verified"}
+FARM_MANIFEST_PRECISIONS = {"village", "field_verified", "field_point", "field_boundary"}
+FARM_POINT_PRECISIONS = {"field_verified", "field_point"}
 _IMPORT_LOCK = threading.RLock()
 
 
@@ -131,9 +135,50 @@ def _canonical_header(value: str) -> str:
     return "_".join(_slug(value).split("-"))
 
 
+def _opaque_identifier(value: str, label: str, errors: List[Dict[str, str]]) -> None:
+    if value and (len(value) > 128 or not all(character.isalnum() or character in "._:-" for character in value)):
+        errors.append(_error("invalid_" + label, label + " must be an opaque stable identifier", label))
+
+
+def _boundary_geometry(value: str) -> Dict[str, Any]:
+    """Validate a small GeoJSON Polygon without accepting arbitrary geometry."""
+    try:
+        geometry = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError("boundary_geojson must be valid GeoJSON") from error
+    if not isinstance(geometry, dict) or geometry.get("type") != "Polygon":
+        raise ValueError("boundary_geojson must be a GeoJSON Polygon")
+    rings = geometry.get("coordinates")
+    if not isinstance(rings, list) or not rings or len(rings) > 20:
+        raise ValueError("boundary_geojson must contain between one and twenty rings")
+    point_count = 0
+    for ring in rings:
+        if not isinstance(ring, list) or len(ring) < 4 or ring[0] != ring[-1]:
+            raise ValueError("each boundary_geojson ring must be closed with at least four positions")
+        point_count += len(ring)
+        if point_count > 10_000:
+            raise ValueError("boundary_geojson has too many positions")
+        for position in ring:
+            if (
+                not isinstance(position, list)
+                or len(position) != 2
+                or isinstance(position[0], bool)
+                or isinstance(position[1], bool)
+            ):
+                raise ValueError("boundary_geojson positions must be [longitude, latitude]")
+            longitude, latitude = position
+            if not isinstance(longitude, (int, float)) or not isinstance(latitude, (int, float)):
+                raise ValueError("boundary_geojson positions must be numeric")
+            if not math.isfinite(float(longitude)) or not math.isfinite(float(latitude)):
+                raise ValueError("boundary_geojson positions must be finite")
+            if not (68.0 <= float(longitude) <= 98.0 and 6.0 <= float(latitude) <= 38.0):
+                raise ValueError("boundary_geojson must be within India")
+    return {"type": "Polygon", "coordinates": rings}
+
+
 def _farm_manifest_row(
     normalized_headers: List[str], row: List[str], header_problems: bool,
-) -> Tuple[Dict[str, str], str, List[Dict[str, str]]]:
+) -> Tuple[Dict[str, Any], str, List[Dict[str, str]]]:
     raw = {normalized_headers[index]: value for index, value in enumerate(row) if index < len(normalized_headers)}
     if len(row) != len(normalized_headers):
         return raw, "quarantined", [_error("malformed_row", "row has a different number of cells than its header")]
@@ -146,23 +191,35 @@ def _farm_manifest_row(
             _error("missing_required_columns", "farm manifest requires stable, non-person columns", column)
             for column in missing_columns
         ]
-    mapped = {column: raw.get(column, "").strip() for column in required + tuple(FARM_MANIFEST_OPTIONAL_COLUMNS)}
+    mapped: Dict[str, Any] = {
+        column: raw.get(column, "").strip() for column in required + tuple(FARM_MANIFEST_OPTIONAL_COLUMNS)
+    }
     mapped = {key: value for key, value in mapped.items() if value}
     errors: List[Dict[str, str]] = []
     for column in required:
         if not mapped.get(column):
             errors.append(_error("missing_value", "required value is blank", column))
-    source_farm_id = mapped.get("source_farm_id", "")
-    if source_farm_id and (len(source_farm_id) > 128 or not all(character.isalnum() or character in "._:-" for character in source_farm_id)):
-        errors.append(_error("invalid_source_farm_id", "source_farm_id must be an opaque stable identifier", "source_farm_id"))
+    _opaque_identifier(mapped.get("source_farm_id", ""), "source_farm_id", errors)
+    _opaque_identifier(mapped.get("source_plot_id", ""), "source_plot_id", errors)
     if mapped.get("record_status") and mapped["record_status"] not in FARM_MANIFEST_STATUSES:
         errors.append(_error("invalid_record_status", "record_status must be active, inactive, or pending_review", "record_status"))
     if mapped.get("pincode") and (len(mapped["pincode"]) != 6 or not mapped["pincode"].isdigit()):
         errors.append(_error("invalid_pincode", "pincode must be a six-digit Indian PIN", "pincode"))
+    if mapped.get("village_lgd_code") and (len(mapped["village_lgd_code"]) > 16 or not mapped["village_lgd_code"].isdigit()):
+        errors.append(_error("invalid_village_lgd_code", "village_lgd_code must be a numeric LGD village code", "village_lgd_code"))
+    if mapped.get("area_hectares"):
+        try:
+            area = float(mapped["area_hectares"])
+        except ValueError:
+            errors.append(_error("invalid_area", "area_hectares must be numeric", "area_hectares"))
+        else:
+            if not math.isfinite(area) or area <= 0:
+                errors.append(_error("invalid_area", "area_hectares must be a finite positive number", "area_hectares"))
     if mapped.get("source_recorded_at") and not _is_iso_timestamp(mapped["source_recorded_at"]):
         errors.append(_error("invalid_timestamp", "source_recorded_at must be an ISO-8601 timestamp with timezone", "source_recorded_at"))
     has_latitude = "latitude" in mapped
     has_longitude = "longitude" in mapped
+    has_boundary = "boundary_geojson" in mapped
     if has_latitude != has_longitude:
         errors.append(_error("incomplete_coordinate", "latitude and longitude must be supplied together", "latitude"))
     if has_latitude and has_longitude:
@@ -173,17 +230,32 @@ def _farm_manifest_row(
         else:
             if not (6.0 <= latitude <= 38.0 and 68.0 <= longitude <= 98.0):
                 errors.append(_error("coordinate_outside_india", "coordinates must be within India", "latitude"))
-        if mapped.get("location_precision") != "field_verified":
-            errors.append(_error("unverified_coordinate", "coordinates require location_precision=field_verified", "location_precision"))
+        if mapped.get("location_precision") not in FARM_POINT_PRECISIONS and not has_boundary:
+            errors.append(_error("unverified_coordinate", "coordinates require location_precision=field_point", "location_precision"))
         if not mapped.get("boundary_evidence_ref"):
             errors.append(_error("missing_boundary_evidence", "coordinates require a boundary_evidence_ref", "boundary_evidence_ref"))
-    elif mapped.get("location_precision") and mapped["location_precision"] not in FARM_MANIFEST_PRECISIONS:
-        errors.append(_error("invalid_location_precision", "location_precision must be village or field_verified", "location_precision"))
-    elif mapped.get("location_precision") == "field_verified":
-        errors.append(_error("missing_coordinate", "field_verified location_precision requires coordinates", "latitude"))
+    if has_boundary:
+        try:
+            mapped["boundary_geojson"] = _boundary_geometry(mapped["boundary_geojson"])
+        except ValueError as error:
+            errors.append(_error("invalid_boundary", str(error), "boundary_geojson"))
+        if mapped.get("location_precision") != "field_boundary":
+            errors.append(_error("unverified_boundary", "boundary_geojson requires location_precision=field_boundary", "location_precision"))
+        if not mapped.get("boundary_evidence_ref"):
+            errors.append(_error("missing_boundary_evidence", "boundary_geojson requires a boundary_evidence_ref", "boundary_evidence_ref"))
+    if mapped.get("location_precision") and mapped["location_precision"] not in FARM_MANIFEST_PRECISIONS:
+        errors.append(_error("invalid_location_precision", "location_precision must be village, field_point, or field_boundary", "location_precision"))
+    if mapped.get("location_precision") in FARM_POINT_PRECISIONS and not (has_latitude and has_longitude):
+        errors.append(_error("missing_coordinate", "field_point location_precision requires coordinates", "latitude"))
+    if mapped.get("location_precision") == "field_boundary" and not has_boundary:
+        errors.append(_error("missing_boundary", "field_boundary location_precision requires boundary_geojson", "boundary_geojson"))
     if not errors:
         mapped["district_context_key"] = "in:" + _slug(mapped["state_name"]) + ":" + _slug(mapped["district_name"])
-        mapped["map_eligibility"] = "field_verified" if has_latitude else "village_context_only"
+        mapped["map_eligibility"] = (
+            "field_boundary_verified" if has_boundary else
+            "field_point_verified" if has_latitude else
+            "village_context_only"
+        )
     return mapped, "invalid" if errors else "valid", errors
 
 
@@ -342,10 +414,21 @@ def register_farm_manifest(
     )
     if aliases:
         raise ValueError("farm manifest columns must use the documented snake_case names: " + ", ".join(aliases))
+    unsupported = sorted(set(canonical_headers) - schema_columns)
+    if unsupported:
+        raise ValueError("farm manifest contains unsupported columns: " + ", ".join(unsupported))
     if parse_errors:
         raise ValueError("farm manifest CSV is malformed")
-    id_index = canonical_headers.index("source_farm_id")
-    identifiers = [row[id_index].strip() for _, row in rows if len(row) > id_index and row[id_index].strip()]
+    farm_index = canonical_headers.index("source_farm_id")
+    plot_index = canonical_headers.index("source_plot_id") if "source_plot_id" in canonical_headers else None
+    identifiers = []
+    for _, row in rows:
+        if len(row) <= farm_index or not row[farm_index].strip():
+            continue
+        if plot_index is not None and len(row) > plot_index and row[plot_index].strip():
+            identifiers.append("plot:" + row[plot_index].strip())
+        else:
+            identifiers.append("farm:" + row[farm_index].strip())
     duplicates = sorted({identifier for identifier in identifiers if identifiers.count(identifier) > 1})
     if duplicates:
         raise ValueError("farm manifest contains duplicate source_farm_id values")
@@ -372,11 +455,13 @@ def farm_manifest_summary(conn, import_batch_id: str) -> Dict[str, Any]:
             "invalid": counts["invalid"],
             "quarantined": counts["quarantined"],
             "published": counts["published"],
-            "field_verified": sum(row.get("map_eligibility") == "field_verified" for row in mapped),
+            "field_verified": sum(str(row.get("map_eligibility", "")).startswith("field_") for row in mapped),
+            "field_point_verified": sum(row.get("map_eligibility") == "field_point_verified" for row in mapped),
+            "field_boundary_verified": sum(row.get("map_eligibility") == "field_boundary_verified" for row in mapped),
             "village_context_only": sum(row.get("map_eligibility") == "village_context_only" for row in mapped),
         },
         "district_context_keys": districts,
-        "map_policy": "only field_verified rows with boundary evidence may become field markers",
+        "map_policy": "only field-verified rows with evidence may become private map features",
     }
 
 
@@ -398,6 +483,55 @@ def publish_farm_manifest(conn, import_batch_id: str, manager_id: str) -> Dict[s
         raise ValueError("only the named manager reviewer may publish this farm manifest")
     publish_import(conn, import_batch_id)
     return farm_manifest_summary(conn, import_batch_id)
+
+
+def farm_manifest_map_features(conn, import_batch_id: str) -> Dict[str, Any]:
+    """Return exact private geometry only for a published, manager-reviewed batch."""
+    batch = repository.get_import_batch(conn, import_batch_id)
+    if batch is None or batch.purpose != "farm_manifest":
+        raise LookupError("farm manifest not found")
+    if batch.status != "published":
+        raise ValueError("only a published farm manifest may provide map features")
+    features = []
+    for row in repository.list_import_rows(conn, batch.id):
+        mapped = row.mapped
+        eligibility = mapped.get("map_eligibility")
+        if eligibility == "field_boundary_verified":
+            geometry = mapped["boundary_geojson"]
+        elif eligibility == "field_point_verified":
+            geometry = {
+                "type": "Point",
+                "coordinates": [float(mapped["longitude"]), float(mapped["latitude"])],
+            }
+        else:
+            continue
+        properties = {
+            "feature_id": mapped.get("source_plot_id") or mapped["source_farm_id"],
+            "plot_label": mapped.get("plot_label"),
+            "area_hectares": float(mapped["area_hectares"]) if mapped.get("area_hectares") else None,
+            "state_name": mapped["state_name"],
+            "district_name": mapped["district_name"],
+            "subdistrict_name": mapped.get("subdistrict_name"),
+            "village_name": mapped["village_name"],
+            "pincode": mapped["pincode"],
+            "village_lgd_code": mapped.get("village_lgd_code"),
+            "crop_name": mapped.get("crop_name"),
+            "cultivar": mapped.get("cultivar"),
+            "season_name": mapped.get("season_name"),
+            "source_recorded_at": mapped["source_recorded_at"],
+            "location_precision": mapped.get("location_precision"),
+        }
+        features.append({"type": "Feature", "geometry": geometry, "properties": properties})
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "provenance": {
+            "import_batch_id": batch.id,
+            "source_evidence_artifact_id": batch.evidence_artifact_id,
+            "published_at": batch.published_at,
+            "policy": "private manager view only; not proof of land right or agronomic status",
+        },
+    }
 
 
 def get_import(conn, import_batch_id: str) -> Dict[str, Any]:

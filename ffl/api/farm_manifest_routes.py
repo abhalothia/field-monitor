@@ -109,3 +109,18 @@ def publish_farm_manifest(
         raise _not_found(error)
     except ValueError as error:
         raise _unprocessable(error)
+
+
+@router.get("/farm-manifests/{import_batch_id}/map-features")
+def get_farm_manifest_map_features(
+    import_batch_id: str,
+    request: Request,
+    manager_id: str = Depends(require_manager),
+) -> dict:
+    del manager_id
+    try:
+        return imports.farm_manifest_map_features(_connection(request), import_batch_id)
+    except LookupError as error:
+        raise _not_found(error)
+    except ValueError as error:
+        raise _unprocessable(error)

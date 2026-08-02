@@ -11,19 +11,30 @@ CSV routes deliberately cannot create or read a farm-manifest batch.
 ## Required CSV columns
 
 ```csv
-source_farm_id,record_status,state_name,district_name,village_name,pincode,source_recorded_at,source_record_ref,crop_name,season_name,latitude,longitude,location_precision,boundary_evidence_ref
+source_farm_id,source_plot_id,plot_label,area_hectares,record_status,state_name,district_name,subdistrict_name,village_name,village_lgd_code,pincode,source_recorded_at,source_record_ref,crop_name,cultivar,season_name,latitude,longitude,boundary_geojson,location_precision,boundary_evidence_ref
 ```
 
 - `source_farm_id`: opaque, stable ID from Fortune's approved source system.
+- `source_plot_id`: optional opaque plot/block ID. Use it when one farm has
+  more than one plot; do not reuse it across rows.
+- `plot_label` and `area_hectares`: optional operational context. Area does
+  not establish a land right.
+- `subdistrict_name`, `village_lgd_code`, village, and PIN form the
+  administrative hierarchy. **India uses a PIN, not a ZIP.** A PIN or village
+  is context only, not geometry.
 - `record_status`: `active`, `inactive`, or `pending_review`.
 - `source_recorded_at`: ISO-8601 timestamp from the source system.
 - `source_record_ref`: source-system reference, not a person identifier.
 - `crop_name`, `cultivar`, and `season_name` are optional context.
 
-Rows without coordinates are accepted as **village context only**. A field map
-marker requires a latitude/longitude pair, `location_precision=field_verified`,
-and a `boundary_evidence_ref`. Village/PIN never creates a field marker,
-boundary, land right, or agronomic recommendation.
+Rows without geometry are accepted as **village context only**. A field point
+requires a latitude/longitude pair, `location_precision=field_point` (the
+legacy synonym `field_verified` is accepted), and a `boundary_evidence_ref`.
+A proper plot shape requires quoted GeoJSON `boundary_geojson`,
+`location_precision=field_boundary`, and a `boundary_evidence_ref`. Only a
+published batch exposes verified private GeoJSON through the manager-only map
+features endpoint. Village/PIN never creates a field marker, boundary, land
+right, or agronomic recommendation.
 
 The whole batch is retained and profiled first. The same named manager must
 review and publish it. Publishing only makes the reviewed manifest available
