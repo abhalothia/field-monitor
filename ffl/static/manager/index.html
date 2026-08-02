@@ -3,118 +3,131 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#101716">
+    <meta name="theme-color" content="#f2e8d3">
     <title>AGRO CEO — Fortune Farms</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
     <link rel="stylesheet" href="/assets/manager.css">
   </head>
   <body>
     <main class="shell">
-      <header class="page-header">
-        <div>
-          <p class="eyebrow">Field flow ledger</p>
-          <h1>FFL Action Centre</h1>
-          <p id="operating-unit" class="subtle">Loading current field operations…</p>
+      <header class="masthead">
+        <a class="wordmark" href="/" aria-label="Fortune Farms home">
+          <img src="/assets/rice-sheaf-icon.png" alt="">
+          <span>Fortune Farms</span>
+        </a>
+        <p class="product-name">AGRO CEO <span aria-hidden="true">·</span> Field ledger</p>
+        <div class="header-actions">
+          <p id="load-status" class="load-status" aria-live="polite"></p>
+          <button id="refresh" class="quiet-button" type="button">
+            <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+            Refresh
+          </button>
         </div>
-        <button id="refresh" type="button">Refresh</button>
       </header>
 
-      <p id="load-status" class="load-status" aria-live="polite"></p>
+      <section class="ledger-intro" aria-labelledby="page-title">
+        <p class="eyebrow">Field intelligence, held to evidence</p>
+        <h1 id="page-title">Today on the farm.</h1>
+        <p id="operating-unit" class="subtle">Loading current field operations…</p>
+      </section>
 
-      <section class="cards" aria-label="Current action summary">
-        <article class="card">
-          <p class="card-label">Active allocation</p>
-          <p id="allocation-count" class="card-value">—</p>
-          <div id="allocation-list" class="card-detail"></div>
+      <section class="field-ledger" aria-label="Field focus and today’s action queue">
+        <article class="field-map">
+          <img src="/assets/field-ledger-paddies.png" alt="Aerial rice paddy fields with irrigation channels">
+          <div class="map-copy">
+            <p class="map-kicker"><span class="material-symbols-outlined" aria-hidden="true">location_on</span> Field focus</p>
+            <p id="focus-crop" class="map-crop">Reading the field</p>
+            <h2 id="focus-title">Current evidence is loading.</h2>
+            <p id="focus-note">The next reviewable signal will appear here.</p>
+          </div>
+          <div class="map-meta">
+            <span id="focus-severity" class="severity severity-medium">Watch</span>
+            <span><strong id="allocation-count">—</strong> active plots</span>
+          </div>
+          <button id="review-focus" class="map-action" type="button">
+            Review field signal
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+          </button>
         </article>
-        <article class="card">
-          <p class="card-label">Planned / in-progress work</p>
-          <p id="active-work-count" class="card-value">—</p>
-          <div id="active-work-summary" class="card-detail"></div>
-        </article>
-        <article class="card">
-          <p class="card-label">Submitted work awaiting review</p>
-          <p id="submitted-work-count" class="card-value">—</p>
-          <div id="submitted-work-summary" class="card-detail"></div>
-        </article>
-        <article class="card">
-          <p class="card-label">Open exceptions</p>
-          <p id="exception-count" class="card-value">—</p>
-          <div id="exception-summary" class="card-detail"></div>
-        </article>
+
+        <aside class="today-rail" aria-labelledby="today-heading">
+          <div class="today-heading">
+            <div>
+              <p class="eyebrow">Action rail</p>
+              <h2 id="today-heading">Today</h2>
+            </div>
+            <span id="exception-count" class="count-chip">—</span>
+          </div>
+          <p id="exception-summary" class="today-summary">Looking for the next decision…</p>
+          <div id="exception-list" class="item-list today-list" aria-live="polite"></div>
+          <dl class="today-totals" aria-label="Today’s work totals">
+            <div><dt>In motion</dt><dd id="active-work-count">—</dd></div>
+            <div><dt>To review</dt><dd id="submitted-work-count">—</dd></div>
+          </dl>
+          <div class="today-footer">
+            <p id="active-work-summary">—</p>
+            <p id="submitted-work-summary">—</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="ledger-strip" aria-label="Active allocation ledger">
+        <div>
+          <p class="eyebrow">Active allocation</p>
+          <div id="allocation-list" class="allocation-list"></div>
+        </div>
+        <p class="ledger-caption">Each field signal remains evidence-first. A delivery or read receipt never closes work.</p>
       </section>
 
       <section class="portfolio-section" aria-labelledby="portfolio-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Manager decision brief</p>
-            <h2 id="portfolio-heading">Portfolio context</h2>
+            <p class="eyebrow">Company steering</p>
+            <h2 id="portfolio-heading">The wider picture</h2>
           </div>
           <p id="portfolio-status" class="subtle" aria-live="polite">Loading portfolio context…</p>
         </div>
         <div class="portfolio-grid">
-          <section class="panel portfolio-panel" aria-labelledby="ledger-heading">
+          <section class="portfolio-panel" aria-labelledby="ledger-heading">
             <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Prioritise next</p>
-                <h3 id="ledger-heading">Risk &amp; action ledger</h3>
-              </div>
+              <p class="eyebrow">Prioritise next</p>
+              <h3 id="ledger-heading">Risk &amp; action ledger</h3>
             </div>
             <div id="portfolio-ledger" class="portfolio-list" aria-live="polite"></div>
           </section>
-
-          <section class="panel portfolio-panel" aria-labelledby="context-heading">
+          <section class="portfolio-panel" aria-labelledby="context-heading">
             <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Data context</p>
-                <h3 id="context-heading">Source &amp; import health</h3>
-              </div>
+              <p class="eyebrow">Data context</p>
+              <h3 id="context-heading">Source &amp; import health</h3>
             </div>
             <div id="portfolio-context" class="portfolio-list" aria-live="polite"></div>
           </section>
-
-          <section class="panel portfolio-panel" aria-labelledby="learning-heading">
+          <section class="portfolio-panel" aria-labelledby="learning-heading">
             <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Learning loop</p>
-                <h3 id="learning-heading">Trials &amp; playbooks</h3>
-              </div>
+              <p class="eyebrow">Learning loop</p>
+              <h3 id="learning-heading">Trials &amp; playbooks</h3>
             </div>
             <div id="portfolio-learning" class="portfolio-list" aria-live="polite"></div>
           </section>
         </div>
       </section>
 
-      <section class="workspace" aria-label="Manager actions">
-        <section class="panel" aria-labelledby="work-heading">
+      <section class="workspace" aria-label="Open work and exception record">
+        <section class="workspace-panel" aria-labelledby="work-heading">
           <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Work queue</p>
-              <h2 id="work-heading">Open work</h2>
-            </div>
+            <p class="eyebrow">Field queue</p>
+            <h2 id="work-heading">Work in motion</h2>
           </div>
           <div id="work-list" class="item-list" aria-live="polite"></div>
         </section>
 
-        <section class="panel" aria-labelledby="exception-heading">
+        <aside id="audit" class="workspace-panel detail-panel" aria-labelledby="audit-heading">
           <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Escalation queue</p>
-              <h2 id="exception-heading">Open exceptions</h2>
-            </div>
+            <p class="eyebrow">Evidence trail</p>
+            <h2 id="audit-heading">Audit history</h2>
           </div>
-          <div id="exception-list" class="item-list" aria-live="polite"></div>
-        </section>
-
-        <aside class="panel detail-panel" aria-labelledby="audit-heading">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Exception record</p>
-              <h2 id="audit-heading">Audit history</h2>
-            </div>
-          </div>
-          <div id="exception-detail" class="empty-state">Select an exception to view its audit history.</div>
+          <div id="exception-detail" class="empty-state">Choose an open field signal to inspect its audit trail.</div>
         </aside>
       </section>
     </main>

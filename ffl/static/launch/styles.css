@@ -1,16 +1,24 @@
-:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #173b2b; background: #f6f2e9; }
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap");
+
+:root { color-scheme: light; color: #173b2b; background: #efe4cf; font-family: Manrope, "Noto Sans Devanagari", Arial, sans-serif; }
 * { box-sizing: border-box; }
-body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top right, #dcebd6, transparent 36rem), #f6f2e9; }
-.login-shell { width: min(100%, 440px); }
-.login-card { background: #fffdf8; border: 1px solid #d9d4c8; border-radius: 18px; box-shadow: 0 18px 50px rgb(38 65 46 / 12%); padding: 34px; }
-.eyebrow { margin: 0 0 9px; color: #2d7650; font-size: .78rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
-h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(2rem, 7vw, 2.7rem); line-height: 1.05; }
-.subtle, .hindi { color: #5f675f; line-height: 1.5; }
-form { display: grid; gap: 9px; margin-top: 28px; }
-label { font-size: .92rem; font-weight: 700; }
-input { width: 100%; border: 1px solid #a7b5a4; border-radius: 9px; padding: 12px; font: inherit; }
-input:focus { outline: 3px solid #bad9b9; border-color: #317549; }
-button { margin-top: 5px; border: 0; border-radius: 9px; background: #195c46; color: white; cursor: pointer; font: inherit; font-weight: 750; padding: 12px 16px; }
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background-color: #efe4cf; background-image: url("/assets/rice-paper.png"); background-size: 980px 652px; }
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #caa22f; outline-offset: 3px; }
+.login-shell { width: min(100%, 465px); }
+.login-card { border-top: 4px solid #a77b1d; padding: 29px 0 0; }
+.wordmark { display: inline-flex; align-items: center; color: #183b2c; font-family: "DM Serif Display", Georgia, serif; font-size: 1.2rem; text-decoration: none; }
+.wordmark img { width: 31px; height: 31px; margin-right: 9px; border-radius: 50%; object-fit: cover; }
+.eyebrow { margin: 30px 0 9px; color: #64704d; font-family: "DM Mono", monospace; font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; }
+.eyebrow span { color: #aa801e; }
+h1 { margin: 0; color: #12372b; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(3.1rem, 10vw, 4.7rem); font-weight: 400; letter-spacing: -.065em; line-height: .88; }
+.subtle, .hindi { color: #5d6c5d; line-height: 1.55; }
+.subtle { margin: 17px 0 0; font-size: .88rem; }
+form { display: grid; gap: 9px; margin-top: 32px; border-top: 1px solid rgba(23, 59, 43, .35); padding-top: 21px; }
+label { color: #264838; font-size: .78rem; font-weight: 800; }
+input { width: 100%; border: 1px solid rgba(25, 70, 49, .48); border-radius: 3px; background: rgba(255, 250, 239, .76); color: #173b2b; padding: 12px; }
+button { margin-top: 5px; border: 0; border-radius: 3px; background: #173f2c; color: #fff8e9; cursor: pointer; font-size: .82rem; font-weight: 800; padding: 13px 16px; }
+button:hover { background: #255a3d; }
 button:disabled { cursor: wait; opacity: .7; }
-#status { min-height: 1.25rem; margin: 2px 0 0; color: #a23f29; }
-.hindi { border-top: 1px solid #e8e2d7; margin: 27px 0 0; padding-top: 18px; }
+#status { min-height: 1.25rem; margin: 2px 0 0; color: #a23f29; font-size: .77rem; }
+.hindi { border-top: 1px solid rgba(23, 59, 43, .22); margin: 27px 0 0; padding-top: 16px; font-family: "Noto Sans Devanagari", Manrope, sans-serif; font-size: .78rem; }

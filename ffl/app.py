@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import base64
 from pathlib import Path
 import os
 from typing import AsyncIterator, Optional
@@ -7,7 +6,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from ffl.api.import_routes import router as import_router
@@ -36,10 +35,9 @@ FIELD_INDEX = STATIC_DIR / "field" / "index.html"
 MANAGER_INDEX = STATIC_DIR / "manager" / "index.html"
 LAUNCH_INDEX = STATIC_DIR / "launch" / "index.html"
 BRAND_DIR = STATIC_DIR / "brand"
-FAVICON_SVG = BRAND_DIR / "favicon.svg"
 MANIFEST = BRAND_DIR / "site.webmanifest"
-SOCIAL_CARD_BASE64 = BRAND_DIR / "agro-ceo-social.png.b64"
-APPLE_TOUCH_ICON_BASE64 = BRAND_DIR / "apple-touch-icon.png.b64"
+SOCIAL_CARD = BRAND_DIR / "agro-ceo-social.png"
+APPLE_TOUCH_ICON = BRAND_DIR / "apple-touch-icon.png"
 WEB_ASSETS = {
     "public.css": STATIC_DIR / "landing" / "styles.css",
     "launch.css": STATIC_DIR / "launch" / "styles.css",
@@ -48,14 +46,11 @@ WEB_ASSETS = {
     "manager.js": STATIC_DIR / "manager" / "app.js",
     "field.css": STATIC_DIR / "field" / "styles.css",
     "field.js": STATIC_DIR / "field" / "app.js",
+    "field-ledger-paddies.png": STATIC_DIR / "art" / "field-ledger-paddies.png",
+    "rice-paper.png": STATIC_DIR / "art" / "rice-paper.png",
+    "rice-sheaf-icon.png": STATIC_DIR / "art" / "rice-sheaf-icon.png",
 }
 FIELD_SERVICE_WORKER = STATIC_DIR / "field" / "sw.js"
-
-
-def _brand_png(path: Path) -> bytes:
-    """Serve immutable PNG assets from text-safe serverless deployment input."""
-
-    return base64.b64decode(path.read_text(encoding="ascii"))
 
 
 def _public_origin() -> str:
@@ -90,11 +85,11 @@ def _public_landing(origin: str) -> str:
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#101716">
+    <meta name="theme-color" content="#f2e8d3">
     <title>AGRO CEO — Fortune Farms</title>
     <meta name="description" content="The private operating system for real-time farm steering.">
     <link rel="canonical" href="{origin}/">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <meta property="og:type" content="website">
@@ -115,12 +110,12 @@ def _public_landing(origin: str) -> str:
   </head>
   <body>
     <main class="shell">
-      <p class="wordmark"><span aria-hidden="true">F</span> Fortune Farms</p>
+      <p class="wordmark"><img src="/assets/rice-sheaf-icon.png" alt=""> Fortune Farms</p>
       <section>
         <p class="eyebrow">Private operating system</p>
         <h1>AGRO CEO</h1>
-        <p class="statement">Real-time farm steering, held to real evidence.</p>
-        <a href="/login">Enter pilot <span aria-hidden="true">→</span></a>
+        <p class="statement">Real-time farm steering, held to evidence in the field.</p>
+        <a href="/login">Enter the field ledger <span aria-hidden="true">→</span></a>
       </section>
     </main>
   </body>
@@ -176,6 +171,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             "/health",
             "/login",
             "/favicon.svg",
+            "/favicon.png",
             "/favicon.ico",
             "/site.webmanifest",
             "/api/v1/launch/login",
@@ -218,26 +214,30 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     def public_landing() -> HTMLResponse:
         return HTMLResponse(_public_landing(_public_origin()))
 
-    @app.get("/favicon.svg", include_in_schema=False)
+    @app.get("/favicon.png", include_in_schema=False)
     def favicon() -> FileResponse:
-        return FileResponse(FAVICON_SVG, media_type="image/svg+xml")
+        return FileResponse(APPLE_TOUCH_ICON, media_type="image/png")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    def legacy_svg_favicon() -> RedirectResponse:
+        return RedirectResponse("/favicon.png", status_code=307)
 
     @app.get("/favicon.ico", include_in_schema=False)
     def legacy_favicon() -> RedirectResponse:
         # Keep legacy crawlers and browser probes on the single canonical mark.
-        return RedirectResponse("/favicon.svg", status_code=307)
+        return RedirectResponse("/favicon.png", status_code=307)
 
     @app.get("/site.webmanifest", include_in_schema=False)
     def web_manifest() -> FileResponse:
         return FileResponse(MANIFEST, media_type="application/manifest+json")
 
     @app.get("/brand/agro-ceo-social.png", include_in_schema=False)
-    def social_card() -> Response:
-        return Response(_brand_png(SOCIAL_CARD_BASE64), media_type="image/png")
+    def social_card() -> FileResponse:
+        return FileResponse(SOCIAL_CARD, media_type="image/png")
 
     @app.get("/brand/apple-touch-icon.png", include_in_schema=False)
-    def apple_touch_icon() -> Response:
-        return Response(_brand_png(APPLE_TOUCH_ICON_BASE64), media_type="image/png")
+    def apple_touch_icon() -> FileResponse:
+        return FileResponse(APPLE_TOUCH_ICON, media_type="image/png")
 
     @app.get("/assets/{asset_name}", include_in_schema=False)
     def web_asset(asset_name: str) -> FileResponse:
@@ -251,7 +251,11 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         asset_path = WEB_ASSETS.get(asset_name)
         if asset_path is None:
             raise HTTPException(status_code=404, detail="asset not found")
-        media_type = "text/css" if asset_name.endswith(".css") else "application/javascript"
+        media_type = (
+            "text/css" if asset_name.endswith(".css") else
+            "application/javascript" if asset_name.endswith(".js") else
+            "image/png"
+        )
         return FileResponse(asset_path, media_type=media_type)
 
     @app.get("/field-service-worker.js", include_in_schema=False)

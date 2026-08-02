@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#101716" />
+    <meta name="theme-color" content="#f2e8d3" />
     <title>Fortune Farms Field</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="stylesheet" href="/assets/field.css" />
@@ -13,47 +13,63 @@
   <body>
     <main class="shell">
       <header class="masthead">
-        <p class="eyebrow">FFL • Field log</p>
-        <h1>Today’s work <span lang="hi">/ आज का काम</span></h1>
-        <p class="work-placeholder">No work assigned yet. Your next assignment will appear here.</p>
+        <a class="wordmark" href="/" aria-label="Fortune Farms home">
+          <img src="/assets/rice-sheaf-icon.png" alt="">
+          <span>Fortune Farms</span>
+        </a>
+        <p class="ledger-label">Field ledger <span aria-hidden="true">·</span> खेत रजिस्टर</p>
       </header>
 
-      <section class="sync-card" aria-live="polite">
-        <div>
-          <strong>Pending sync <span lang="hi">/ सिंक लंबित</span></strong>
-          <p id="sync-status">Checking saved reports…</p>
-        </div>
-        <button id="sync-now" class="secondary" type="button">Sync now <span lang="hi">/ अभी सिंक करें</span></button>
+      <section class="field-intro" aria-labelledby="today-title">
+        <p class="eyebrow">आज का काम <span>/ Today’s work</span></p>
+        <h1 id="today-title" lang="hi">मैदान की स्थिति दर्ज करें।</h1>
+        <p class="english-title">Record what the field is telling you.</p>
+        <p class="work-placeholder">कोई काम अभी असाइन नहीं है। नया काम यहाँ दिखेगा। <span>No work is assigned yet; your next assignment will appear here.</span></p>
       </section>
 
-      <section class="report-card" aria-labelledby="report-title">
-        <h2 id="report-title">Report exception <span lang="hi">/ अपवाद रिपोर्ट करें</span></h2>
-        <p class="hint">Save an issue even when you have no signal. It will send automatically later.</p>
-        <form id="exception-form">
-          <label for="details">What happened? <span lang="hi">/ क्या हुआ?</span></label>
-          <textarea id="details" name="details" rows="4" required placeholder="Describe the issue"></textarea>
+      <section class="sync-strip" aria-live="polite">
+        <div>
+          <p class="eyebrow">सिंक स्थिति <span>/ Sync status</span></p>
+          <p id="sync-status">Checking saved reports…</p>
+        </div>
+        <button id="sync-now" class="secondary" type="button">अभी सिंक करें <span>Sync now</span></button>
+      </section>
 
-          <label for="severity">Severity <span lang="hi">/ गंभीरता</span></label>
+      <section class="report-sheet" aria-labelledby="report-title">
+        <div class="sheet-heading">
+          <div>
+            <p class="eyebrow">नई फील्ड सूचना <span>/ New field signal</span></p>
+            <h2 id="report-title" lang="hi">अपवाद दर्ज करें</h2>
+            <p class="english-title">Report an exception</p>
+          </div>
+          <img src="/assets/rice-sheaf-icon.png" alt="" class="sheet-mark">
+        </div>
+        <p class="hint">सिग्नल न होने पर भी सूचना सुरक्षित रखें; कनेक्शन आने पर यह अपने-आप भेजी जाएगी। <span>Save an issue even with no signal; it will send later.</span></p>
+        <form id="exception-form">
+          <label for="details"><span lang="hi">क्या हुआ?</span> <small>What happened?</small></label>
+          <textarea id="details" name="details" rows="4" required placeholder="मुद्दे का छोटा विवरण लिखें / Describe the issue"></textarea>
+
+          <label for="severity"><span lang="hi">गंभीरता</span> <small>Severity</small></label>
           <select id="severity" name="severity" required>
-            <option value="low">Low / कम</option>
-            <option value="medium" selected>Medium / मध्यम</option>
-            <option value="high">High / अधिक</option>
-            <option value="critical">Critical / अति गंभीर</option>
+            <option value="low">कम / Low</option>
+            <option value="medium" selected>मध्यम / Medium</option>
+            <option value="high">अधिक / High</option>
+            <option value="critical">अति गंभीर / Critical</option>
           </select>
 
-          <label for="photo">Photo <span lang="hi">/ फोटो</span></label>
+          <label for="photo"><span lang="hi">फोटो</span> <small>Photo</small></label>
           <input id="photo" name="photo" type="file" accept="image/*" capture="environment" />
 
           <div class="location-row">
             <div>
-              <label>Location <span lang="hi">/ स्थान</span></label>
-              <p id="location-status" class="hint">Not added</p>
+              <label><span lang="hi">स्थान</span> <small>Location</small></label>
+              <p id="location-status" class="hint">स्थान अभी नहीं जोड़ा गया / Not added</p>
             </div>
-            <button id="get-location" class="secondary" type="button">Add location</button>
+            <button id="get-location" class="secondary" type="button">स्थान जोड़ें <span>Add location</span></button>
           </div>
 
           <p id="form-status" class="form-status" aria-live="polite"></p>
-          <button class="primary" type="submit">Save report <span lang="hi">/ रिपोर्ट सहेजें</span></button>
+          <button class="primary" type="submit"><span lang="hi">रिपोर्ट सुरक्षित करें</span> <small>Save report</small></button>
         </form>
       </section>
     </main>
