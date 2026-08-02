@@ -19,6 +19,7 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "/api/v1/runtime" in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
+    assert "/api/v1/data-lanes" in app_js
     assert "/api/v1/pilot/readiness" in app_js
     assert "/api/v1/pilot/setup/validate" in app_js
     assert "/api/v1/pilot/setup/accept" not in app_js
@@ -33,15 +34,22 @@ def test_manager_assets_define_a_four_view_farm_command_and_first_farm_check():
     assert "allocation.crop_name" in app_js
     assert "allocation.cultivar" in app_js
     assert "Risk &amp; action" in index_html
-    assert "Data health" in index_html
+    assert "Five data lanes" in index_html
+    assert "What is usable now, what is missing, and the next safe move." in index_html
     assert "Trials &amp; playbooks" in index_html
-    assert "Imports awaiting review" in app_js
+    assert "Field truth" in app_js
+    assert "India Meteorological Department (IMD)" in app_js
+    assert "Reviewed lab report + field measurement" in app_js
+    assert "Copernicus Sentinel-2" in app_js
+    assert "AGMARKNET / data.gov.in" in app_js
+    assert "renderDataLanes" in app_js
+    assert "fetch(dataLanesUrl)" in app_js
     assert "Tools are unavailable. Home is still usable." in app_js
     assert "fetch(runtimeUrl)" in app_js
     assert "fetch(portfolioUrl)" in app_js
     assert ".catch(renderPortfolioUnavailable)" in app_js
     assert "ledger.slice(0, 6)" in app_js
-    assert "Sources needing attention" in app_js
+    assert "Public context never replaces field evidence." in app_js
     assert "renderFieldFocus" in app_js
     assert "renderRuntimeUnavailable" in app_js
     assert "showView" in app_js

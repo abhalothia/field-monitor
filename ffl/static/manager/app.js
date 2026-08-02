@@ -3,6 +3,7 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
+  var dataLanesUrl = "/api/v1/data-lanes";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
   var pilotValidationUrl = "/api/v1/pilot/setup/validate";
   var currentRuntime = null;
@@ -70,10 +71,6 @@
     return summary && Array.isArray(summary.items) ? summary.items : [];
   }
 
-  function totalCount(summary) {
-    return summary && typeof summary.total_count === "number" ? summary.total_count : 0;
-  }
-
   function safeSeverity(value) {
     return ["critical", "high", "medium", "low", "info"].indexOf(value) === -1 ? "medium" : value;
   }
@@ -136,7 +133,6 @@
   function renderPortfolioUnavailable() {
     element("portfolio-status").textContent = "Tools are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
-    setHtml("portfolio-context", '<p class="empty-state portfolio-unavailable">Source and import context is unavailable right now.</p>');
     setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
   }
 
@@ -157,33 +153,58 @@
     }).join(""));
   }
 
-  function renderSourceHealth(sources) {
-    var availability = sources && sources.availability ? readable(sources.availability) : "unavailable";
-    var configuredCount = sources && typeof sources.configured_count === "number" ? sources.configured_count : 0;
-    var attention = totalCount(sources && sources.attention);
-    if (availability === "not configured") {
-      return '<p class="empty-state">No approved external source is configured yet.</p>';
-    }
-    if (availability !== "available") {
-      return '<p class="empty-state portfolio-unavailable">Source health is ' + escapeHtml(availability) + '.</p>';
-    }
-    return '<dl class="portfolio-counts"><div><dt>Configured sources</dt><dd>' + configuredCount +
-      '</dd></div><div><dt>Sources needing attention</dt><dd>' + attention + '</dd></div></dl>';
+  function laneStatusLabel(status) {
+    var labels = {
+      ready: "ready",
+      context_available: "context ready",
+      review_needed: "review needed",
+      attention: "needs attention",
+      needs_first_farm: "start here",
+      needs_active_crop: "needs crop plan",
+      needs_first_observation: "needs field check",
+      needs_verified_district: "needs district",
+      needs_lab_report: "needs lab report",
+      needs_field_boundary: "needs boundary",
+      needs_market_mapping: "needs market mapping",
+      not_connected: "not connected",
+      access_review: "access review",
+      not_run: "not run"
+    };
+    return labels[status] || readable(status);
   }
 
-  function renderImportReview(imports) {
-    var availability = imports && imports.availability ? readable(imports.availability) : "unavailable";
-    if (availability !== "available") {
-      return '<p class="empty-state portfolio-unavailable">Import review is ' + escapeHtml(availability) + '.</p>';
-    }
-    return '<dl class="portfolio-counts"><div><dt>Imports awaiting review</dt><dd>' +
-      totalCount(imports.review_required) + '</dd></div></dl>';
+  function laneClass(status) {
+    return ["ready", "context_available"].indexOf(status) !== -1 ? "is-ready" :
+      status === "review_needed" || status === "attention" ? "is-attention" : "is-gated";
   }
 
-  function renderDataContext(portfolio) {
-    setHtml("portfolio-context", '<div class="portfolio-item"><h4>Source health</h4>' +
-      renderSourceHealth(portfolio.sources) + '</div><div class="portfolio-item"><h4>Import review</h4>' +
-      renderImportReview(portfolio.imports) + '</div>');
+  function fallbackDataLanes() {
+    return [
+      { name: "Field truth", status: "needs_first_farm", source: "Field team + retained FFL evidence", fact: "Set up the first farm to begin the field loop.", limitation: "Public context never replaces field evidence.", next_move: "Prepare the first farm." },
+      { name: "Weather", status: "needs_first_farm", source: "India Meteorological Department (IMD)", fact: "District context is not connected yet.", limitation: "Weather is context, not a field reading or instruction.", next_move: "Verify the farm district." },
+      { name: "Soil & water", status: "needs_first_farm", source: "Reviewed lab report + field measurement", fact: "No soil baseline is ready yet.", limitation: "Predicted soil data does not replace a lab report.", next_move: "Retain one reviewed lab report." },
+      { name: "Satellite", status: "needs_first_farm", source: "Copernicus Sentinel-2", fact: "No farm or field boundary is ready yet.", limitation: "Imagery is corroboration, never diagnosis.", next_move: "Build field truth before imagery." },
+      { name: "Market", status: "needs_first_farm", source: "AGMARKNET / data.gov.in", fact: "No crop or market mapping is ready yet.", limitation: "Mandi context is not a sale price.", next_move: "Record the active crop first." }
+    ];
+  }
+
+  function renderDataLanes(snapshot) {
+    var lanes = snapshot && Array.isArray(snapshot.lanes) && snapshot.lanes.length === 5 ? snapshot.lanes : fallbackDataLanes();
+    setHtml("data-lanes", lanes.map(function (lane) {
+      var status = lane.status || "not_connected";
+      return '<article class="data-lane ' + laneClass(status) + '">' +
+        '<div class="data-lane-heading"><h4>' + escapeHtml(lane.name) + '</h4><span class="status">' +
+        escapeHtml(laneStatusLabel(status)) + '</span></div>' +
+        '<p class="data-lane-fact">' + escapeHtml(lane.fact) + '</p>' +
+        '<p class="data-lane-source">' + escapeHtml(lane.source) + '</p>' +
+        '<p class="data-lane-limit">' + escapeHtml(lane.limitation) + '</p>' +
+        '<p class="data-lane-next"><strong>Next</strong> ' + escapeHtml(lane.next_move) + '</p>' +
+        '</article>';
+    }).join(""));
+  }
+
+  function renderDataLanesUnavailable() {
+    renderDataLanes({ lanes: fallbackDataLanes() });
   }
 
   function countStatusItems(statuses) {
@@ -216,7 +237,6 @@
       return;
     }
     renderRiskLedger(portfolio);
-    renderDataContext(portfolio);
     renderLearning(portfolio);
     element("portfolio-status").textContent = "Tools updated just now.";
   }
@@ -672,6 +692,16 @@
       })
       .then(renderPortfolio)
       .catch(renderPortfolioUnavailable);
+
+    fetch(dataLanesUrl)
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Unable to load data-lane readiness.");
+        }
+        return response.json();
+      })
+      .then(renderDataLanes)
+      .catch(renderDataLanesUnavailable);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
