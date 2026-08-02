@@ -19,6 +19,7 @@ def test_operating_profile_is_empty_until_a_customer_profile_is_reviewed(tmp_pat
         "display_name": "Operating profile not set",
         "website_url": None,
         "coverage_label": None,
+        "network_summary": None,
         "public_hub_label": None,
         "source_url": None,
         "map_embed_url": None,
@@ -30,6 +31,7 @@ def test_operating_profile_exposes_only_reviewed_public_context(tmp_path):
         "display_name": "Example Rice Operations",
         "website_url": "https://example.test",
         "coverage_label": "Western Uttar Pradesh",
+        "network_summary": "Publicly stated partner network and operating scale",
         "public_hub_label": "Dadri public hub",
         "source_url": "https://example.test/operations",
         "map_embed_url": "https://www.openstreetmap.org/export/embed.html?bbox=76.6%2C27.4%2C79.0%2C29.7&layer=mapnik&marker=28.58%2C77.55",
@@ -49,6 +51,7 @@ def test_operating_profile_exposes_only_reviewed_public_context(tmp_path):
     {"display_name": "Example", "map_embed_url": "https://example.test/map", "public_hub_label": "Hub"},
     {"display_name": "Example", "map_embed_url": "https://www.openstreetmap.org/export/embed.html?bbox=1&token=secret", "public_hub_label": "Hub"},
     {"display_name": "Example", "map_embed_url": "https://www.openstreetmap.org/export/embed.html?bbox=1"},
+    {"display_name": "Example", "network_summary": "A public claim without a source"},
     {"display_name": "Example", "unsupported": "nope"},
 ])
 def test_operating_profile_rejects_unreviewed_or_unsafe_display_configuration(profile):

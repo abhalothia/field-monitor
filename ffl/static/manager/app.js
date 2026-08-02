@@ -260,6 +260,9 @@
     if (profile.coverage_label) {
       facts.push('<div><dt>Operating area</dt><dd>' + escapeHtml(profile.coverage_label) + "</dd></div>");
     }
+    if (profile.network_summary) {
+      facts.push('<div><dt>Publicly stated network</dt><dd>' + escapeHtml(profile.network_summary) + "</dd></div>");
+    }
     if (profile.public_hub_label) {
       facts.push('<div><dt>Public hub</dt><dd>' + escapeHtml(profile.public_hub_label) + "</dd></div>");
     }
@@ -271,7 +274,9 @@
       setHtml("home-coverage-map", '<p class="map-empty">No public map configured. Partner farms and field boundaries are not displayed here.</p>');
       return;
     }
-    element("home-coverage-note").textContent = "Public network coverage and hub only — no partner farms or field boundaries.";
+    element("home-coverage-note").textContent = profile.network_summary
+      ? "Public coverage, stated network scale, and hub only — no partner farms or field boundaries."
+      : "Public network coverage and hub only — no partner farms or field boundaries.";
     setHtml("home-coverage-map", '<iframe title="Approved public operating coverage" loading="lazy" referrerpolicy="no-referrer" src="' +
       escapeHtml(profile.map_embed_url) + '"></iframe>');
   }

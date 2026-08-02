@@ -42,6 +42,7 @@ Once Fortune confirms this public display context, set the reusable
   "display_name": "Fortune Rice Limited",
   "website_url": "https://www.fortunerice.in",
   "coverage_label": "Contract-farming network in Western Uttar Pradesh",
+  "network_summary": "Public company claim: 2,500+ partner farmers, 15,000+ cultivated acres, and 250 villages",
   "public_hub_label": "Dadri public mandi and processing hub (town-level marker)",
   "source_url": "https://www.fortunerice.in/our-model",
   "map_embed_url": "https://www.openstreetmap.org/export/embed.html?bbox=76.85%2C27.45%2C79.05%2C29.75&layer=mapnik&marker=28.5534523%2C77.5555503"

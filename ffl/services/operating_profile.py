@@ -30,6 +30,7 @@ def _empty_profile() -> dict[str, Any]:
         "display_name": "Operating profile not set",
         "website_url": None,
         "coverage_label": None,
+        "network_summary": None,
         "public_hub_label": None,
         "source_url": None,
         "map_embed_url": None,
@@ -93,6 +94,7 @@ def normalize_operating_profile(profile: Mapping[str, Any] | None) -> dict[str, 
         "display_name",
         "website_url",
         "coverage_label",
+        "network_summary",
         "public_hub_label",
         "source_url",
         "map_embed_url",
@@ -107,12 +109,15 @@ def normalize_operating_profile(profile: Mapping[str, Any] | None) -> dict[str, 
         "display_name": display_name,
         "website_url": _https_url(profile.get("website_url"), "website_url"),
         "coverage_label": _optional_string(profile.get("coverage_label"), "coverage_label", _MAX_LABEL),
+        "network_summary": _optional_string(profile.get("network_summary"), "network_summary", _MAX_LABEL),
         "public_hub_label": _optional_string(profile.get("public_hub_label"), "public_hub_label", _MAX_LABEL),
         "source_url": _https_url(profile.get("source_url"), "source_url"),
         "map_embed_url": _map_embed_url(profile.get("map_embed_url")),
     }
     if normalized["map_embed_url"] and not normalized["public_hub_label"]:
         raise ValueError("public_hub_label is required when map_embed_url is set")
+    if normalized["network_summary"] and not normalized["source_url"]:
+        raise ValueError("source_url is required when network_summary is set")
     return normalized
 
 
