@@ -22,7 +22,6 @@
   var allocationCalendars = {};
   var focusedAllocationId = null;
   var allocationCalendarRequest = 0;
-  var currentAttention = [];
   var pendingAction = null;
   var focusExceptionId = null;
   var focusTargetView = "farms";
@@ -103,9 +102,6 @@
     // underlying farm records and reviewed request copy stay exactly as stored.
     if (currentPortfolio) {
       renderPortfolio(currentPortfolio);
-    }
-    if (currentAttention.length) {
-      renderToday(currentAttention);
     }
     if (currentProgramme) {
       renderProgramme(currentProgramme.metrics, currentProgramme.health);
@@ -264,13 +260,9 @@
     var missing = Number(visits.active_officers_without_filed_visit) || 0;
     element("worker-source-state").textContent = freshness.status === "available" ? "published" : "no timestamp";
     element("worker-boundary").textContent = "Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.";
-    setHtml("worker-activity",
-      workerFact("Active officers", formatCount(active)) +
-      workerFact("Visits filed", formatCount(filed)) +
-      workerFact("Officers filed", formatCount(filing) + " / " + formatCount(active)) +
-      workerFact("No visit filed", formatCount(missing)) +
-      workerFact("Source age", formatAgeHours(freshness.age_hours))
-    );
+    setHtml("worker-activity", '<strong>' + escapeHtml(formatCount(missing)) +
+      '</strong><span>active officers filed no visit</span><p>' + escapeHtml(formatCount(filed)) +
+      ' visits filed by ' + escapeHtml(formatCount(filing)) + ' of ' + escapeHtml(formatCount(active)) + ' active officers</p>');
   }
 
   function programmeWarningCopy(code) {
@@ -285,14 +277,8 @@
     element("farmer-source-state").textContent = "locked";
     element("farmer-boundary").textContent = "Open Settings to unlock Fortune farmer coverage context on this browser.";
     setHtml("farmer-coverage", '<p class="empty-state">Farmer coverage stays private until manager access is unlocked.</p>');
-    setHtml("farmer-observations", '<p class="empty-state">No source observations are shown while manager access is locked.</p>');
-    setHtml("farmer-inputs", '<p class="empty-state">No source input signals are shown while manager access is locked.</p>');
-    setHtml("farmer-freshness", '<p class="empty-state">Source freshness is private manager context.</p>');
     renderWorkerActivity();
     renderDailyDirection();
-    if (currentRuntime) {
-      renderOperationsBoard(currentRuntime);
-    }
   }
 
   function renderProgrammeUnavailable() {
@@ -300,69 +286,24 @@
     element("farmer-source-state").textContent = "unavailable";
     element("farmer-boundary").textContent = "Farmer coverage is unavailable. Review the source state before taking action from this gap.";
     setHtml("farmer-coverage", '<p class="empty-state portfolio-unavailable">No published farmer coverage aggregate is available right now.</p>');
-    setHtml("farmer-observations", '<p class="empty-state portfolio-unavailable">Observation context is unavailable; absence is not evidence of absence.</p>');
-    setHtml("farmer-inputs", '<p class="empty-state portfolio-unavailable">Input review cues are unavailable.</p>');
-    setHtml("farmer-freshness", '<p class="empty-state portfolio-unavailable">Source state could not be checked.</p>');
     renderWorkerActivity();
     renderDailyDirection();
-    if (currentRuntime) {
-      renderOperationsBoard(currentRuntime);
-    }
   }
 
   function renderProgramme(metrics, health) {
     var coverage = metrics && metrics.coverage ? metrics.coverage : {};
-    var issues = metrics && metrics.issues ? metrics.issues : {};
-    var pesticides = metrics && metrics.pesticides ? metrics.pesticides : {};
     var freshness = metrics && metrics.freshness ? metrics.freshness : {};
-    var warningCodes = metrics && Array.isArray(metrics.warnings) ? metrics.warnings : [];
     var sourceState = health && health.state ? readable(health.state) : "published context";
-    var issueWindow = Number(issues.window_days) || 7;
-    var issueRows = Array.isArray(issues.by_issue) ? issues.by_issue : [];
     var sourceLabel = freshness.status === "available" ? sourceState : "no published data";
-    var policy = pesticides.policy || "review cue only; not an application recommendation or compliance verdict";
 
     currentProgramme = { metrics: metrics || {}, health: health || {} };
     renderDailyDirection();
     element("farmer-source-state").textContent = sourceLabel;
     element("farmer-boundary").textContent = "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.";
-    setHtml("farmer-coverage",
-      programmeFact("Taken kit", coverage.taken_kit) +
-      programmeFact("Visited", coverage.visited) +
-      programmeFact("Recent · 14 days", coverage.recent) +
-      programmeFact("Overdue", coverage.overdue) +
-      programmeFact("Never visited", coverage.never_visited)
-    );
-
-    var observationSummary = '<p class="programme-number">' + escapeHtml(formatCount(issues.observation_count)) +
-      '<span>dated observations · ' + escapeHtml(String(issueWindow)) + ' days</span></p>';
-    var observationRows = issueRows.length ? '<ol class="programme-list">' + issueRows.slice(0, 5).map(function (issue) {
-      return '<li><div><strong>' + escapeHtml(readable(issue.issue_code)) + '</strong><span>' +
-        escapeHtml(formatCount(issue.count)) + ' observations</span></div><span class="severity severity-' +
-        escapeHtml(safeSeverity(issue.highest_severity)) + '">' +
-        escapeHtml(readable(issue.highest_severity)) + '</span></li>';
-    }).join("") + '</ol>' : '<p class="empty-state">No dated observations in this window. This is not proof that no issue exists.</p>';
-    var warningRows = warningCodes.length ? '<ul class="programme-warnings">' + warningCodes.map(function (warning) {
-      return '<li>' + escapeHtml(programmeWarningCopy(warning)) + '</li>';
-    }).join("") + '</ul>' : '';
-    setHtml("farmer-observations", observationSummary + observationRows + warningRows);
-
-    setHtml("farmer-inputs", '<p class="programme-number">' + escapeHtml(formatCount(pesticides.event_count)) +
-      '<span>recorded input events</span></p><dl class="programme-mini-facts">' +
-      '<div><dt>Off-kit cues</dt><dd>' + escapeHtml(formatCount(pesticides.off_kit_review_cues)) + '</dd></div>' +
-      '<div><dt>Timing context</dt><dd>' + escapeHtml(formatCount(pesticides.events_with_timing_context)) + '</dd></div>' +
-      '</dl><p class="programme-note">' + escapeHtml(policy) + '.</p>');
-
-    var received = freshness.latest_source_updated_at ? formatTime(freshness.latest_source_updated_at) : "No published timestamp";
-    setHtml("farmer-freshness", '<dl class="programme-mini-facts">' +
-      '<div><dt>Latest received</dt><dd>' + escapeHtml(received) + '</dd></div>' +
-      '<div><dt>Age</dt><dd>' + escapeHtml(formatAgeHours(freshness.age_hours)) + '</dd></div>' +
-      '<div><dt>Source state</dt><dd>' + escapeHtml(sourceState) + '</dd></div>' +
-      '</dl><p class="programme-note">Only published source records contribute here.</p>');
+    setHtml("farmer-coverage", '<strong>' + escapeHtml(formatCount(coverage.overdue)) +
+      '</strong><span>farmers overdue for a visit</span><p>' + escapeHtml(formatCount(coverage.never_visited)) +
+      ' never visited · ' + escapeHtml(formatCount(coverage.recent)) + ' reached in 14 days</p>');
     renderWorkerActivity();
-    if (currentRuntime) {
-      renderOperationsBoard(currentRuntime);
-    }
   }
 
   function loadProgramme() {
@@ -482,28 +423,19 @@
   function renderPortfolioUnavailable() {
     currentPortfolio = null;
     if (currentRuntime) {
-      renderCards(currentRuntime);
       renderDailyDirection();
-      renderOperationsBoard(currentRuntime);
     }
     element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
-    setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
   }
 
   function renderRiskLedger(portfolio) {
     var ledger = listedItems(portfolio.risk_action_ledger);
-    var allocation = activeAllocation();
-    if (allocation) {
-      ledger = ledger.filter(function (item) { return item.allocation_id === allocation.id; });
-    }
     if (!ledger.length) {
-      setHtml("portfolio-ledger", '<p class="empty-state">' + (allocation ?
-        'No risk or action is linked to this crop allocation.' :
-        'No portfolio risks currently need action.') + '</p>');
+      setHtml("portfolio-ledger", '<p class="empty-state">No decision needs attention right now.</p>');
       return;
     }
-    setHtml("portfolio-ledger", ledger.slice(0, 6).map(function (item) {
+    setHtml("portfolio-ledger", ledger.slice(0, 1).map(function (item) {
       var severity = safeSeverity(item.severity);
       return '<article class="portfolio-item">' +
         '<h4>' + escapeHtml(item.title) + '</h4>' +
@@ -697,12 +629,9 @@
     }
     currentPortfolio = portfolio;
     if (currentRuntime) {
-      renderCards(currentRuntime);
       renderDailyDirection();
-      renderOperationsBoard(currentRuntime);
     }
     renderRiskLedger(portfolio);
-    renderLearning(portfolio);
     element("portfolio-status").textContent = "Actions updated just now.";
   }
 
@@ -953,49 +882,24 @@
 
   function renderAllocationCards(runtime) {
     var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
-    var focused = activeAllocation(runtime);
     if (!allocations.length) {
       element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
       setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
       return;
     }
     element("allocation-summary").textContent = allocations.length === 1 ?
-      "One active crop allocation is in focus. Its stage, work, and field record stay separate from public context." :
-      "Choose one active crop allocation. The focused card drives the field pulse and linked actions.";
+      "One verified field is recorded." : "Verified fields and active crops.";
     setHtml("allocation-list", allocations.map(function (allocation) {
-      var snapshot = allocationSnapshot(allocation, runtime);
-      var focusedCard = focused && focused.id === allocation.id;
-      var needs = snapshot.missing.length ? '<p class="allocation-gap"><strong>Needs:</strong> ' +
-        escapeHtml(snapshot.missing.join(" · ")) + '</p>' : '';
-      return '<button class="allocation-card' + (focusedCard ? ' is-focused' : '') + '" type="button" data-allocation-id="' +
-        escapeHtml(allocation.id) + '" aria-pressed="' + String(Boolean(focusedCard)) + '">' +
+      return '<article class="allocation-card">' +
         '<div class="allocation-card-heading"><h3>' + escapeHtml(allocation.operational_block_name || "Field") + '</h3>' +
-        '<span class="status">' + (focusedCard ? 'in focus' : 'active') + '</span></div>' +
+        '<span class="status">verified record</span></div>' +
         '<p class="allocation-crop">' + escapeHtml(allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "")) + '</p>' +
-        '<dl class="allocation-facts">' +
-        allocationFact("Stage", snapshot.stage, snapshot.stageMissing) +
-        allocationFact("Next work", snapshot.nextWork, snapshot.workMissing) +
-        allocationFact("Owner", snapshot.owner, snapshot.ownerMissing) +
-        allocationFact("Evidence / record", snapshot.fieldRecord, snapshot.fieldRecordMissing) +
-        '</dl>' + needs + '<span class="allocation-card-action">' +
-        (focusedCard ? 'In focus' : 'Bring into focus') + '</span></button>';
+        '</article>';
     }).join(""));
   }
 
   function renderCards(runtime) {
-    var workItems = runtime.work_items || [];
-    var activeWork = workItems.filter(function (item) {
-      return item.status === "planned" || item.status === "in_progress";
-    });
-    var submitted = workItems.filter(function (item) {
-      return item.status === "submitted";
-    });
-
     renderAllocationCards(runtime);
-    element("active-work-count").textContent = activeWork.length;
-    setHtml("active-work-summary", "<span>" + activeWork.filter(isOverdue).length + " overdue</span>");
-    element("submitted-work-count").textContent = submitted.length;
-    setHtml("submitted-work-summary", "<span>Requires manager review</span>");
   }
 
   function personFor(personId) {
@@ -1111,10 +1015,6 @@
     element("field-crop").textContent = "Fortune paddy network";
     element("field-title").textContent = title;
     element("field-note").textContent = note;
-    element("field-stage").textContent = officerActivity;
-    element("field-next-work").textContent = visitGap;
-    element("field-owner").textContent = nextMove;
-    element("field-update").textContent = confidence;
     element("field-status").textContent = status;
     element("field-status").className = status === "attention" ? "severity severity-high" : "status";
     var labels = {
@@ -1391,19 +1291,10 @@
 
   function renderRuntime(runtime) {
     currentRuntime = runtime;
-    element("today-heading").textContent = t("today");
     currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderPageIntro();
     renderCards(runtime);
-    renderPeople(runtime);
     renderDailyDirection();
-    renderOperationsBoard(runtime);
-    renderWork(runtime);
-    renderActionAllocationContext(runtime);
-    renderInboxWork(runtime);
-    renderTodayFallback(runtime);
-    loadMorningBrief(runtime);
-    loadAllocationCalendars(runtime);
   }
 
   function renderRuntimeUnavailable() {
@@ -1415,27 +1306,11 @@
     element("field-crop").textContent = "Farm setup";
     element("field-title").textContent = "First field";
     element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
-    element("field-stage").textContent = "No stage plan";
-    element("field-next-work").textContent = "No open work planned";
-    element("field-owner").textContent = "No work owner set";
-    element("field-update").textContent = "No field update recorded";
     element("field-status").textContent = "set up";
     element("field-status").className = "status";
     setFocusAction("Prepare first farm", "setup", null);
-    element("today-count").textContent = "0";
-    element("today-summary").textContent = "Reading the first-farm checklist…";
     element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
     setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
-    setHtml("farmer-list", '<p class="empty-state">No reviewed farmer record is available yet.</p>');
-    setHtml("worker-list", '<p class="empty-state">No reviewed field worker record is available yet.</p>');
-    setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
-    element("work-context").textContent = "No active crop allocation";
-    element("actions-allocation-context").hidden = true;
-    setHtml("inbox-work-list", '<p class="empty-state">No open reviewed work is recorded.</p>');
-    element("inbox-clear-filter").hidden = true;
-    setHtml("today-list", '<p class="empty-state">Reading the first-farm checklist…</p>');
-    renderOperationsBoard(null);
-    loadPilotReadiness();
   }
 
   function renderAudit(detail) {
@@ -1730,72 +1605,11 @@
       .then(renderPortfolio)
       .catch(renderPortfolioUnavailable);
 
-    fetch(dataLanesUrl)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load data-lane readiness.");
-        }
-        return response.json();
-      })
-      .then(renderDataLanes)
-      .catch(renderDataLanesUnavailable);
-
-    fetch(operatingProfileUrl)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load operating profile.");
-        }
-        return response.json();
-      })
-      .then(renderOperatingProfile)
-      .catch(renderOperatingProfileUnavailable);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
-  });
-  element("operations-board").addEventListener("click", function (event) {
-    var piece = event.target.closest("[data-board-view]");
-    if (!piece) {
-      return;
-    }
-    var view = piece.getAttribute("data-board-view");
-    showView(view);
-    var target = view === "farmers" ? element("farmer-coverage-heading") :
-      (view === "workers" ? element("worker-activity-heading") :
-        (view === "inbox" ? element("inbox-work-heading") : element("allocations-heading")));
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  });
-  element("allocation-list").addEventListener("click", function (event) {
-    var allocationCard = event.target.closest("[data-allocation-id]");
-    if (allocationCard) {
-      selectAllocation(allocationCard.getAttribute("data-allocation-id"));
-    }
-  });
-  element("worker-list").addEventListener("click", function (event) {
-    var workerAction = event.target.closest("[data-inbox-owner]");
-    if (!workerAction) {
-      return;
-    }
-    inboxOwnerId = workerAction.getAttribute("data-inbox-owner");
-    showView("inbox");
-    if (currentRuntime) {
-      renderInboxWork(currentRuntime);
-    }
-    element("inbox-work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-  element("inbox-clear-filter").addEventListener("click", function () {
-    inboxOwnerId = null;
-    if (currentRuntime) {
-      renderInboxWork(currentRuntime);
-    }
-  });
-  element("open-focused-field").addEventListener("click", function () {
-    showView("farms");
-    element("allocations-heading").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   element("close-setup").addEventListener("click", function () {
     element("setup-dialog").close();
@@ -1812,13 +1626,6 @@
   element("setup-file").addEventListener("change", function (event) {
     recognizeCsvFile(event.target.files && event.target.files[0]);
   });
-  element("close-action").addEventListener("click", function () {
-    element("action-dialog").close();
-  });
-  element("action-dialog").addEventListener("cancel", function () {
-    pendingAction = null;
-  });
-  element("action-go").addEventListener("click", followActionDetail);
   element("language-toggle").addEventListener("click", function () {
     setLocale(interfaceLocale === "en" ? "hi" : "en");
   });
@@ -1845,13 +1652,8 @@
       return;
     }
     showView(focusTargetView);
-    if (focusExceptionId) {
-      loadException(focusExceptionId);
-      element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
     if (focusTargetView === "farms") {
-      element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      element("allocations-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (focusTargetView === "farmers") {
@@ -1863,22 +1665,11 @@
       return;
     }
     if (focusTargetView === "inbox") {
-      element("inbox-work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      element("ledger-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (focusTargetView === "settings") {
       element("settings-heading").scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  });
-  element("today-list").addEventListener("click", function (event) {
-    var firstFarm = event.target.closest("[data-first-farm]");
-    if (firstFarm) {
-      openSetupDialog();
-      return;
-    }
-    var button = event.target.closest("[data-today-index]");
-    if (button) {
-      openActionDetail(currentAttention[Number(button.getAttribute("data-today-index"))]);
     }
   });
   applyLanguage();

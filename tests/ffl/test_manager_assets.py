@@ -13,21 +13,16 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "Field workers" in index_html
     assert "Inbox" in index_html
     assert "Settings" in index_html
-    assert "Daily direction" in index_html
+    assert "One move" in index_html
     assert "Officer activity, visit gaps, and field signals determine the first move." in index_html
-    assert "Operations board" in index_html
-    assert "Not a performance score. Each card says whether a record, coverage gap, owner, or decision needs attention." in index_html
-    assert 'id="operations-board"' in index_html
-    assert "Farms are ground truth." in index_html
-    assert "Fields and active crops" in index_html
+    assert "Operations board" not in index_html
+    assert 'id="operations-board"' not in index_html
+    assert "Verified fields" in index_html
     assert 'id="allocations-heading"' in index_html
     assert index_html.count('id="allocation-list"') == 1
-    assert "Data confidence" in index_html
-    assert 'id="actions-allocation-context"' in index_html
-    assert 'id="open-focused-field"' in index_html
+    assert 'id="actions-allocation-context"' not in index_html
+    assert 'id="open-focused-field"' not in index_html
     assert "Reading today’s network." in index_html
-    assert "Open work" in index_html
-    assert "Awaiting review" in index_html
     assert index_html.count('<button id="tab-') == 6
     assert 'data-view="home"' in index_html
     assert 'data-view="farms"' in index_html
@@ -40,38 +35,27 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert 'data-view="map"' not in index_html
     assert 'data-view="actions"' not in index_html
     assert 'id="farmer-coverage"' in index_html
-    assert 'id="farmer-observations"' in index_html
-    assert 'id="farmer-inputs"' in index_html
-    assert 'id="farmer-freshness"' in index_html
-    assert 'id="farmer-list"' in index_html
+    assert 'id="farmer-observations"' not in index_html
+    assert 'id="farmer-inputs"' not in index_html
+    assert 'id="farmer-freshness"' not in index_html
+    assert 'id="farmer-list"' not in index_html
     assert 'id="worker-activity"' in index_html
-    assert 'id="worker-list"' in index_html
-    assert 'id="inbox-work-list"' in index_html
+    assert 'id="worker-list"' not in index_html
+    assert 'id="inbox-work-list"' not in index_html
     assert "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision." in index_html
     assert "Tools" not in index_html
-    assert "Inbox is where work becomes owned." in index_html
-    assert "Data connections" in index_html
-    assert 'id="map-explorer"' in index_html
-    assert "How a farm earns map detail" in index_html
-    assert "A village name never becomes a field pin." in index_html
-    assert "Public coverage only" in index_html
+    assert "Next decision" in index_html
+    assert "Manager access" in index_html
+    assert "Data connections" not in index_html
+    assert 'id="map-explorer"' not in index_html
     assert 'id="language-toggle"' in index_html
-    assert 'id="action-dialog"' in index_html
+    assert 'id="action-dialog"' not in index_html
     assert "The facts we need before we steer." not in index_html
     assert "Pilot foundation" not in index_html
     assert "/api/v1/runtime" in app_js
-    assert 'allocationCalendarUrl = "/api/v1/allocations/"' in app_js
-    assert '"/calendar"' in app_js
-    assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
-    assert "/api/v1/data-lanes" in app_js
-    assert "/api/v1/operating-profile" in app_js
     assert "/api/v1/trackolap/metrics" in app_js
     assert "/api/v1/trackolap/health" in app_js
-    assert "Open Settings to unlock Fortune farmer coverage context on this browser." in app_js
-    assert "review cue only; not an application recommendation or compliance verdict" in app_js
-    assert "Observation confidence is low. Fewer detections do not mean risk has fallen." in app_js
-    assert "/api/v1/pilot/readiness" in app_js
     assert "/api/v1/pilot/quick-start/validate" in app_js
     assert "/api/v1/pilot/setup/accept" not in app_js
     assert "FFL_PILOT_SETUP_APPROVAL_TOKEN" not in app_js
@@ -86,7 +70,6 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert 'id="setup-file"' in index_html
     assert "/assets/first-field-manifest.csv" in index_html
     assert "Check this field" in index_html
-    assert "renderPilotReadiness" in app_js
     assert "buildQuickSetup" in app_js
     assert "locationHint" in app_js
     assert "Add a village or six-digit PIN." in app_js
@@ -97,74 +80,20 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "Farm / plot list recognized." in app_js
     assert "buildSetupProposal" not in app_js
     assert "renderPreparedSetup" not in app_js
-    assert "Operating right" not in index_html
-    assert "Right starts" not in index_html
-    assert "First work" not in index_html
-    assert "Risk &amp; action" in index_html
-    assert "Five data lanes" in index_html
-    assert "What is usable now, what is missing, and the next safe move." in index_html
-    assert "Trials &amp; playbooks" in index_html
-    assert "Field truth" in app_js
-    assert "India Meteorological Department (IMD)" in app_js
-    assert "Reviewed lab report + field measurement" in app_js
-    assert "Copernicus Sentinel-2" in app_js
-    assert "AGMARKNET / data.gov.in" in app_js
-    assert "renderDataLanes" in app_js
-    assert "fetch(dataLanesUrl)" in app_js
     assert "Actions are unavailable. Home is still usable." in app_js
     assert "fetch(runtimeUrl)" in app_js
     assert "fetch(portfolioUrl)" in app_js
     assert ".catch(renderPortfolioUnavailable)" in app_js
-    assert "ledger.slice(0, 6)" in app_js
-    assert "Public context never replaces field evidence." in app_js
+    assert "ledger.slice(0, 1)" in app_js
     assert "renderDailyDirection" in app_js
     assert "active_officers_without_filed_visit" in app_js
-    assert "officers filed no visit today." in app_js
-    assert "renderOperationsBoard" in app_js
-    assert "Farmer coverage stays private until manager access is unlocked." in app_js
-    assert "data-board-view" in app_js
+    assert "active officers filed no visit" in app_js
     assert "renderAllocationCards" in app_js
-    assert "allocationSnapshot" in app_js
-    assert "loadAllocationCalendars" in app_js
-    assert "selectAllocation" in app_js
-    assert "renderActionAllocationContext" in app_js
-    assert "Evidence attached" in app_js
-    assert "evidence detail unavailable" in app_js
-    assert "No risk or action is linked to this crop allocation." in app_js
-    assert "latest_field_update" in app_js
-    assert "renderTodayFallback" in app_js
-    assert "renderToday(attention)" in app_js
-    assert "Nothing needs a look right now." in app_js
-    assert "Field ask" in app_js
-    assert "field_information_request" in app_js
-    assert "field proof required" in app_js
-    assert "The linked work stays open until a human closes it." in app_js
-    assert "District context only. Check it against the field." in app_js
-    assert "operational_block_name" in app_js
     assert "renderRuntimeUnavailable" in app_js
     assert "showView" in app_js
     assert "moveTab" in app_js
-    assert "renderPeople" in app_js
-    assert "isFarmer" in app_js
-    assert "isFieldWorker" in app_js
     assert "renderWorkerActivity" in app_js
-    assert "renderInboxWork" in app_js
-    assert "data-inbox-owner" in app_js
-    assert "person_operating_relationships" in app_js
-    assert "Field relationship setup is pending." in app_js
-    assert "/morning-brief" in app_js
-    assert "loadMorningBrief" in app_js
-    assert "focusExceptionId" in app_js
-    assert 'element("audit").scrollIntoView' in app_js
-    assert "renderOperatingProfile" in app_js
-    assert "renderMapExplorer" in app_js
-    assert 'showView("farms")' in app_js
-    assert "map_embed_url" in app_js
-    assert "currentAttention" in app_js
-    assert "openActionDetail" in app_js
-    assert "data-first-farm" in app_js
     assert "ffl.manager.interface-locale" in app_js
-    assert "Farm records remain exactly as entered." in index_html
     assert "private_storage_uri" not in app_js
     assert "evidence_artifact_id" not in app_js
     assert "content_base64" not in app_js
