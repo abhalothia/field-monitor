@@ -52,8 +52,10 @@
             <p id="field-crop" class="field-crop">Current crop</p>
             <p id="field-note" class="field-note">The latest field update will appear here.</p>
             <dl class="pulse-facts">
-              <div><dt data-i18n="lastUpdate">Last update</dt><dd id="field-update">—</dd></div>
-              <div><dt data-i18n="from">From</dt><dd id="field-reporter">—</dd></div>
+              <div><dt>Stage</dt><dd id="field-stage">—</dd></div>
+              <div><dt>Next work</dt><dd id="field-next-work">—</dd></div>
+              <div><dt>Owner</dt><dd id="field-owner">—</dd></div>
+              <div><dt>Evidence / record</dt><dd id="field-update">—</dd></div>
             </dl>
             <button id="review-focus" class="pulse-action" type="button">
               <span id="focus-action-label" data-i18n="openFieldWork">Open field work</span>
@@ -92,13 +94,24 @@
       </section>
 
       <section id="panel-fields" class="command-view" role="tabpanel" aria-labelledby="tab-fields" hidden>
+        <section class="command-card allocations-card" aria-labelledby="allocations-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow" data-i18n="currentFields">Current fields</p>
+              <h2 id="allocations-heading">Crop allocations</h2>
+            </div>
+          </div>
+          <p id="allocation-summary" class="allocation-summary">Choose one active crop to bring its work and field record into focus.</p>
+          <div id="allocation-list" class="allocation-list" aria-label="Active crop allocations"></div>
+        </section>
         <div class="command-grid two-column">
           <section class="command-card" aria-labelledby="work-heading">
             <div class="card-heading">
-              <p class="eyebrow" data-i18n="currentFields">Current fields</p>
-              <h2 id="work-heading" data-i18n="work">Work</h2>
+              <div>
+                <p id="work-context" class="eyebrow">In focus</p>
+                <h2 id="work-heading" data-i18n="work">Work</h2>
+              </div>
             </div>
-            <div id="allocation-list" class="allocation-list" aria-label="Active fields and crop allocations"></div>
             <div id="work-list" class="item-list work-list" aria-live="polite"></div>
           </section>
 
@@ -161,6 +174,14 @@
 
       <section id="panel-actions" class="command-view" role="tabpanel" aria-labelledby="tab-actions" hidden>
         <p id="portfolio-status" class="visually-hidden" aria-live="polite">Loading actions…</p>
+        <section id="actions-allocation-context" class="allocation-context" aria-labelledby="actions-allocation-name" hidden>
+          <div>
+            <p class="eyebrow">In focus</p>
+            <h2 id="actions-allocation-name">Current crop allocation</h2>
+            <p id="actions-allocation-note">Field action is shown only when it is linked to this crop allocation.</p>
+          </div>
+          <button id="open-focused-field" class="detail-button" type="button">Open crop record</button>
+        </section>
         <div class="command-grid two-column">
           <section class="command-card" aria-labelledby="ledger-heading">
             <div class="card-heading">

@@ -3,11 +3,16 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
+  var allocationCalendarUrl = "/api/v1/allocations/";
   var dataLanesUrl = "/api/v1/data-lanes";
   var operatingProfileUrl = "/api/v1/operating-profile";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
   var quickStartValidationUrl = "/api/v1/pilot/quick-start/validate";
   var currentRuntime = null;
+  var currentPortfolio = null;
+  var allocationCalendars = {};
+  var focusedAllocationId = null;
+  var allocationCalendarRequest = 0;
   var currentAttention = [];
   var pendingAction = null;
   var focusExceptionId = null;
@@ -153,6 +158,11 @@
   }
 
   function renderPortfolioUnavailable() {
+    currentPortfolio = null;
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderFieldPulse(currentRuntime);
+    }
     element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
     setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Trial and playbook context is unavailable right now.</p>');
@@ -160,8 +170,14 @@
 
   function renderRiskLedger(portfolio) {
     var ledger = listedItems(portfolio.risk_action_ledger);
+    var allocation = activeAllocation();
+    if (allocation) {
+      ledger = ledger.filter(function (item) { return item.allocation_id === allocation.id; });
+    }
     if (!ledger.length) {
-      setHtml("portfolio-ledger", '<p class="empty-state">No portfolio risks currently need action.</p>');
+      setHtml("portfolio-ledger", '<p class="empty-state">' + (allocation ?
+        'No risk or action is linked to this crop allocation.' :
+        'No portfolio risks currently need action.') + '</p>');
       return;
     }
     setHtml("portfolio-ledger", ledger.slice(0, 6).map(function (item) {
@@ -348,6 +364,11 @@
       renderPortfolioUnavailable();
       return;
     }
+    currentPortfolio = portfolio;
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderFieldPulse(currentRuntime);
+    }
     renderRiskLedger(portfolio);
     renderLearning(portfolio);
     element("portfolio-status").textContent = "Actions updated just now.";
@@ -393,8 +414,163 @@
       });
   }
 
+  function allocationLabel(allocation) {
+    if (!allocation) {
+      return "No active crop allocation";
+    }
+    return (allocation.operational_block_name || "Field") + " · " + allocation.crop_name +
+      (allocation.cultivar ? " · " + allocation.cultivar : "");
+  }
+
+  function activeAllocation(runtime) {
+    var source = runtime || currentRuntime || {};
+    var allocations = Array.isArray(source.allocations) ? source.allocations : [];
+    var focused = allocations.filter(function (allocation) { return allocation.id === focusedAllocationId; })[0] || null;
+    if (!focused && allocations.length) {
+      focused = allocations[0];
+      focusedAllocationId = focused.id;
+    }
+    if (!allocations.length) {
+      focusedAllocationId = null;
+    }
+    return focused;
+  }
+
+  function allocationCalendarFor(allocationId) {
+    var record = allocationCalendars[allocationId];
+    return record && record.state === "ready" ? record.data : null;
+  }
+
+  function scheduleValue(value) {
+    var parsed = new Date(value || "");
+    return isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
+  }
+
+  function nextOpenWork(allocationId, runtime) {
+    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    return workItems.filter(function (item) {
+      return item.allocation_id === allocationId && isOpenWork(item);
+    }).sort(function (left, right) {
+      return scheduleValue(left.due_at) - scheduleValue(right.due_at);
+    })[0] || null;
+  }
+
+  function latestUpdateForAllocation(allocation, runtime) {
+    var update = latestFieldUpdate(runtime);
+    if (!update || !allocation) {
+      return null;
+    }
+    var matchingAllocations = (runtime.allocations || []).filter(function (candidate) {
+      return candidate.operational_block_name === update.operational_block_name && candidate.crop_name === update.crop_name;
+    });
+    return matchingAllocations.length === 1 && matchingAllocations[0].id === allocation.id ? update : null;
+  }
+
+  function reviewableEvidenceForAllocation(allocationId) {
+    var signals = currentPortfolio && currentPortfolio.field_signals && currentPortfolio.field_signals.open;
+    var items = signals && Array.isArray(signals.items) ? signals.items : [];
+    return items.filter(function (item) {
+      return item.allocation_id === allocationId;
+    }).sort(function (left, right) {
+      return scheduleValue(right.received_at || right.observed_at) - scheduleValue(left.received_at || left.observed_at);
+    })[0] || null;
+  }
+
+  function allocationSnapshot(allocation, runtime) {
+    var calendarRecord = allocationCalendars[allocation.id];
+    var calendar = allocationCalendarFor(allocation.id);
+    var work = nextOpenWork(allocation.id, runtime);
+    var update = latestUpdateForAllocation(allocation, runtime);
+    var reviewableEvidence = reviewableEvidenceForAllocation(allocation.id);
+    var missing = [];
+    var stage;
+    var stageMissing = false;
+    var stageGap = null;
+
+    if (calendarRecord && calendarRecord.state === "loading") {
+      stage = "Loading stage plan…";
+    } else if (!calendar) {
+      stage = "Stage plan unavailable";
+      stageMissing = true;
+      stageGap = "stage plan";
+    } else if (calendar.current_stage) {
+      stage = "Confirmed: " + calendar.current_stage.stage_name;
+    } else if (calendar.next_checkpoint) {
+      stage = "Next check: " + calendar.next_checkpoint.stage_name + " · " + formatTime(calendar.next_checkpoint.planned_for);
+      stageMissing = true;
+      stageGap = "stage confirmation";
+    } else {
+      stage = "No stage check planned";
+      stageMissing = true;
+      stageGap = "stage check";
+    }
+    if (stageGap) {
+      missing.push(stageGap);
+    }
+
+    if (!work) {
+      missing.push("next work");
+    }
+    if (!update) {
+      missing.push("field record");
+    }
+    if (reviewableEvidence && reviewableEvidence.evidence_attached === false) {
+      missing.push("retained evidence");
+    }
+    return {
+      stage: stage,
+      stageMissing: stageMissing,
+      nextWork: work ? work.title + " · " + formatTime(work.due_at) : "No open work planned",
+      workMissing: !work,
+      owner: work ? personName(work.owner_id) : "No work owner set",
+      ownerMissing: !work || personName(work.owner_id) === "Unassigned",
+      fieldRecord: reviewableEvidence ?
+        (reviewableEvidence.evidence_attached ? "Evidence attached · observed " + formatTime(reviewableEvidence.observed_at) :
+          "Field signal has no attached evidence") :
+        (update ? "Field record observed " + formatTime(update.observed_at) + " · evidence detail unavailable" :
+          "No field update recorded"),
+      fieldRecordMissing: !update || Boolean(reviewableEvidence && reviewableEvidence.evidence_attached === false),
+      missing: missing
+    };
+  }
+
+  function allocationFact(label, value, missing) {
+    return '<div><dt>' + escapeHtml(label) + '</dt><dd' + (missing ? ' class="is-missing"' : '') + '>' +
+      escapeHtml(value) + '</dd></div>';
+  }
+
+  function renderAllocationCards(runtime) {
+    var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
+    var focused = activeAllocation(runtime);
+    if (!allocations.length) {
+      element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
+      setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
+      return;
+    }
+    element("allocation-summary").textContent = allocations.length === 1 ?
+      "One active crop allocation is in focus. Its stage, work, and field record stay separate from public context." :
+      "Choose one active crop allocation. The focused card drives the field pulse and linked actions.";
+    setHtml("allocation-list", allocations.map(function (allocation) {
+      var snapshot = allocationSnapshot(allocation, runtime);
+      var focusedCard = focused && focused.id === allocation.id;
+      var needs = snapshot.missing.length ? '<p class="allocation-gap"><strong>Needs:</strong> ' +
+        escapeHtml(snapshot.missing.join(" · ")) + '</p>' : '';
+      return '<button class="allocation-card' + (focusedCard ? ' is-focused' : '') + '" type="button" data-allocation-id="' +
+        escapeHtml(allocation.id) + '" aria-pressed="' + String(Boolean(focusedCard)) + '">' +
+        '<div class="allocation-card-heading"><h3>' + escapeHtml(allocation.operational_block_name || "Field") + '</h3>' +
+        '<span class="status">' + (focusedCard ? 'in focus' : 'active') + '</span></div>' +
+        '<p class="allocation-crop">' + escapeHtml(allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "")) + '</p>' +
+        '<dl class="allocation-facts">' +
+        allocationFact("Stage", snapshot.stage, snapshot.stageMissing) +
+        allocationFact("Next work", snapshot.nextWork, snapshot.workMissing) +
+        allocationFact("Owner", snapshot.owner, snapshot.ownerMissing) +
+        allocationFact("Evidence / record", snapshot.fieldRecord, snapshot.fieldRecordMissing) +
+        '</dl>' + needs + '<span class="allocation-card-action">' +
+        (focusedCard ? 'In focus' : 'Bring into focus') + '</span></button>';
+    }).join(""));
+  }
+
   function renderCards(runtime) {
-    var allocations = runtime.allocations || [];
     var workItems = runtime.work_items || [];
     var activeWork = workItems.filter(function (item) {
       return item.status === "planned" || item.status === "in_progress";
@@ -403,10 +579,7 @@
       return item.status === "submitted";
     });
 
-    setHtml("allocation-list", allocations.length ? allocations.map(function (allocation) {
-      return "<span>" + escapeHtml(allocation.operational_block_name || "Field") + " · " + escapeHtml(allocation.crop_name) +
-        (allocation.cultivar ? " · " + escapeHtml(allocation.cultivar) : "") + "</span>";
-    }).join("") : "<span>No active allocation.</span>");
+    renderAllocationCards(runtime);
     element("active-work-count").textContent = activeWork.length;
     setHtml("active-work-summary", "<span>" + activeWork.filter(isOverdue).length + " overdue</span>");
     element("submitted-work-count").textContent = submitted.length;
@@ -475,16 +648,19 @@
   }
 
   function renderFieldPulse(runtime) {
-    var allocations = runtime.allocations || [];
-    var exceptions = (runtime.exceptions || []).filter(isOpenException);
+    var allocation = activeAllocation(runtime);
+    var exceptions = (runtime.exceptions || []).filter(function (item) {
+      return isOpenException(item) && allocation && item.allocation_id === allocation.id;
+    });
     var focus = exceptions[0] || null;
-    var allocation = allocations[0] || null;
-    var update = latestFieldUpdate(runtime);
+    var snapshot = allocation ? allocationSnapshot(allocation, runtime) : null;
     var crop = allocation ? allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "") : "No active crop";
 
     element("field-crop").textContent = crop;
-    element("field-update").textContent = update ? formatTime(update.observed_at) : "No field update recorded.";
-    element("field-reporter").textContent = update ? update.submitted_by : "—";
+    element("field-stage").textContent = snapshot ? snapshot.stage : "No stage plan";
+    element("field-next-work").textContent = snapshot ? snapshot.nextWork : "No open work planned";
+    element("field-owner").textContent = snapshot ? snapshot.owner : "No work owner set";
+    element("field-update").textContent = snapshot ? snapshot.fieldRecord : "No field update recorded";
     if (focus) {
       element("field-title").textContent = fieldNameFor(focus.allocation_id);
       element("field-note").textContent = focus.title;
@@ -494,9 +670,11 @@
       return;
     }
     element("field-title").textContent = allocation ? (allocation.operational_block_name || "Field") : "First field";
-    element("field-note").textContent = update ? "Latest update is recorded." :
-      (allocation ? "Waiting for the first field update." : "Add the first crop allocation to begin.");
-    element("field-status").textContent = update ? readable(update.status) : "waiting";
+    element("field-note").textContent = allocation ?
+      (snapshot.fieldRecordMissing ? "A first field record is needed before this crop can be read with confidence." :
+        "The latest field record is visible here; review it before changing work.") :
+      "Add the first crop allocation to begin.";
+    element("field-status").textContent = allocation && !snapshot.fieldRecordMissing ? "recorded" : "needs record";
     element("field-status").className = "status";
     setFocusAction("Open field work", "fields", null);
   }
@@ -597,10 +775,17 @@
       });
   }
 
-  function renderWork(workItems) {
-    var openWork = workItems.filter(isOpenWork);
+  function renderWork(runtime) {
+    var allocation = activeAllocation(runtime);
+    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    var openWork = allocation ? workItems.filter(function (item) {
+      return item.allocation_id === allocation.id && isOpenWork(item);
+    }) : [];
+    element("work-context").textContent = allocation ? allocationLabel(allocation) : "No active crop allocation";
     if (!openWork.length) {
-      setHtml("work-list", '<p class="empty-state">No open work requires attention.</p>');
+      setHtml("work-list", '<p class="empty-state">' + (allocation ?
+        'No open work is linked to this crop allocation.' :
+        'No farm work is shown until an active allocation exists.') + '</p>');
       return;
     }
     setHtml("work-list", openWork.map(function (item) {
@@ -616,6 +801,73 @@
     }).join(""));
   }
 
+  function renderActionAllocationContext(runtime) {
+    var allocation = activeAllocation(runtime);
+    var context = element("actions-allocation-context");
+    if (!allocation) {
+      context.hidden = true;
+      return;
+    }
+    context.hidden = false;
+    element("actions-allocation-name").textContent = allocationLabel(allocation);
+    element("actions-allocation-note").textContent =
+      "Only risks and actions explicitly linked to this crop allocation are shown below. Operating-wide context stays in Home.";
+  }
+
+  function refreshFocusedAllocationExperience() {
+    if (!currentRuntime) {
+      return;
+    }
+    renderCards(currentRuntime);
+    renderFieldPulse(currentRuntime);
+    renderWork(currentRuntime);
+    renderActionAllocationContext(currentRuntime);
+    if (currentPortfolio) {
+      renderRiskLedger(currentPortfolio);
+    }
+  }
+
+  function loadAllocationCalendars(runtime) {
+    var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
+    var requestId = allocationCalendarRequest + 1;
+    allocationCalendarRequest = requestId;
+    allocationCalendars = {};
+    allocations.forEach(function (allocation) {
+      allocationCalendars[allocation.id] = { state: "loading" };
+    });
+    refreshFocusedAllocationExperience();
+    if (!allocations.length) {
+      return;
+    }
+    Promise.all(allocations.map(function (allocation) {
+      return fetch(allocationCalendarUrl + encodeURIComponent(allocation.id) + "/calendar")
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("Unable to load allocation calendar.");
+          }
+          return response.json();
+        })
+        .then(function (calendar) {
+          allocationCalendars[allocation.id] = { state: "ready", data: calendar };
+        })
+        .catch(function () {
+          allocationCalendars[allocation.id] = { state: "unavailable" };
+        });
+    })).then(function () {
+      if (requestId === allocationCalendarRequest && currentRuntime === runtime) {
+        refreshFocusedAllocationExperience();
+      }
+    });
+  }
+
+  function selectAllocation(allocationId) {
+    if (!currentRuntime || !allocationFor(allocationId)) {
+      return;
+    }
+    focusedAllocationId = allocationId;
+    refreshFocusedAllocationExperience();
+  }
+
   function renderRuntime(runtime) {
     currentRuntime = runtime;
     element("today-heading").textContent = t("today");
@@ -623,26 +875,36 @@
     renderCards(runtime);
     renderPeople(runtime);
     renderFieldPulse(runtime);
-    renderWork(runtime.work_items || []);
+    renderWork(runtime);
+    renderActionAllocationContext(runtime);
     renderTodayFallback(runtime);
     loadMorningBrief(runtime);
+    loadAllocationCalendars(runtime);
   }
 
   function renderRuntimeUnavailable() {
+    currentRuntime = null;
+    focusedAllocationId = null;
+    allocationCalendars = {};
     element("operating-unit").textContent = "No farm has been set up yet.";
     element("field-crop").textContent = "Farm setup";
     element("field-title").textContent = "First field";
     element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
-    element("field-update").textContent = "No field update recorded.";
-    element("field-reporter").textContent = "—";
+    element("field-stage").textContent = "No stage plan";
+    element("field-next-work").textContent = "No open work planned";
+    element("field-owner").textContent = "No work owner set";
+    element("field-update").textContent = "No field update recorded";
     element("field-status").textContent = "set up";
     element("field-status").className = "status";
     setFocusAction("Prepare first farm", "setup", null);
     element("today-count").textContent = "0";
     element("today-summary").textContent = "Reading the first-farm checklist…";
-    setHtml("allocation-list", "<span>No active allocation.</span>");
+    element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
+    setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
     setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
     setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
+    element("work-context").textContent = "No active crop allocation";
+    element("actions-allocation-context").hidden = true;
     setHtml("today-list", '<p class="empty-state">Reading the first-farm checklist…</p>');
     loadPilotReadiness();
   }
@@ -954,6 +1216,16 @@
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
+  });
+  element("allocation-list").addEventListener("click", function (event) {
+    var allocationCard = event.target.closest("[data-allocation-id]");
+    if (allocationCard) {
+      selectAllocation(allocationCard.getAttribute("data-allocation-id"));
+    }
+  });
+  element("open-focused-field").addEventListener("click", function () {
+    showView("fields");
+    element("allocations-heading").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   element("close-setup").addEventListener("click", function () {
     element("setup-dialog").close();

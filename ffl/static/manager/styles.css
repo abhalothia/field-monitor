@@ -114,9 +114,21 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .today-footer { margin-top: 13px; color: #687568; font-size: .67rem; line-height: 1.4; }
 .today-footer p { margin: 0 0 4px; }
 
-.allocation-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; color: #264d3a; font-size: .78rem; font-weight: 800; }
-.allocation-list span { padding-right: 9px; border-right: 1px solid rgba(24, 57, 46, .26); }
-.allocation-list span:last-child { border-right: 0; }
+.allocations-card { margin-bottom: 16px; }
+.allocation-summary { max-width: 64ch; margin: -3px 0 17px; color: #596d5d; font-size: .78rem; line-height: 1.48; }
+.allocation-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+.allocation-card { position: relative; width: 100%; min-width: 0; border: 1px solid rgba(24, 57, 46, .22); background: rgba(255, 251, 241, .54); color: inherit; cursor: pointer; padding: 15px; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.allocation-card:hover, .allocation-card:focus-visible { border-color: #a67822; background: rgba(248, 239, 214, .84); transform: translateY(-1px); }
+.allocation-card.is-focused { border-color: #173f2c; background: rgba(221, 230, 204, .68); box-shadow: inset 3px 0 0 #173f2c; }
+.allocation-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.allocation-card h3 { color: #173b2e; font-family: Manrope, Arial, sans-serif; font-size: .92rem; font-weight: 800; line-height: 1.25; }
+.allocation-crop { margin: 5px 0 14px; color: #5e704f; font-family: "DM Mono", monospace; font-size: .59rem; letter-spacing: .055em; text-transform: uppercase; }
+.allocation-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 14px; margin: 0; }
+.allocation-facts dd { color: #294c3a; font-size: .72rem; }
+.allocation-facts .is-missing { color: #95613a; }
+.allocation-gap { margin: 13px 0 0; color: #77593b; font-size: .68rem; font-weight: 700; line-height: 1.4; }
+.allocation-gap strong { color: #6e482b; }
+.allocation-card-action { display: inline-block; margin-top: 13px; color: #1d4b37; font-size: .69rem; font-weight: 800; }
 .work-list { max-width: 560px; }
 .audit-list { display: grid; gap: 13px; margin: 15px 0 0; padding-left: 18px; }
 .audit-list li { padding-left: 4px; color: #315744; font-size: .78rem; line-height: 1.4; }
@@ -137,6 +149,10 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .portfolio-item p { margin: 4px 0 0; color: #617064; font-size: .72rem; line-height: 1.42; }
 .portfolio-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 7px; }
 .portfolio-meta .status { background: #e4e9d9; color: #55705d; }
+.allocation-context { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 16px; border-bottom: 1px solid rgba(24, 57, 46, .3); background: rgba(226, 233, 209, .5); padding: 19px 21px; }
+.allocation-context h2 { font-size: clamp(1.45rem, 2.3vw, 2rem); }
+.allocation-context p:last-child { max-width: 56ch; margin: 8px 0 0; color: #516655; font-size: .75rem; line-height: 1.45; }
+.allocation-context .detail-button { flex: 0 0 auto; }
 .portfolio-counts { display: grid; gap: 9px; margin: 0; }
 .portfolio-counts div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .portfolio-counts dt { font-family: Manrope, Arial, sans-serif; font-size: .7rem; letter-spacing: 0; text-transform: none; }
@@ -273,7 +289,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .map-steps { grid-template-columns: 1fr; gap: 18px; }
   .map-steps li, .map-steps li:nth-child(3) { border-top: 1px solid rgba(24, 57, 46, .2); border-left: 0; padding: 16px 0 0; }
   .map-steps li:first-child { border-top: 0; padding-top: 0; }
-  .pulse-facts { grid-template-columns: 1fr; gap: 10px; }
+  .pulse-facts, .allocation-facts { grid-template-columns: 1fr; gap: 10px; }
   .pulse-action { width: 100%; justify-content: center; }
   .today-card { min-height: 370px; padding: 20px 16px; }
   .command-card { padding: 20px; }
@@ -290,4 +306,5 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .setup-fields, .setup-fields-wide, .quick-setup-fields { grid-template-columns: 1fr; }
   .setup-footer { align-items: flex-start; flex-direction: column; gap: 15px; }
   .setup-submit { width: 100%; justify-content: center; }
+  .allocation-context { align-items: flex-start; flex-direction: column; }
 }

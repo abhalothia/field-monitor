@@ -9,6 +9,12 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "Today." in index_html
     assert "Open field work" in index_html
     assert "Field pulse" in index_html
+    assert "Crop allocations" in index_html
+    assert 'id="allocations-heading"' in index_html
+    assert index_html.count('id="allocation-list"') == 1
+    assert "Evidence / record" in index_html
+    assert 'id="actions-allocation-context"' in index_html
+    assert 'id="open-focused-field"' in index_html
     assert "Loading the field." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
@@ -33,6 +39,8 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "The facts we need before we steer." not in index_html
     assert "Pilot foundation" not in index_html
     assert "/api/v1/runtime" in app_js
+    assert 'allocationCalendarUrl = "/api/v1/allocations/"' in app_js
+    assert '"/calendar"' in app_js
     assert "/api/v1/exceptions/" in app_js
     assert "/api/v1/portfolio" in app_js
     assert "/api/v1/data-lanes" in app_js
@@ -77,6 +85,14 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "ledger.slice(0, 6)" in app_js
     assert "Public context never replaces field evidence." in app_js
     assert "renderFieldPulse" in app_js
+    assert "renderAllocationCards" in app_js
+    assert "allocationSnapshot" in app_js
+    assert "loadAllocationCalendars" in app_js
+    assert "selectAllocation" in app_js
+    assert "renderActionAllocationContext" in app_js
+    assert "Evidence attached" in app_js
+    assert "evidence detail unavailable" in app_js
+    assert "No risk or action is linked to this crop allocation." in app_js
     assert "latest_field_update" in app_js
     assert "renderTodayFallback" in app_js
     assert "renderToday(attention)" in app_js
@@ -89,7 +105,7 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "renderPeople" in app_js
     assert "/morning-brief" in app_js
     assert "loadMorningBrief" in app_js
-    assert "Latest update is recorded." in app_js
+    assert "The latest field record is visible here" in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "renderOperatingProfile" in app_js
