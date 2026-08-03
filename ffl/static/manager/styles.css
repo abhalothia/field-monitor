@@ -17,13 +17,12 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d1af35; outline-offs
 .command-tab.is-active { background: #173f2c; color: #fff8e9; box-shadow: 0 2px 5px rgba(15, 48, 34, .2); }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
 .load-status { min-height: 1em; margin: 0; color: #5e6c5d; font-size: .72rem; text-align: right; }
-.sample-state { border: 1px solid rgba(24, 57, 46, .24); border-radius: 999px; color: #5d704f; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .055em; padding: 6px 8px; text-transform: uppercase; white-space: nowrap; }
 .quiet-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(24, 57, 46, .48); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #18392e; cursor: pointer; font-size: .78rem; font-weight: 800; padding: 9px 12px; }
 .quiet-button:hover { background: #fff8e9; }
 .language-toggle { min-width: 38px; border: 1px solid rgba(24, 57, 46, .35); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #254c39; cursor: pointer; font-size: .7rem; font-weight: 800; padding: 9px 10px; }
 .language-toggle:hover { background: #fff8e9; }
 
-.command-intro { padding: 58px 0 28px; }
+.command-intro { padding: 20px 0 14px; }
 .eyebrow { margin: 0 0 8px; color: #65714d; font-family: "DM Mono", monospace; font-size: .64rem; font-weight: 500; letter-spacing: .115em; text-transform: uppercase; }
 h1, h2, h3, h4, p { margin-top: 0; }
 h1, h2, h3 { font-family: "DM Serif Display", Georgia, serif; font-weight: 400; }
@@ -374,12 +373,26 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .directory-view { margin-top: 16px; }
 .directory-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .directory-card { min-width: 0; border: 1px solid rgba(24, 57, 46, .22); background: rgba(255, 251, 241, .55); padding: 15px; }
+button.directory-card { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+button.directory-card:hover { border-color: rgba(24, 57, 46, .54); background: rgba(255, 251, 241, .82); transform: translateY(-2px); }
 .directory-card h3 { margin: 0; color: #173b2e; font-family: Manrope, Arial, sans-serif; font-size: .94rem; font-weight: 800; line-height: 1.3; }
 .directory-detail { margin: 0; color: #647462; font-size: .72rem; line-height: 1.4; }
+.directory-card-metric { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 11px; }
+.directory-card-metric strong { color: #173f2c; font-family: "DM Serif Display", Georgia, serif; font-size: 2rem; font-weight: 400; letter-spacing: -.04em; line-height: .9; }
+.directory-card-metric span { color: #5c714e; font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .055em; text-transform: uppercase; }
+.directory-characteristics { display: grid; gap: 5px; margin: 0; padding: 0; color: #59705d; font-size: .71rem; line-height: 1.4; list-style: none; }
+.directory-characteristics li { position: relative; padding-left: 10px; }
+.directory-characteristics li::before { position: absolute; left: 0; color: #9a7b2d; content: "•"; }
 .allocation-card .allocation-crop { margin: 8px 0 4px; }
-.person-card { min-height: 152px; }
+.person-card { min-height: 210px; }
 .person-card .person-role { margin: 7px 0 9px; }
-.person-card .person-assignment { min-height: 2.8em; margin: 0; }
+.person-card .person-assignment { min-height: 0; margin: 13px 0 0; }
+.record-dialog { width: min(470px, calc(100% - 32px)); border: 0; background: transparent; padding: 0; }
+.record-dialog::backdrop { background: rgba(12, 38, 29, .58); backdrop-filter: blur(3px); }
+.record-sheet { border: 1px solid rgba(24, 57, 46, .34); background: #f8f0df url("/assets/rice-paper.png"); background-size: 980px 652px; box-shadow: 0 24px 70px rgba(12, 36, 27, .35); }
+.record-dialog-body { padding: 22px 26px 26px; }
+.record-dialog-body .directory-card-metric { margin-top: 0; }
+.record-dialog-context { margin: 18px 0 0; color: #536a5a; font-size: .78rem; line-height: 1.5; }
 .person-card .person-work { margin-top: 17px; }
 .directory-table-wrap { overflow-x: auto; border: 1px solid rgba(24, 57, 46, .22); }
 .directory-table { width: 100%; min-width: 660px; border-collapse: collapse; text-align: left; }
@@ -428,7 +441,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .command-tabs { width: 100%; overflow-x: auto; scrollbar-width: none; }
   .command-tabs::-webkit-scrollbar { display: none; }
   .command-tab { flex: 0 0 auto; min-width: 64px; padding: 9px 10px; font-size: .65rem; }
-  .command-intro { padding: 42px 0 22px; }
+  .command-intro { padding: 18px 0 12px; }
   h1 { font-size: clamp(3.2rem, 17vw, 4.7rem); }
   .field-pulse { min-height: 360px; }
   .map-intro { padding: 42px 0 25px; }

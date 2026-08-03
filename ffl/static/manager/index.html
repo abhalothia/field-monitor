@@ -18,7 +18,7 @@
           <span id="wordmark-name">AGRO CEO</span>
         </a>
         <nav class="command-tabs" aria-label="Fortune COO views" role="tablist">
-          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Today</button>
+          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Home</button>
           <button id="tab-farms" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farms" data-view="farms" tabindex="-1" data-i18n="navFarms">Farms</button>
           <button id="tab-farmers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farmers" data-view="farmers" tabindex="-1" data-i18n="navFarmers">Farmers</button>
           <button id="tab-workers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-workers" data-view="workers" tabindex="-1" data-i18n="navWorkers">Field workers</button>
@@ -27,7 +27,6 @@
         </nav>
         <div class="header-actions">
           <p id="load-status" class="load-status" aria-live="polite"></p>
-          <span id="sample-state" class="sample-state" hidden>Sample view</span>
           <button id="language-toggle" class="language-toggle" type="button" aria-label="Switch interface language">हिं</button>
           <button id="refresh" class="quiet-button" type="button">
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
@@ -36,15 +35,14 @@
         </div>
       </header>
 
-      <section class="command-intro" aria-labelledby="page-title">
-        <h1 id="page-title" data-i18n="pageTitle">Today.</h1>
+      <section class="command-intro" aria-label="Current operation">
         <p id="operating-unit" class="subtle">Loading current field operations…</p>
       </section>
 
       <section id="panel-home" class="command-view is-active" role="tabpanel" aria-labelledby="tab-home">
         <section class="today-command" aria-labelledby="field-title">
           <header class="today-heading-block">
-            <div class="today-kicker"><p class="eyebrow">Fortune paddy · <span id="today-date">Loading date…</span></p><span id="field-status" class="status">loading</span></div>
+            <div class="today-kicker"><p class="eyebrow"><span data-i18n="fortunePaddy">Fortune paddy</span> · <span id="today-date">Loading date…</span></p><span id="field-status" class="status" data-i18n="loading">loading</span></div>
             <h2 id="field-title">Reading today’s network.</h2>
             <p id="field-note" class="today-direction">Officer activity, visit gaps, and field signals determine the first move.</p>
             <button id="review-focus" class="pulse-action" type="button">
@@ -53,7 +51,7 @@
             </button>
           </header>
           <aside class="today-context" aria-label="Today’s local context">
-            <p class="eyebrow">India Standard Time</p>
+            <p class="eyebrow" data-i18n="indiaTime">India Standard Time</p>
             <p id="today-time" class="today-time">—</p>
             <div class="weather-context">
               <span class="material-symbols-outlined" aria-hidden="true">partly_cloudy_day</span>
@@ -66,16 +64,16 @@
         </section>
 
         <section class="home-metrics" aria-label="Today’s three operating metrics">
-          <article class="metric-card"><p>Visits filed</p><strong id="home-visits-value">—</strong><span id="home-visits-note">today</span></article>
-          <article class="metric-card"><p>Farmers overdue</p><strong id="home-overdue-value">—</strong><span id="home-overdue-note">visit gap</span></article>
-          <article class="metric-card"><p>High-risk issues</p><strong id="home-issues-value">—</strong><span id="home-issues-note">last 7 days</span></article>
+          <article class="metric-card"><p data-i18n="visitsFiled">Visits filed</p><strong id="home-visits-value">—</strong><span id="home-visits-note" data-i18n="today">today</span></article>
+          <article class="metric-card"><p data-i18n="farmersOverdue">Farmers overdue</p><strong id="home-overdue-value">—</strong><span id="home-overdue-note">visit gap</span></article>
+          <article class="metric-card"><p data-i18n="highRiskIssues">High-risk issues</p><strong id="home-issues-value">—</strong><span id="home-issues-note">last 7 days</span></article>
         </section>
 
         <section class="network-map-card" aria-labelledby="home-map-heading">
           <div class="directory-toolbar network-map-toolbar">
             <div>
-              <p class="eyebrow">Fortune network</p>
-              <h3 id="home-map-heading">Where verified farms are.</h3>
+              <p class="eyebrow" data-i18n="fortuneNetwork">Fortune network</p>
+              <h3 id="home-map-heading" data-i18n="verifiedFarms">Where verified farms are.</h3>
             </div>
             <p id="home-map-status" class="map-status">Reading reviewed field geometry…</p>
           </div>
@@ -88,19 +86,19 @@
         <section class="directory-surface" aria-labelledby="allocations-heading">
           <div class="directory-toolbar">
             <div>
-              <p class="eyebrow" data-i18n="currentFields">Reviewed operating record</p>
-              <h2 id="allocations-heading">Verified fields</h2>
+              <p class="eyebrow" data-i18n="reviewedRecord">Reviewed operating record</p>
+              <h2 id="allocations-heading" data-i18n="verifiedFields">Verified fields</h2>
             </div>
             <div class="view-switcher" role="group" aria-label="Farm view">
-              <button class="view-toggle is-selected" type="button" data-farm-view="map" aria-pressed="true">Map</button>
-              <button class="view-toggle" type="button" data-farm-view="cards" aria-pressed="false">Cards</button>
-              <button class="view-toggle" type="button" data-farm-view="table" aria-pressed="false">Table</button>
+              <button class="view-toggle is-selected" type="button" data-farm-view="map" aria-pressed="true" data-i18n="map">Map</button>
+              <button class="view-toggle" type="button" data-farm-view="cards" aria-pressed="false" data-i18n="cards">Cards</button>
+              <button class="view-toggle" type="button" data-farm-view="table" aria-pressed="false" data-i18n="table">Table</button>
             </div>
           </div>
           <p id="allocation-summary" class="directory-summary">A source village or coverage count never becomes a farm record on its own.</p>
           <div id="farm-map-view" class="directory-view"><div id="farm-map-canvas" class="fortune-map" aria-label="Map of reviewed Fortune farm geometry"></div><p id="farm-map-note" class="map-note">Only reviewed field geometry is shown.</p></div>
           <div id="farm-cards-view" class="directory-view" hidden><div id="allocation-list" class="directory-card-grid" aria-label="Verified fields"></div></div>
-          <div id="farm-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Field</th><th>Crop</th><th>Variety</th><th>Status</th></tr></thead><tbody id="farm-table-body"></tbody></table></div></div>
+          <div id="farm-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th data-i18n="field">Field</th><th data-i18n="crop">Crop</th><th data-i18n="variety">Variety</th><th data-i18n="status">Status</th></tr></thead><tbody id="farm-table-body"></tbody></table></div></div>
         </section>
       </section>
 
@@ -108,17 +106,17 @@
         <section class="directory-surface" aria-labelledby="farmer-directory-heading">
           <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">Reviewed people</p>
-              <h2 id="farmer-directory-heading">Farmers</h2>
+              <p class="eyebrow" data-i18n="reviewedPeople">Reviewed people</p>
+              <h2 id="farmer-directory-heading" data-i18n="farmerPlural">Farmers</h2>
             </div>
             <div class="view-switcher" role="group" aria-label="Farmer view">
-              <button class="view-toggle is-selected" type="button" data-farmer-view="cards" aria-pressed="true">Cards</button>
-              <button class="view-toggle" type="button" data-farmer-view="table" aria-pressed="false">Table</button>
+              <button class="view-toggle is-selected" type="button" data-farmer-view="cards" aria-pressed="true" data-i18n="cards">Cards</button>
+              <button class="view-toggle" type="button" data-farmer-view="table" aria-pressed="false" data-i18n="table">Table</button>
             </div>
           </div>
           <p id="farmer-coverage" class="directory-summary" aria-live="polite">Loading coverage…</p>
           <div id="farmer-cards-view" class="directory-view"><div id="farmer-list" class="directory-card-grid" aria-label="Reviewed farmers"></div></div>
-          <div id="farmer-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Farmer</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="farmer-table-body"></tbody></table></div></div>
+          <div id="farmer-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th data-i18n="farmer">Farmer</th><th data-i18n="role">Role</th><th data-i18n="scope">Scope</th><th data-i18n="openWorkLabel">Open work</th></tr></thead><tbody id="farmer-table-body"></tbody></table></div></div>
           <p id="farmer-boundary" class="directory-boundary"></p>
         </section>
       </section>
@@ -127,17 +125,17 @@
         <section class="directory-surface" aria-labelledby="worker-directory-heading">
           <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">Reviewed people</p>
-              <h2 id="worker-directory-heading">Field workers</h2>
+              <p class="eyebrow" data-i18n="reviewedPeople">Reviewed people</p>
+              <h2 id="worker-directory-heading" data-i18n="fieldWorkerPlural">Field workers</h2>
             </div>
             <div class="view-switcher" role="group" aria-label="Field worker view">
-              <button class="view-toggle is-selected" type="button" data-worker-view="cards" aria-pressed="true">Cards</button>
-              <button class="view-toggle" type="button" data-worker-view="table" aria-pressed="false">Table</button>
+              <button class="view-toggle is-selected" type="button" data-worker-view="cards" aria-pressed="true" data-i18n="cards">Cards</button>
+              <button class="view-toggle" type="button" data-worker-view="table" aria-pressed="false" data-i18n="table">Table</button>
             </div>
           </div>
           <p id="worker-activity" class="directory-summary" aria-live="polite">Loading daily activity…</p>
           <div id="worker-cards-view" class="directory-view"><div id="worker-list" class="directory-card-grid" aria-label="Reviewed field workers"></div></div>
-          <div id="worker-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Field worker</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="worker-table-body"></tbody></table></div></div>
+          <div id="worker-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th data-i18n="fieldWorker">Field worker</th><th data-i18n="role">Role</th><th data-i18n="scope">Scope</th><th data-i18n="openWorkLabel">Open work</th></tr></thead><tbody id="worker-table-body"></tbody></table></div></div>
           <p id="worker-boundary" class="directory-boundary"></p>
         </section>
       </section>
@@ -147,16 +145,16 @@
         <section class="directory-surface" aria-labelledby="ledger-heading">
           <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">Decision queue</p>
-              <h2 id="ledger-heading">Inbox</h2>
+              <p class="eyebrow" data-i18n="decisionQueue">Decision queue</p>
+              <h2 id="ledger-heading" data-i18n="inbox">Inbox</h2>
             </div>
             <div class="view-switcher" role="group" aria-label="Inbox view">
-              <button class="view-toggle is-selected" type="button" data-inbox-mode="priority" aria-pressed="true">Priority</button>
-              <button class="view-toggle" type="button" data-inbox-mode="all" aria-pressed="false">All</button>
+              <button class="view-toggle is-selected" type="button" data-inbox-mode="priority" aria-pressed="true" data-i18n="priority">Priority</button>
+              <button class="view-toggle" type="button" data-inbox-mode="all" aria-pressed="false" data-i18n="all">All</button>
             </div>
           </div>
           <p id="inbox-summary" class="directory-summary">Decisions that need human attention, ordered by urgency.</p>
-          <div class="directory-table-wrap"><table class="directory-table inbox-table"><thead><tr><th>Priority</th><th>Decision</th><th>Field</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody id="portfolio-ledger" aria-live="polite"></tbody></table></div>
+          <div class="directory-table-wrap"><table class="directory-table inbox-table"><thead><tr><th data-i18n="priority">Priority</th><th data-i18n="decision">Decision</th><th data-i18n="field">Field</th><th data-i18n="owner">Owner</th><th data-i18n="dueLabel">Due</th><th data-i18n="status">Status</th></tr></thead><tbody id="portfolio-ledger" aria-live="polite"></tbody></table></div>
         </section>
       </section>
 
@@ -164,12 +162,12 @@
         <section class="command-card single-focus-card manager-access-card" aria-labelledby="settings-heading">
           <div class="card-heading">
             <div>
-              <p class="eyebrow">One thing</p>
-              <h2 id="settings-heading">Manager access</h2>
+              <p class="eyebrow" data-i18n="oneThing">One thing</p>
+              <h2 id="settings-heading" data-i18n="managerAccess">Manager access</h2>
             </div>
           </div>
-          <p id="manager-session-status" class="manager-session-status" aria-live="polite">Manager actions are locked on this browser.</p>
-          <button id="manager-session-action" class="pulse-action" type="button">Unlock manager actions</button>
+          <p id="manager-session-status" class="manager-session-status" aria-live="polite" data-i18n="managerLocked">Manager actions are locked on this browser.</p>
+          <button id="manager-session-action" class="pulse-action" type="button" data-i18n="unlockActions">Unlock manager actions</button>
         </section>
       </section>
 
@@ -177,23 +175,42 @@
         <section class="manager-session-sheet">
           <header class="action-header">
             <div>
-              <p class="eyebrow">Manager access</p>
-              <h2 id="manager-session-title">Unlock private actions</h2>
+              <p class="eyebrow" data-i18n="managerAccess">Manager access</p>
+              <h2 id="manager-session-title" data-i18n="unlockPrivateActions">Unlock private actions</h2>
             </div>
             <button id="close-manager-session" class="dialog-close" type="button" aria-label="Close manager unlock">
               <span class="material-symbols-outlined" aria-hidden="true">close</span>
             </button>
           </header>
           <form id="manager-session-form" class="manager-session-form">
-            <p>Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.</p>
-            <label for="manager-session-secret">Manager secret</label>
+            <p data-i18n="managerSecretHelp">Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.</p>
+            <label for="manager-session-secret" data-i18n="managerSecret">Manager secret</label>
             <input id="manager-session-secret" name="secret" type="password" autocomplete="off" required maxlength="2048">
             <p id="manager-session-feedback" class="manager-session-feedback" role="alert" aria-live="assertive" hidden></p>
             <footer class="manager-session-footer">
-              <p>Manager access expires automatically.</p>
-              <button id="submit-manager-session" class="setup-submit" type="submit">Unlock actions</button>
+              <p data-i18n="managerExpiry">Manager access expires automatically.</p>
+              <button id="submit-manager-session" class="setup-submit" type="submit" data-i18n="unlockActions">Unlock actions</button>
             </footer>
           </form>
+        </section>
+      </dialog>
+
+      <dialog id="record-dialog" class="record-dialog" aria-labelledby="record-dialog-title">
+        <section class="record-sheet">
+          <header class="action-header">
+            <div>
+              <p id="record-dialog-kind" class="eyebrow"></p>
+              <h2 id="record-dialog-title"></h2>
+            </div>
+            <button id="close-record-dialog" class="dialog-close" type="button" aria-label="Close record detail">
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </header>
+          <div class="record-dialog-body">
+            <div class="directory-card-metric"><strong id="record-dialog-metric"></strong><span id="record-dialog-metric-label"></span></div>
+            <ul id="record-dialog-characteristics" class="directory-characteristics"></ul>
+            <p id="record-dialog-context" class="record-dialog-context"></p>
+          </div>
         </section>
       </dialog>
 

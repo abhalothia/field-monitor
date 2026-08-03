@@ -37,8 +37,32 @@
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
     en: {
-      navHome: "Today", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
-      refresh: "Refresh", pageTitle: "Today.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
+      navHome: "Home", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
+      refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
+      sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
+      localContext: "Today’s local context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
+      verifiedFarms: "Where verified farms are.", reviewedRecord: "Reviewed operating record", verifiedFields: "Verified fields",
+      map: "Map", cards: "Cards", table: "Table", all: "All", field: "Field", crop: "Crop", variety: "Variety", status: "Status",
+      reviewedPeople: "Reviewed people", farmer: "Farmer", farmerPlural: "Farmers", fieldWorker: "Field worker", fieldWorkerPlural: "Field workers",
+      role: "Role", scope: "Scope", openWorkLabel: "Open work", decisionQueue: "Decision queue", priority: "Priority", decision: "Decision", owner: "Owner", dueLabel: "Due", inbox: "Inbox",
+      oneThing: "One thing", managerAccess: "Manager access", sampleLocation: "Dargava · Gabhana · Aligarh", sampleGeometry: "Dargava · Gabhana · Aligarh",
+      sampleWeather: "31°C · partly cloudy", sampleWeatherNote: "Dargava, Gabhana", hectare: "ha", openAction: "open action", openActions: "open actions", fieldCount: "field", fieldCountPlural: "fields",
+      location: "Location", cropPlan: "Crop plan", area: "Area", risk: "Risk", issue: "Issue", visitToday: "visit today", visitsToday: "visits today",
+      sampleFarm: "Jewar Model Farm · North Block", sampleFarmName: "Jewar Model Farm", sampleField: "North Block", sampleCrop: "Pusa Basmati 1121", sampleFarmerTrait: "Contract grower", sampleWorkerTrait: "Field operator", sampleLocationShort: "Dargava, Aligarh",
+      reading: "reading", attention: "attention", reported: "reported", planned: "planned", verified: "verified", high: "high", moderate: "moderate", low: "low", critical: "critical",
+      grower: "grower", fieldOperator: "field operator", stemBorer: "stem borer", leafFolder: "leaf folder",
+      loading: "loading", today: "today", filedToday: "filed today", farmersNeedVisit: "farmers need a visit", highCriticalSevenDays: "high / critical · 7 days", notScheduled: "Not scheduled", notVisited: "never visited", reachedFourteenDays: "reached in 14 days", workerNoFile: "active officers did not file",
+      coverageLoading: "Coverage is loading.", coverageUnavailable: "Coverage is unavailable.", dailyFilingLoading: "Daily filing is loading.", dailyFilingUnavailable: "Daily filing is unavailable.",
+      mapUnavailable: "Map unavailable", noReviewedGeometry: "No reviewed geometry", reviewedField: "reviewed field", reviewedFields: "reviewed fields",
+      settingsTitle: "Settings.", settingsDetail: "Access and source boundaries.", homeDetail: "What needs to move today.", farmsDetail: "Ground truth from reviewed farm and field records.", farmersDetail: "Coverage context and reviewed farmer relationships.", workersDetail: "Daily activity and reviewed ownership.", inboxDetail: "Decisions, work, and follow-through.",
+      todayTitle: "Home.", farmsTitle: "Farms.", farmersTitle: "Farmers.", workersTitle: "Field workers.", inboxTitle: "Inbox.",
+      openFarms: "Open farms", openFarmers: "Open farmers", openInbox: "Open inbox", openSettings: "Open settings", ready: "Ready.",
+      managerUnlocked: "Manager actions are unlocked briefly on this browser.", managerLocked: "Manager actions are locked on this browser.", lockActions: "Lock manager actions", unlockActions: "Unlock manager actions", unlocking: "Unlocking…", unlockPrivateActions: "Unlock private actions", managerSecret: "Manager secret", managerSecretHelp: "Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.", managerExpiry: "Manager access expires automatically.",
+      directionLoadingTitle: "Reading today’s operation.", directionLoadingNote: "The field picture is loading.", dailyActivityLoading: "Daily activity loading", coverageLoadingShort: "Coverage loading", openWorkers: "Open field workers", awaitingSignal: "Awaiting today’s signal",
+      officersNoVisitTitle: "{count} officers filed no visit today.", officersNoVisitNote: "{filed} visits were filed by {filing} of {active} active officers. Start with the coverage gap, then follow up with the field team.", officersFiled: "{filing} / {active} officers filed", farmersOverdueMetric: "{count} farmers overdue", reviewWorkerFollowUp: "Review worker follow-up",
+      urgentIssueTitle: "{issue} is the lead field signal.", urgentIssueNote: "{count} dated observations in the last {days} days. Detection shows where to look, not a diagnosis or prevalence rate.", reviewDecisionQueue: "Review the decision queue", visitsFiledMetric: "{count} visits filed today", neverVisitedMetric: "{count} never visited",
+      farmerOverdueTitle: "{count} farmers are overdue for a visit.", farmerCoverageCurrent: "Farmer coverage is current.", farmerOverdueNote: "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap.", noOverdueNote: "No overdue visit gap is reported in the published farmer aggregate.", reviewFarmerCoverage: "Review farmer coverage",
+      priorityDecision: "{count} priority decision, most urgent first.", priorityDecisions: "{count} priority decisions, most urgent first.", allDecisions: "{count} reviewed decisions and open work items.", noDecision: "No decision needs attention right now.", nothingWaiting: "Nothing is waiting for a manager decision.", sampleReviewIssue: "Review stem borer cluster", sampleCheckIssue: "Check stem borer cluster",
       openFieldWork: "Open field workers", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
       priority: "Priority", riskAction: "Risk & action", learning: "Learning", trialsPlaybooks: "Trials & playbooks",
@@ -54,8 +78,32 @@
       openFieldAsks: "Open field asks"
     },
     hi: {
-      navHome: "आज", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
-      refresh: "ताज़ा करें", pageTitle: "आज।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
+      refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
+      localContext: "आज का स्थानीय संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
+      verifiedFarms: "सत्यापित खेत कहाँ हैं", reviewedRecord: "समीक्षित परिचालन रिकॉर्ड", verifiedFields: "सत्यापित खेत",
+      map: "नक्शा", cards: "कार्ड", table: "तालिका", all: "सभी", field: "खेत", crop: "फसल", variety: "किस्म", status: "स्थिति",
+      reviewedPeople: "समीक्षित लोग", farmer: "किसान", farmerPlural: "किसान", fieldWorker: "फील्ड कर्मी", fieldWorkerPlural: "फील्ड कर्मी",
+      role: "भूमिका", scope: "दायरा", openWorkLabel: "खुला काम", decisionQueue: "निर्णय सूची", priority: "प्राथमिकता", decision: "निर्णय", owner: "जिम्मेदार", dueLabel: "समय", inbox: "इनबॉक्स",
+      oneThing: "एक काम", managerAccess: "प्रबंधक पहुँच", sampleLocation: "दरगावा · गभाना · अलीगढ़", sampleGeometry: "दरगावा · गभाना · अलीगढ़",
+      sampleWeather: "31°C · आंशिक बादल", sampleWeatherNote: "दरगावा, गभाना", hectare: "हेक्टेयर", openAction: "खुला काम", openActions: "खुले काम", fieldCount: "खेत", fieldCountPlural: "खेत",
+      location: "स्थान", cropPlan: "फसल योजना", area: "क्षेत्र", risk: "जोखिम", issue: "मुद्दा", visitToday: "आज की मुलाक़ात", visitsToday: "आज की मुलाक़ातें",
+      sampleFarm: "जेवर मॉडल फ़ार्म · उत्तर खंड", sampleFarmName: "जेवर मॉडल फ़ार्म", sampleField: "उत्तर खंड", sampleCrop: "पूसा बासमती 1121", sampleFarmerTrait: "अनुबंधित किसान", sampleWorkerTrait: "फील्ड कर्मी", sampleLocationShort: "दरगावा, अलीगढ़",
+      reading: "पढ़ा जा रहा है", attention: "ध्यान", reported: "दर्ज", planned: "योजित", verified: "सत्यापित", high: "उच्च", moderate: "मध्यम", low: "कम", critical: "अति गंभीर",
+      grower: "किसान", fieldOperator: "फील्ड कर्मी", stemBorer: "तना छेदक", leafFolder: "पत्ता लपेटक",
+      loading: "लोड हो रहा है", today: "आज", filedToday: "आज दर्ज", farmersNeedVisit: "किसानों की मुलाक़ात बाकी", highCriticalSevenDays: "उच्च / अति गंभीर · 7 दिन", notScheduled: "निर्धारित नहीं", notVisited: "कभी मुलाक़ात नहीं हुई", reachedFourteenDays: "14 दिन में पहुँचे", workerNoFile: "सक्रिय कर्मियों ने दर्ज नहीं किया",
+      coverageLoading: "कवरेज लोड हो रहा है।", coverageUnavailable: "कवरेज उपलब्ध नहीं है।", dailyFilingLoading: "दैनिक दर्ज करना लोड हो रहा है।", dailyFilingUnavailable: "दैनिक दर्ज करना उपलब्ध नहीं है।",
+      mapUnavailable: "नक्शा उपलब्ध नहीं है", noReviewedGeometry: "कोई सत्यापित ज्यामिति नहीं", reviewedField: "सत्यापित खेत", reviewedFields: "सत्यापित खेत",
+      settingsTitle: "सेटिंग्स।", settingsDetail: "पहुँच और स्रोत सीमाएँ।", homeDetail: "आज क्या आगे बढ़ाना है।", farmsDetail: "समीक्षित खेत और फील्ड रिकॉर्ड से वास्तविक स्थिति।", farmersDetail: "कवरेज और समीक्षित किसान संबंध।", workersDetail: "दैनिक गतिविधि और जिम्मेदारी।", inboxDetail: "निर्णय, काम और अनुपालन।",
+      todayTitle: "मुख्य।", farmsTitle: "खेत।", farmersTitle: "किसान।", workersTitle: "फील्ड कर्मी।", inboxTitle: "इनबॉक्स।",
+      openFarms: "खेत खोलें", openFarmers: "किसान खोलें", openInbox: "इनबॉक्स खोलें", openSettings: "सेटिंग्स खोलें", ready: "तैयार।",
+      managerUnlocked: "इस ब्राउज़र में प्रबंधक कार्रवाई कुछ समय के लिए खुली है।", managerLocked: "इस ब्राउज़र में प्रबंधक कार्रवाई बंद है।", lockActions: "प्रबंधक कार्रवाई बंद करें", unlockActions: "प्रबंधक कार्रवाई खोलें", unlocking: "खोला जा रहा है…", unlockPrivateActions: "निजी कार्रवाई खोलें", managerSecret: "प्रबंधक पासवर्ड", managerSecretHelp: "अलग से तय प्रबंधक पासवर्ड इस्तेमाल करें। यह केवल इस सर्वर को भेजा जाता है और ब्राउज़र में सहेजा नहीं जाता।", managerExpiry: "प्रबंधक पहुँच अपने-आप समाप्त हो जाती है।",
+      directionLoadingTitle: "आज की स्थिति पढ़ी जा रही है।", directionLoadingNote: "खेतों की स्थिति लोड हो रही है।", dailyActivityLoading: "दैनिक गतिविधि लोड हो रही है", coverageLoadingShort: "कवरेज लोड हो रहा है", openWorkers: "फील्ड कर्मी खोलें", awaitingSignal: "आज के संकेत की प्रतीक्षा",
+      officersNoVisitTitle: "{count} कर्मियों ने आज कोई मुलाक़ात दर्ज नहीं की।", officersNoVisitNote: "{active} सक्रिय कर्मियों में से {filing} ने {filed} मुलाक़ातें दर्ज कीं। पहले कवरेज की कमी देखें, फिर फील्ड टीम से संपर्क करें।", officersFiled: "{filing} / {active} कर्मियों ने दर्ज किया", farmersOverdueMetric: "{count} किसानों की मुलाक़ात बाकी", reviewWorkerFollowUp: "कर्मियों की फॉलो-अप सूची देखें",
+      urgentIssueTitle: "{issue} मुख्य फील्ड संकेत है।", urgentIssueNote: "पिछले {days} दिनों में {count} दर्ज अवलोकन। यह बताता है कि कहाँ देखना है, निदान या प्रसार दर नहीं।", reviewDecisionQueue: "निर्णय सूची देखें", visitsFiledMetric: "आज {count} मुलाक़ातें दर्ज", neverVisitedMetric: "{count} से कभी मुलाक़ात नहीं हुई",
+      farmerOverdueTitle: "{count} किसानों की मुलाक़ात बाकी है।", farmerCoverageCurrent: "किसान कवरेज वर्तमान है।", farmerOverdueNote: "सबसे अधिक बाकी मुलाक़ात वाले किसान समूहों से शुरुआत करें। कभी न मिले किसान अलग कवरेज और रिकॉर्ड गुणवत्ता की कमी हैं।", noOverdueNote: "प्रकाशित किसान आँकड़ों में कोई बाकी मुलाक़ात नहीं है।", reviewFarmerCoverage: "किसान कवरेज देखें",
+      priorityDecision: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", priorityDecisions: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", allDecisions: "{count} समीक्षित निर्णय और खुले काम।", noDecision: "अभी किसी निर्णय पर ध्यान नहीं चाहिए।", nothingWaiting: "प्रबंधक के निर्णय की कोई प्रतीक्षा नहीं है।", sampleReviewIssue: "तना छेदक समूह की समीक्षा", sampleCheckIssue: "तना छेदक समूह जाँचें",
       openFieldWork: "फील्ड टीम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
       priority: "प्राथमिकता", riskAction: "जोखिम और अगला काम", learning: "सीख", trialsPlaybooks: "परीक्षण और तरीके",
@@ -84,6 +132,12 @@
     return (copy[interfaceLocale] && copy[interfaceLocale][key]) || (copy.en[key] || key);
   }
 
+  function message(key, values) {
+    return t(key).replace(/\{(\w+)\}/g, function (_match, name) {
+      return values && values[name] !== undefined ? values[name] : "";
+    });
+  }
+
   function applyLanguage() {
     document.documentElement.lang = interfaceLocale === "hi" ? "hi" : "en";
     Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (node) {
@@ -99,14 +153,21 @@
       button.setAttribute("aria-pressed", String(selected));
     });
     renderPageIntro();
+    renderDailyDirection();
+    renderHomeMetrics();
   }
 
   function setLocale(locale) {
     interfaceLocale = locale === "hi" ? "hi" : "en";
     window.localStorage.setItem(localeStorageKey, interfaceLocale);
     applyLanguage();
-    // Repaint the manager-safe summaries that use localized status language;
-    // underlying farm records and reviewed request copy stay exactly as stored.
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderPeople(currentRuntime);
+    }
+    if (currentFortuneMap) {
+      renderFortuneMap(currentFortuneMap);
+    }
     if (currentPortfolio) {
       renderPortfolio(currentPortfolio);
     }
@@ -128,9 +189,8 @@
     var action = element("manager-session-action");
     status.classList.toggle("is-unlocked", managerSessionAuthenticated);
     status.textContent = managerSessionAuthenticated ?
-      "Manager actions are unlocked briefly on this browser." :
-      "Manager actions are locked on this browser.";
-    action.textContent = managerSessionAuthenticated ? "Lock manager actions" : "Unlock manager actions";
+      t("managerUnlocked") : t("managerLocked");
+    action.textContent = managerSessionAuthenticated ? t("lockActions") : t("unlockActions");
   }
 
   function loadManagerSessionStatus() {
@@ -165,7 +225,7 @@
     setManagerSessionFeedback("");
     var submit = element("submit-manager-session");
     submit.disabled = true;
-    submit.textContent = "Unlocking…";
+    submit.textContent = t("unlocking");
     // The secret exists only in the form/request body.  It is deliberately
     // never written to localStorage, sessionStorage, a URL, or an API header.
     fetch(managerSessionLoginUrl, {
@@ -194,7 +254,7 @@
       })
       .finally(function () {
         submit.disabled = false;
-        submit.textContent = "Unlock actions";
+        submit.textContent = t("unlockActions");
       });
   }
 
@@ -214,16 +274,19 @@
 
   function setSampleMode(enabled) {
     sampleMode = Boolean(enabled);
-    element("sample-state").hidden = !sampleMode;
   }
 
   function sampleRuntime() {
     return {
       operating_unit: { name: "Fortune Rice" },
-      allocations: [{ id: "sample-north-block", operational_block_name: "North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121" }],
+      allocations: [{
+        id: "sample-north-block", farm_name: "Jewar Model Farm", operational_block_name: "North Block",
+        crop_name: "Pusa Basmati 1121", cultivar: "1121", area_hectares: 2.5,
+        location_label: "Dargava, Gabhana, Aligarh"
+      }],
       people: [
-        { id: "sample-asha", name: "Asha Devi", role: "grower" },
-        { id: "sample-ravi", name: "Ravi Kumar", role: "field_operator" }
+        { id: "sample-asha", name: "Asha Devi", role: "grower", characteristics: ["Contract grower", "Pusa Basmati 1121", "2.5 ha"] },
+        { id: "sample-ravi", name: "Ravi Kumar", role: "field_operator", characteristics: ["Field operator", "North Block", "1 urgent action"] }
       ],
       work_items: [{ id: "sample-visit", allocation_id: "sample-north-block", title: "Check stem borer cluster", owner_id: "sample-ravi", due_at: new Date().toISOString(), status: "planned" }],
       exceptions: [],
@@ -271,20 +334,23 @@
       type: "FeatureCollection",
       features: [{
         type: "Feature",
-        geometry: { type: "Point", coordinates: [77.5555503, 28.5534523] },
-        properties: { plot_label: "North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121", area_hectares: 2.5, location_precision: "sample" }
+        geometry: { type: "Point", coordinates: [77.7853488, 28.1052221] },
+        properties: {
+          plot_label: "Jewar Model Farm · North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121",
+          area_hectares: 2.5, location_label: "Dargava, Gabhana, Aligarh", location_precision: "sample"
+        }
       }]
     };
   }
 
   function renderSampleWeather() {
-    element("weather-state").textContent = "31°C · partly cloudy";
-    element("weather-note").textContent = "Sample local context";
+    element("weather-state").textContent = t("sampleWeather");
+    element("weather-note").textContent = t("sampleWeatherNote");
   }
 
   function formatTime(value) {
     if (!value) {
-      return "Not scheduled";
+      return t("notScheduled");
     }
     var date = new Date(value);
     return isNaN(date.getTime()) ? value : date.toLocaleString(interfaceLocale === "hi" ? "hi-IN" : "en-IN");
@@ -336,13 +402,13 @@
     var lanes = snapshot && Array.isArray(snapshot.lanes) ? snapshot.lanes : [];
     var weather = lanes.filter(function (lane) { return lane.key === "weather"; })[0];
     if (!weather) {
-      element("weather-state").textContent = "Weather pending";
+      element("weather-state").textContent = t("loading");
       element("weather-note").textContent = "";
       return;
     }
     var ready = weather.status === "context_available";
-    element("weather-state").textContent = ready ? "Weather context ready" : "Weather pending";
-    element("weather-note").textContent = ready ? weather.fact : "";
+    element("weather-state").textContent = ready ? weather.fact : t("loading");
+    element("weather-note").textContent = "";
   }
 
   function renderWeatherUnavailable() {
@@ -350,7 +416,7 @@
       renderSampleWeather();
       return;
     }
-    element("weather-state").textContent = "Weather pending";
+    element("weather-state").textContent = t("loading");
     element("weather-note").textContent = "";
   }
 
@@ -366,12 +432,12 @@
     setHomeMetric(
       "home-visits-value", "home-visits-note",
       visits ? formatCount(visits.filed_on_reporting_day) : "—",
-      visits ? "filed today" : "loading"
+      visits ? t("filedToday") : t("loading")
     );
     setHomeMetric(
       "home-overdue-value", "home-overdue-note",
       coverage ? formatCount(coverage.overdue) : "—",
-      coverage ? "farmers need a visit" : "loading"
+      coverage ? t("farmersNeedVisit") : t("loading")
     );
     var issues = metrics && metrics.issues ? metrics.issues : null;
     var highRiskIssues = issues && Array.isArray(issues.by_issue) ? issues.by_issue.reduce(function (total, issue) {
@@ -380,7 +446,7 @@
     setHomeMetric(
       "home-issues-value", "home-issues-note",
       highRiskIssues === null ? "—" : formatCount(highRiskIssues),
-      highRiskIssues === null ? "loading" : "high / critical · 7 days"
+      highRiskIssues === null ? t("loading") : t("highCriticalSevenDays")
     );
   }
 
@@ -389,7 +455,7 @@
     if (!metrics) {
       element("worker-boundary").textContent = "";
       element("worker-activity").textContent = managerSessionAuthenticated ?
-        "Daily filing is unavailable." : "Daily filing is loading.";
+        t("dailyFilingUnavailable") : t("dailyFilingLoading");
       renderHomeMetrics();
       return;
     }
@@ -400,8 +466,8 @@
     var filing = Number(visits.filing_officers) || 0;
     var missing = Number(visits.active_officers_without_filed_visit) || 0;
     element("worker-boundary").textContent = "";
-    element("worker-activity").textContent = formatCount(filed) + " visits filed today · " +
-      formatCount(missing) + " active officers have not filed.";
+    element("worker-activity").textContent = formatCount(filed) + " " + t("filedToday") + " · " +
+      formatCount(missing) + " " + t("workerNoFile");
     renderHomeMetrics();
   }
 
@@ -419,7 +485,7 @@
     }
     currentProgramme = null;
     element("farmer-boundary").textContent = "";
-    element("farmer-coverage").textContent = "Coverage is loading.";
+    element("farmer-coverage").textContent = t("coverageLoading");
     renderWorkerActivity();
     renderDailyDirection();
     renderHomeMetrics();
@@ -432,7 +498,7 @@
     }
     currentProgramme = null;
     element("farmer-boundary").textContent = "";
-    element("farmer-coverage").textContent = "Coverage is unavailable.";
+    element("farmer-coverage").textContent = t("coverageUnavailable");
     renderWorkerActivity();
     renderDailyDirection();
     renderHomeMetrics();
@@ -444,9 +510,9 @@
     currentProgramme = { metrics: metrics || {}, health: health || {} };
     renderDailyDirection();
     element("farmer-boundary").textContent = "";
-    element("farmer-coverage").textContent = formatCount(coverage.overdue) + " farmers overdue · " +
-      formatCount(coverage.never_visited) + " never visited · " + formatCount(coverage.recent) +
-      " reached in 14 days.";
+    element("farmer-coverage").textContent = formatCount(coverage.overdue) + " " + t("farmersOverdue") + " · " +
+      formatCount(coverage.never_visited) + " " + t("notVisited") + " · " + formatCount(coverage.recent) +
+      " " + t("reachedFourteenDays");
     renderWorkerActivity();
     renderHomeMetrics();
   }
@@ -495,7 +561,48 @@
   }
 
   function readable(value) {
-    return text(value).replace(/_/g, " ");
+    var raw = text(value);
+    var normalized = raw.toLowerCase().replace(/[\s/-]+/g, "_");
+    var translated = {
+      grower: "grower", field_operator: "fieldOperator", field_operator_: "fieldOperator",
+      stem_borer: "stemBorer", leaf_folder: "leafFolder", reported: "reported", planned: "planned",
+      high: "high", moderate: "moderate", low: "low", critical: "critical", attention: "attention",
+      reading: "reading"
+    }[normalized];
+    return translated ? t(translated) : raw.replace(/_/g, " ");
+  }
+
+  function sampleText(value) {
+    var raw = String(value || "");
+    if (!sampleMode) {
+      return raw;
+    }
+    var labels = {
+      "Jewar Model Farm": "sampleFarmName",
+      "North Block": "sampleField",
+      "Jewar Model Farm · North Block": "sampleFarm",
+      "Pusa Basmati 1121": "sampleCrop",
+      "Dargava, Gabhana, Aligarh": "sampleGeometry",
+      "Contract grower": "sampleFarmerTrait",
+      "Field operator": "sampleWorkerTrait",
+      "1 urgent action": "openAction",
+      "Review stem borer cluster": "sampleReviewIssue",
+      "Check stem borer cluster": "sampleCheckIssue"
+    };
+    return labels[raw] ? t(labels[raw]) : raw.replace("2.5 ha", "2.5 " + t("hectare"));
+  }
+
+  function fieldLabel(value) {
+    return sampleText(value || t("field"));
+  }
+
+  function cropLabel(value) {
+    return sampleText(value || t("crop"));
+  }
+
+  function areaLabel(value) {
+    var area = Number(value);
+    return isFinite(area) && area > 0 ? area + " " + t("hectare") : "—";
   }
 
   function listedItems(summary) {
@@ -512,19 +619,22 @@
 
   function pageMeta(viewName) {
     var labels = {
-      home: { title: "Today.", detail: currentOperatingUnitName || "What needs to move today." },
-      farms: { title: "Farms.", detail: "Ground truth from reviewed farm and field records." },
-      farmers: { title: "Farmers.", detail: "Coverage context and reviewed farmer relationships." },
-      workers: { title: "Field workers.", detail: "Daily activity and reviewed ownership." },
-      inbox: { title: "Inbox.", detail: "Decisions, work, and follow-through." },
-      settings: { title: "Settings.", detail: "Access and source boundaries." }
+      home: { title: t("todayTitle"), detail: sampleMode ? t("fortuneRice") + " · " + t("sampleLocationShort") : (currentOperatingUnitName || t("homeDetail")) },
+      farms: { title: t("farmsTitle"), detail: t("farmsDetail") },
+      farmers: { title: t("farmersTitle"), detail: t("farmersDetail") },
+      workers: { title: t("workersTitle"), detail: t("workersDetail") },
+      inbox: { title: t("inboxTitle"), detail: t("inboxDetail") },
+      settings: { title: t("settingsTitle"), detail: t("settingsDetail") }
     };
     return labels[viewName] || labels.home;
   }
 
   function renderPageIntro() {
     var meta = pageMeta(currentView);
-    element("page-title").textContent = meta.title;
+    var pageTitle = element("page-title");
+    if (pageTitle) {
+      pageTitle.textContent = meta.title;
+    }
     element("operating-unit").textContent = meta.detail;
   }
 
@@ -663,17 +773,17 @@
     var rows = inboxRows();
     if (!rows.length) {
       element("inbox-summary").textContent = currentInboxMode === "all" ?
-        "No reviewed open work or decisions." : "No decision needs attention right now.";
-      setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">Nothing is waiting for a manager decision.</td></tr>');
+        t("nothingWaiting") : t("noDecision");
+      setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">' + escapeHtml(t("nothingWaiting")) + '</td></tr>');
       renderHomeMetrics();
       return;
     }
     element("inbox-summary").textContent = currentInboxMode === "all" ?
-      formatCount(rows.length) + " reviewed decisions and open work items." :
-      formatCount(rows.length) + " priority decisions, most urgent first.";
+      message("allDecisions", { count: formatCount(rows.length) }) :
+      message(rows.length === 1 ? "priorityDecision" : "priorityDecisions", { count: formatCount(rows.length) });
     setHtml("portfolio-ledger", rows.map(function (item) {
-      return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(item.severity) +
-        '</span></td><th scope="row">' + escapeHtml(item.title) + '</th><td>' + escapeHtml(fieldNameFor(item.allocationId)) +
+      return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(readable(item.severity)) +
+        '</span></td><th scope="row">' + escapeHtml(sampleText(item.title)) + '</th><td>' + escapeHtml(fieldNameFor(item.allocationId)) +
         '</td><td>' + escapeHtml(personName(item.ownerId)) + '</td><td>' + escapeHtml(formatTime(item.dueAt)) +
         '</td><td><span class="status">' + escapeHtml(readable(item.status)) + '</span></td></tr>';
     }).join(""));
@@ -1130,19 +1240,34 @@
       return;
     }
     element("allocation-summary").textContent = allocations.length === 1 ?
-      "One verified field is recorded." : "Verified fields and active crops.";
+      "1 " + t("reviewedField") + " · " + t("sampleLocationShort") :
+      formatCount(allocations.length) + " " + t("reviewedFields");
     setHtml("allocation-list", allocations.map(function (allocation) {
-      return '<article class="directory-card allocation-card">' +
-        '<div class="allocation-card-heading"><h3>' + escapeHtml(allocation.operational_block_name || "Field") + '</h3>' +
-        '<span class="status">verified record</span></div>' +
-        '<p class="allocation-crop">' + escapeHtml(allocation.crop_name || "Crop not recorded") + '</p>' +
-        '<p class="directory-detail">' + escapeHtml(allocation.cultivar || "Variety not recorded") + '</p>' +
-        '</article>';
+      var assignedWork = (runtime.work_items || []).filter(function (item) {
+        return item.allocation_id === allocation.id && isOpenWork(item);
+      }).length;
+      var headlineValue = Number(allocation.area_hectares) ? areaLabel(allocation.area_hectares) : formatCount(assignedWork);
+      var headlineLabel = Number(allocation.area_hectares) ? t("area") : (assignedWork === 1 ? t("openAction") : t("openActions"));
+      var fieldName = fieldLabel(allocation.operational_block_name);
+      var farmName = allocation.farm_name ? sampleText(allocation.farm_name) + " · " : "";
+      var characteristics = [
+        allocation.location_label ? t("location") + " · " + sampleText(allocation.location_label) : "",
+        allocation.crop_name ? t("crop") + " · " + cropLabel(allocation.crop_name) : "",
+        allocation.cultivar ? t("variety") + " · " + allocation.cultivar : "",
+        assignedWork ? t("risk") + " · " + formatCount(assignedWork) + " " + (assignedWork === 1 ? t("openAction") : t("openActions")) : ""
+      ].filter(Boolean);
+      return '<button class="directory-card allocation-card" type="button" data-record-kind="farm" data-record-id="' + escapeHtml(allocation.id) + '">' +
+        '<div class="allocation-card-heading"><h3>' + escapeHtml(farmName + fieldName) + '</h3>' +
+        '<span class="status">' + escapeHtml(t("verified")) + '</span></div>' +
+        '<p class="allocation-crop">' + escapeHtml(cropLabel(allocation.crop_name)) + '</p>' +
+        '<div class="directory-card-metric"><strong>' + escapeHtml(headlineValue) + '</strong><span>' + escapeHtml(headlineLabel) + '</span></div>' +
+        '<ul class="directory-characteristics">' + characteristics.map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul>' +
+        '</button>';
     }).join(""));
     setHtml("farm-table-body", allocations.map(function (allocation) {
-      return '<tr><th scope="row">' + escapeHtml(allocation.operational_block_name || "Field") + '</th><td>' +
-        escapeHtml(allocation.crop_name || "Not recorded") + '</td><td>' + escapeHtml(allocation.cultivar || "Not recorded") +
-        '</td><td><span class="status">verified</span></td></tr>';
+      return '<tr><th scope="row">' + escapeHtml(fieldLabel(allocation.operational_block_name)) + '</th><td>' +
+        escapeHtml(cropLabel(allocation.crop_name)) + '</td><td>' + escapeHtml(allocation.cultivar || "—") +
+        '</td><td><span class="status">' + escapeHtml(t("verified")) + '</span></td></tr>';
     }).join(""));
   }
 
@@ -1161,12 +1286,15 @@
 
   function mapPopup(feature) {
     var properties = feature && feature.properties ? feature.properties : {};
-    var parts = [properties.plot_label || "Reviewed field"];
+    var parts = [sampleText(properties.plot_label || t("reviewedField"))];
     if (properties.crop_name) {
-      parts.push(properties.crop_name + (properties.cultivar ? " · " + properties.cultivar : ""));
+      parts.push(cropLabel(properties.crop_name) + (properties.cultivar ? " · " + properties.cultivar : ""));
     }
     if (properties.area_hectares) {
-      parts.push(properties.area_hectares + " ha");
+      parts.push(areaLabel(properties.area_hectares));
+    }
+    if (properties.location_label) {
+      parts.push(sampleText(properties.location_label));
     }
     return escapeHtml(parts.join(" · "));
   }
@@ -1213,13 +1341,13 @@
     currentFortuneMap = featureCollection || { type: "FeatureCollection", features: [] };
     var features = currentFortuneMap.features || [];
     var count = features.length;
-    element("home-map-status").textContent = sampleMode ? "Sample · North Block" :
-      (count ? formatCount(count) + " reviewed field" + (count === 1 ? "" : "s") : "No reviewed geometry");
-    element("home-map-note").textContent = sampleMode ? "Sample geometry" : (count ?
+    element("home-map-status").textContent = sampleMode ? t("sampleLocation") :
+      (count ? formatCount(count) + " " + (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry"));
+    element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
       "Map detail comes only from the latest published, reviewed farm manifest." :
       "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.");
-    element("farm-map-note").textContent = sampleMode ? "Sample geometry" : (count ?
-      "The map is the same reviewed farm geometry used in Today." :
+    element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
+      "The map uses the same reviewed farm geometry as Home." :
       "Only reviewed field geometry is shown. No source village is treated as a farm point.");
     renderMapCanvas("home-map-canvas", currentFortuneMap);
     renderMapCanvas("farm-map-canvas", currentFortuneMap);
@@ -1278,7 +1406,7 @@
 
   function fieldNameFor(allocationId) {
     var allocation = allocationFor(allocationId);
-    return allocation && allocation.operational_block_name ? allocation.operational_block_name : "Field";
+    return allocation && allocation.operational_block_name ? fieldLabel(allocation.operational_block_name) : t("field");
   }
 
   function exceptionFor(exceptionId) {
@@ -1311,24 +1439,33 @@
       return relationship.person_id === person.id;
     });
     var assignmentCopy = assignments.length ? assignments.map(function (relationship) {
-      return readable(relationship.role) + (relationship.scope_name ? " · " + relationship.scope_name : "");
+      return readable(relationship.role) + (relationship.scope_name ? " · " + fieldLabel(relationship.scope_name) : "");
     }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
       (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
     return {
+      id: person.id,
       name: person.name,
       role: readable(person.role),
       scope: assignmentCopy,
       openWork: assignedItems.length,
-      fields: fields
+      fields: fields,
+      fieldCount: assignments.length || fields.length,
+      isFarmer: isFarmer(person),
+      characteristics: Array.isArray(person.characteristics) ? person.characteristics.map(sampleText) : []
     };
   }
 
   function personCardMarkup(personData) {
-    return '<article class="directory-card person-card"><h3>' + escapeHtml(personData.name) + '</h3>' +
+    var metricValue = personData.isFarmer ? formatCount(personData.fieldCount) : formatCount(personData.openWork);
+    var metricLabel = personData.isFarmer ? (personData.fieldCount === 1 ? t("fieldCount") : t("fieldCountPlural")) :
+      (personData.openWork === 1 ? t("openAction") : t("openActions"));
+    var characteristics = personData.characteristics.length ? personData.characteristics : [personData.scope];
+    return '<button class="directory-card person-card" type="button" data-record-kind="' + (personData.isFarmer ? "farmer" : "worker") +
+      '" data-record-id="' + escapeHtml(personData.id) + '"><h3>' + escapeHtml(personData.name) + '</h3>' +
       '<p class="person-role">' + escapeHtml(personData.role) + '</p>' +
-      '<p class="person-assignment">' + escapeHtml(personData.scope) + '</p>' +
-      '<p class="person-work">' + personData.openWork + (personData.openWork === 1 ? ' open item' : ' open items') +
-      (personData.fields.length ? ' · ' + escapeHtml(personData.fields.join(", ")) : '') + '</p></article>';
+      '<div class="directory-card-metric"><strong>' + escapeHtml(metricValue) + '</strong><span>' + escapeHtml(metricLabel) + '</span></div>' +
+      '<ul class="directory-characteristics">' + characteristics.map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul>' +
+      '<p class="person-assignment">' + escapeHtml(personData.scope) + '</p></button>';
   }
 
   function peopleTableMarkup(people) {
@@ -1337,7 +1474,7 @@
     }
     return people.map(function (person) {
       return '<tr><th scope="row">' + escapeHtml(person.name) + '</th><td>' + escapeHtml(person.role) +
-        '</td><td>' + escapeHtml(person.scope) + '</td><td>' + escapeHtml(person.openWork + (person.openWork === 1 ? " item" : " items")) +
+        '</td><td>' + escapeHtml(person.scope) + '</td><td>' + escapeHtml(formatCount(person.openWork) + " " + (person.openWork === 1 ? t("openAction") : t("openActions"))) +
         '</td></tr>';
     }).join("");
   }
@@ -1359,6 +1496,64 @@
       '<p class="empty-state">No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.</p>');
     setHtml("farmer-table-body", peopleTableMarkup(farmers));
     setHtml("worker-table-body", peopleTableMarkup(workers));
+  }
+
+  function recordTraits(items) {
+    element("record-dialog-characteristics").innerHTML = items.filter(Boolean).map(function (item) {
+      return "<li>" + escapeHtml(item) + "</li>";
+    }).join("");
+  }
+
+  function openRecordDialog(kind, id) {
+    var title = "";
+    var metric = "—";
+    var metricLabel = "";
+    var traits = [];
+    var context = "";
+    if (kind === "farm") {
+      var allocation = allocationFor(id);
+      if (!allocation) {
+        return;
+      }
+      var work = (currentRuntime.work_items || []).filter(function (item) {
+        return item.allocation_id === allocation.id && isOpenWork(item);
+      }).length;
+      title = (allocation.farm_name ? sampleText(allocation.farm_name) + " · " : "") + fieldLabel(allocation.operational_block_name);
+      metric = Number(allocation.area_hectares) ? areaLabel(allocation.area_hectares) : formatCount(work);
+      metricLabel = Number(allocation.area_hectares) ? t("area") : (work === 1 ? t("openAction") : t("openActions"));
+      traits = [
+        allocation.location_label ? t("location") + " · " + sampleText(allocation.location_label) : "",
+        allocation.crop_name ? t("crop") + " · " + cropLabel(allocation.crop_name) : "",
+        allocation.cultivar ? t("variety") + " · " + allocation.cultivar : "",
+        work ? t("risk") + " · " + formatCount(work) + " " + (work === 1 ? t("openAction") : t("openActions")) : ""
+      ];
+      context = t("reviewedRecord");
+    } else {
+      var person = personFor(id);
+      if (!person) {
+        return;
+      }
+      var runtime = currentRuntime || {};
+      var relationships = runtime.person_operating_relationships && Array.isArray(runtime.person_operating_relationships.items) ?
+        runtime.person_operating_relationships.items : [];
+      var data = personDirectoryData(person, runtime, relationships, "available");
+      title = data.name;
+      metric = data.isFarmer ? formatCount(data.fieldCount) : formatCount(data.openWork);
+      metricLabel = data.isFarmer ? (data.fieldCount === 1 ? t("fieldCount") : t("fieldCountPlural")) :
+        (data.openWork === 1 ? t("openAction") : t("openActions"));
+      traits = data.characteristics.length ? data.characteristics : [data.scope];
+      context = data.scope;
+    }
+    element("record-dialog-kind").textContent = kind === "farm" ? t("field") : (kind === "farmer" ? t("farmer") : t("fieldWorker"));
+    element("record-dialog-title").textContent = title;
+    element("record-dialog-metric").textContent = metric;
+    element("record-dialog-metric-label").textContent = metricLabel;
+    element("record-dialog-context").textContent = context;
+    recordTraits(traits);
+    var dialog = element("record-dialog");
+    if (!dialog.open) {
+      dialog.showModal();
+    }
   }
 
   function renderInboxWork(runtime) {
@@ -1394,11 +1589,11 @@
     element("field-status").textContent = status;
     element("field-status").className = status === "attention" ? "severity severity-high" : "status";
     var labels = {
-      farms: "Open farms",
-      farmers: "Open farmers",
-      workers: "Open field workers",
-      inbox: "Open inbox",
-      settings: "Open settings"
+      farms: t("openFarms"),
+      farmers: t("openFarmers"),
+      workers: t("openWorkers"),
+      inbox: t("openInbox"),
+      settings: t("openSettings")
     };
     setFocusAction(labels[targetView] || "Open today", targetView, null);
   }
@@ -1407,9 +1602,9 @@
     var programme = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
     if (!programme) {
       setDailyDirection(
-        "reading", "Reading today’s operation.",
-        "The field picture is loading.",
-        "Daily activity loading", "Coverage loading", "Open field workers", "Awaiting today’s signal", "workers"
+        "reading", t("directionLoadingTitle"),
+        t("directionLoadingNote"),
+        t("dailyActivityLoading"), t("coverageLoadingShort"), t("openWorkers"), t("awaitingSignal"), "workers"
       );
       return;
     }
@@ -1428,32 +1623,31 @@
       return ["critical", "high"].indexOf(issue.highest_severity) !== -1;
     })[0] || null;
     var confidence = freshness.status === "available" ?
-      "Published source · " + formatAgeHours(freshness.age_hours) + " old" : "No published source timestamp";
+      "· " + formatAgeHours(freshness.age_hours) : "";
 
     if (officersWithoutVisit > 0) {
       setDailyDirection(
-        "attention", formatCount(officersWithoutVisit) + " officers filed no visit today.",
-        formatCount(filedToday) + " visits were filed by " + formatCount(filingOfficers) + " of " + formatCount(activeOfficers) + " active officers. Start with the coverage gap, then follow up with the field team.",
-        formatCount(filingOfficers) + " / " + formatCount(activeOfficers) + " officers filed", formatCount(overdue) + " farmers overdue",
-        "Review worker follow-up", confidence, "workers"
+        "attention", message("officersNoVisitTitle", { count: formatCount(officersWithoutVisit) }),
+        message("officersNoVisitNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
+        message("officersFiled", { filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
+        t("reviewWorkerFollowUp"), confidence, "workers"
       );
       return;
     }
     if (urgentIssue) {
       setDailyDirection(
-        "attention", readable(urgentIssue.issue_code) + " is the lead field signal.",
-        formatCount(urgentIssue.count) + " dated observations in the last " + formatCount(issues.window_days || 7) + " days. Detection shows where to look, not a diagnosis or prevalence rate.",
-        formatCount(filedToday) + " visits filed today", formatCount(overdue) + " farmers overdue",
-        "Review the decision queue", confidence, "inbox"
+        "attention", message("urgentIssueTitle", { issue: readable(urgentIssue.issue_code) }),
+        message("urgentIssueNote", { count: formatCount(urgentIssue.count), days: formatCount(issues.window_days || 7) }),
+        message("visitsFiledMetric", { count: formatCount(filedToday) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
+        t("reviewDecisionQueue"), confidence, "inbox"
       );
       return;
     }
     setDailyDirection(
-      overdue ? "attention" : "recorded", overdue ? formatCount(overdue) + " farmers are overdue for a visit." : "Farmer coverage is current.",
-      overdue ? "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap." :
-        "No overdue visit gap is reported in the published farmer aggregate.",
-      formatCount(filedToday) + " visits filed today", formatCount(neverVisited) + " never visited",
-      overdue ? "Review farmer coverage" : "Review farmer coverage", confidence, "farmers"
+      overdue ? "attention" : "reported", overdue ? message("farmerOverdueTitle", { count: formatCount(overdue) }) : t("farmerCoverageCurrent"),
+      overdue ? t("farmerOverdueNote") : t("noOverdueNote"),
+      message("visitsFiledMetric", { count: formatCount(filedToday) }), message("neverVisitedMetric", { count: formatCount(neverVisited) }),
+      t("reviewFarmerCoverage"), confidence, "farmers"
     );
   }
 
@@ -1673,7 +1867,7 @@
     setSampleMode(true);
     currentRuntime = sampleRuntime();
     currentPortfolio = samplePortfolio();
-    currentOperatingUnitName = "Fortune Rice";
+    currentOperatingUnitName = "Fortune Rice · Dargava, Gabhana, Aligarh";
     focusedAllocationId = null;
     allocationCalendars = {};
     renderPageIntro();
@@ -1789,7 +1983,7 @@
       })
       .catch(function () {
         renderRuntimeUnavailable();
-        element("load-status").textContent = "Showing sample operation.";
+        element("load-status").textContent = t("ready");
       });
 
     fetch(portfolioUrl)
@@ -1840,6 +2034,16 @@
     setManagerSessionFeedback("");
   });
   element("manager-session-form").addEventListener("submit", submitManagerSession);
+  element("close-record-dialog").addEventListener("click", function () {
+    element("record-dialog").close();
+  });
+  document.addEventListener("click", function (event) {
+    var card = event.target.closest("[data-record-kind]");
+    if (!card) {
+      return;
+    }
+    openRecordDialog(card.getAttribute("data-record-kind"), card.getAttribute("data-record-id"));
+  });
   element("review-focus").addEventListener("click", function () {
     showView(focusTargetView);
     if (focusTargetView === "farms") {

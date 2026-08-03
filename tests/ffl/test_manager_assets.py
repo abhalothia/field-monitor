@@ -6,7 +6,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
 
-    assert "Today" in index_html
+    assert "Home" in index_html
     assert "Farms" in index_html
     assert "Farmers" in index_html
     assert "Field workers" in index_html
@@ -17,7 +17,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'id="today-date"' in index_html
     assert 'id="today-time"' in index_html
     assert 'id="weather-state"' in index_html
-    assert 'id="sample-state"' in index_html
+    assert 'id="sample-state"' not in index_html
     assert 'id="home-visits-value"' in index_html
     assert 'id="home-overdue-value"' in index_html
     assert 'id="home-issues-value"' in index_html
@@ -68,9 +68,16 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "samplePortfolio" in app_js
     assert "sampleMap" in app_js
     assert "North Block" in app_js
+    assert "Jewar Model Farm" in app_js
+    assert "Dargava, Gabhana, Aligarh" in app_js
     assert "Asha Devi" in app_js
     assert "Ravi Kumar" in app_js
-    assert "Showing sample operation." in app_js
+    assert 'id="record-dialog"' in index_html
+    assert "openRecordDialog" in app_js
+    assert "data-record-kind" in app_js
+    assert "directory-card-metric" in app_js
+    assert "sampleWeather" in app_js
+    assert "नमूना दृश्य" not in index_html
     assert "Map detail comes only from the latest published, reviewed farm manifest." in app_js
     assert "Programme coverage never becomes a farm pin." in app_js
 
