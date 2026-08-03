@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ffl.persistence import repository
 from ffl.communications import persistence as communications_persistence
 from ffl.communications import service as communications_service
+from ffl.communications.readiness import WhatsAppReadinessConfig, whatsapp_readiness
 from ffl.communications.auth import require_manager
 from ffl.services import operations
 
@@ -77,6 +78,16 @@ def _connection(request: Request):
 
 def _communication_provider(request: Request):
     return request.app.state.communication_provider
+
+
+def _communications_readiness(request: Request) -> dict:
+    """Expose only safe configuration facts to an authenticated manager."""
+    config = WhatsAppReadinessConfig.from_loopmessage_provider(
+        _communication_provider(request),
+        receipt_key_configured=bool(request.app.state.communication_receipt_key),
+        private_worker_attested=bool(request.app.state.private_communications_worker_attested),
+    )
+    return whatsapp_readiness(config)
 
 
 def _redact_endpoint(endpoint: dict) -> dict:
@@ -348,6 +359,12 @@ def communication_candidate_detail(candidate_id: str, request: Request, manager_
 @router.get("/communications/health")
 def communications_health(request: Request, manager_id: str = Depends(require_manager)) -> dict:
     return communications_persistence.health(_connection(request))
+
+
+@router.get("/communications/readiness")
+def communications_readiness(request: Request, manager_id: str = Depends(require_manager)) -> dict:
+    """Show a non-secret, fail-closed WhatsApp readiness report; never enable it."""
+    return _communications_readiness(request)
 
 
 @router.post("/communications/prompts/{prompt_id}/no-response")

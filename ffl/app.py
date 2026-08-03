@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ffl.api.import_routes import router as import_router
 from ffl.api.farm_manifest_routes import router as farm_manifest_router
+from ffl.api.field_information_request_routes import router as field_information_request_router
 from ffl.api.context_routes import router as context_router
 from ffl.api.data_lanes_routes import router as data_lanes_router
 from ffl.api.launch_routes import router as launch_router
@@ -146,7 +147,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
@@ -160,6 +161,17 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.state.manager_api_token = manager_api_token if manager_api_token is not None else configured_manager_token()
     app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
     app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
+    # A browser, webhook, or Vercel preview can never attest a private recovery
+    # worker.  Production composition may set this trusted fact only on the
+    # dedicated private worker-hosted deployment after the runbook is complete.
+    app.state.private_communications_worker_attested = (
+        bool(private_communications_worker_attested)
+        if private_communications_worker_attested is not None
+        else (
+            not bool(os.environ.get("VERCEL"))
+            and os.environ.get("FFL_PRIVATE_COMMUNICATIONS_WORKER_ATTESTED") == "true"
+        )
+    )
     app.state.launch_password = launch_password if launch_password is not None else configured_launch_password()
     app.state.pilot_setup_approval_token = (
         pilot_setup_approval_token
@@ -311,6 +323,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(season_router)
     app.include_router(import_router)
     app.include_router(farm_manifest_router)
+    app.include_router(field_information_request_router)
     app.include_router(procurement_history_router)
     app.include_router(relationship_router)
     app.include_router(context_router)
