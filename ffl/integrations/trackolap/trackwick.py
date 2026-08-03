@@ -30,7 +30,7 @@ TASK_LIST_PATH = "/cust/1/api/task/list"
 PRODUCTIVITY_PATH = "/cust/1/api/asset/productivity"
 DEFAULT_FORM_TITLE = "Farmer Visit"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
-MAPPING_VERSION = "trackwick-task-v1"
+MAPPING_VERSION = "trackwick-task-v2"
 
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CREDENTIAL_REFERENCE = re.compile(r"(?:env|secret)://[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")
@@ -74,6 +74,7 @@ class TrackwickApiConfig:
     page_size: int = 100
     max_pages: int = 500
     delta_lookback_days: int = 2
+    severity_form_key: Optional[str] = None
 
     @classmethod
     def from_environment(
@@ -95,6 +96,7 @@ class TrackwickApiConfig:
             ZoneInfo(reporting_timezone)
         except Exception as error:
             raise TrackwickConfigurationError("FFL_TRACKWICK_REPORTING_TIMEZONE must be an IANA timezone") from error
+        severity_form_key = _optional_form_key(values.get("FFL_TRACKWICK_SEVERITY_FORM_KEY"))
         return cls(
             customer_id=customer_id,
             tenant_id=tenant_id,
@@ -106,6 +108,7 @@ class TrackwickApiConfig:
             delta_lookback_days=_bounded_int(
                 values.get("FFL_TRACKWICK_DELTA_LOOKBACK_DAYS"), 2, 1, 31
             ),
+            severity_form_key=severity_form_key,
         )
 
 
@@ -305,7 +308,8 @@ def _normalise_task(
         "visit_status": "completed",
     }
     records.append(_record("visits", "visit:" + task_id, source_time, config.tenant_id, visit_values))
-    records.extend(_issue_records(task_id, source_time, config.tenant_id, form_details))
+    severity = _severity(form_details.get(config.severity_form_key)) if config.severity_form_key else "unknown"
+    records.extend(_issue_records(task_id, source_time, config.tenant_id, form_details, severity))
     records.extend(_pesticide_records(task_id, source_time, config.tenant_id, form_details))
     return tuple(records)
 
@@ -345,7 +349,7 @@ def _normalise_attendance(
 
 
 def _issue_records(
-    task_id: str, observed_at: str, tenant_id: str, form: Mapping[str, Any]
+    task_id: str, observed_at: str, tenant_id: str, form: Mapping[str, Any], severity: str = "unknown"
 ) -> list[TrackolapRecord]:
     records: list[TrackolapRecord] = []
     for issue_type in ("disease", "other_disease", "pest", "other_pest"):
@@ -364,7 +368,7 @@ def _issue_records(
                     "visit_id": task_id,
                     "task_id": task_id,
                     "issue_code": issue_code,
-                    "severity": "unknown",
+                    "severity": severity,
                     "observed_at": observed_at,
                 },
             ))
@@ -466,6 +470,17 @@ def _kit_status(value: Any) -> str:
     return "taken" if any(answer.casefold() in {"yes", "taken", "received", "हाँ", "हां"} for answer in answers) else "not_taken"
 
 
+def _severity(value: Any) -> str:
+    """Accept only an explicit, configured severity field from the visit form."""
+    labels = {
+        "low": "low", "moderate": "moderate", "medium": "moderate", "high": "high", "critical": "critical",
+        "कम": "low", "मध्यम": "moderate", "उच्च": "high", "गंभीर": "critical", "अति गंभीर": "critical",
+    }
+    values = {labels.get(answer.casefold(), "unknown") for answer in _answers(value)}
+    known = values - {"unknown"}
+    return known.pop() if len(known) == 1 else "unknown"
+
+
 def _village_key(value: Any) -> str:
     answers = _answers(value)
     if not answers:
@@ -508,6 +523,15 @@ def _required_opaque(value: Optional[str], name: str) -> str:
     candidate = _opaque(value)
     if candidate is None:
         raise TrackwickConfigurationError(name + " is required and must be an opaque identifier")
+    return candidate
+
+
+def _optional_form_key(value: Optional[str]) -> Optional[str]:
+    if value is None or not value.strip():
+        return None
+    candidate = value.strip()
+    if len(candidate) > 256 or any(character in candidate for character in "\r\n\x00"):
+        raise TrackwickConfigurationError("FFL_TRACKWICK_SEVERITY_FORM_KEY is invalid")
     return candidate
 
 

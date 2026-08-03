@@ -16,6 +16,8 @@ FFL_TRACKWICK_API_KEY=<TrackWick API key>
 FFL_TRACKWICK_API_KEY_REFERENCE=env://FFL_TRACKWICK_API_KEY
 FFL_TRACKWICK_TENANT_ID=fortune-paddy
 FFL_TRACKWICK_REPORTING_TIMEZONE=Asia/Kolkata
+# Optional: exact TrackWick form label for a human-reported low/moderate/high/critical field
+FFL_TRACKWICK_SEVERITY_FORM_KEY=<exact form field label>
 ```
 
 Optional bounds are `FFL_TRACKWICK_TASK_PAGE_SIZE` (1–250, default 100), `FFL_TRACKWICK_TASK_MAX_PAGES` (1–1000, default 500), and `FFL_TRACKWICK_DELTA_LOOKBACK_DAYS` (1–31, default 2). The connector uses only these GET endpoints:
@@ -39,6 +41,8 @@ One task can safely become a farmer-task context row, completed visit, issue obs
 - `GET /api/v1/trackwick/metrics`
 
 The refresh is manual and manager-authorized. Its published records are aggregate source context only; they never create farms, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
+
+Severity stays `unknown` unless Fortune explicitly adds a low/moderate/high/critical field to the Farmer Visit form and supplies its exact label in `FFL_TRACKWICK_SEVERITY_FORM_KEY`. AGRO CEO never infers severity from a pest or disease name. New submissions then carry the field worker's stated severity; existing source records remain unchanged.
 
 The manager's **Refresh** control invokes this source refresh after manager
 access is unlocked, then reloads the same TrackWick metrics. The first successful

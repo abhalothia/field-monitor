@@ -116,6 +116,36 @@ def test_trackwick_adapter_uses_verified_epoch_creation_window_when_requested():
     assert task_request.url.params["createDateEnd"] == "1785781800000"
 
 
+def test_trackwick_uses_only_an_explicitly_configured_form_field_for_issue_severity():
+    task = dict(TASK)
+    task["formDetails"] = dict(TASK["formDetails"], **{"Issue severity": "High"})
+    config = TrackwickApiConfig(
+        customer_id="trackwick-tenant",
+        tenant_id="fortune-paddy",
+        api_key_reference="env://FFL_TRACKWICK_API_KEY",
+        severity_form_key="Issue severity",
+    )
+    normalised = normalise_trackwick(
+        TrackwickFetchResult(tasks=(task,), attendance=(), task_pages=1),
+        config,
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    issue_values = [record.values for record in normalised.records if record.feed == "issue_observations"]
+
+    assert issue_values
+    assert {record["severity"] for record in issue_values} == {"high"}
+
+
+def test_trackwick_rejects_an_unsafe_configured_severity_form_key():
+    with pytest.raises(ValueError, match="SEVERITY_FORM_KEY"):
+        TrackwickApiConfig.from_environment({
+            "FFL_TRACKWICK_ENABLED": "true",
+            "FFL_TRACKWICK_CUSTOMER_ID": "trackwick-tenant",
+            "FFL_TRACKWICK_SEVERITY_FORM_KEY": "unsafe\nvalue",
+        })
+
+
 def test_trackwick_refresh_publishes_only_safe_aggregate_context(ffl_db, owner):
     transport = RecordingTransport()
 

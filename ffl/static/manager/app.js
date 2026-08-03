@@ -43,9 +43,10 @@
       refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
       sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
       localContext: "Local operating context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
-      farmerReach: "Farmer reach", chemicalRecord: "Chemical record", cropSignals: "Crop signals",
+      farmerReach: "Farmer reach", purchaseShare: "Purchase share", chemicalRecord: "Chemical record", cropSignals: "Crop signals",
       programmeDataLoading: "Reading programme data…", noEligibleFarmers: "No kit-taking farmer records yet",
       farmerReachNote: "{recent} of {total} reached in 14 days · not crop purchase share",
+      purchaseShareNote: "{purchase} qtl of {harvest} qtl reported harvest · {season}",
       chemicalRecordNote: "{count} reported · not compliance or export proof",
       cropSignalsNote: "{count} in the last {days} days · detection, not diagnosis",
       verifiedFarms: "Where verified farms are.", reviewedRecord: "Reviewed operating record", verifiedFields: "Verified fields",
@@ -93,9 +94,10 @@
       refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
       sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
       localContext: "स्थानीय परिचालन संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
-      farmerReach: "किसान संपर्क", chemicalRecord: "रसायन रिकॉर्ड", cropSignals: "फसल संकेत",
+      farmerReach: "किसान संपर्क", purchaseShare: "खरीद हिस्सेदारी", chemicalRecord: "रसायन रिकॉर्ड", cropSignals: "फसल संकेत",
       programmeDataLoading: "कार्यक्रम डेटा पढ़ा जा रहा है…", noEligibleFarmers: "किट लेने वाले किसानों का रिकॉर्ड अभी नहीं है",
       farmerReachNote: "{total} में से {recent} से 14 दिनों में संपर्क · यह फसल खरीद हिस्सेदारी नहीं है",
+      purchaseShareNote: "{harvest} क्विंटल दर्ज उपज में से {purchase} क्विंटल खरीद · {season}",
       chemicalRecordNote: "{count} दर्ज · यह अनुपालन या निर्यात-तैयारी का प्रमाण नहीं है",
       cropSignalsNote: "पिछले {days} दिनों में {count} संकेत · यह पहचान है, निदान नहीं",
       verifiedFarms: "सत्यापित खेत कहाँ हैं", reviewedRecord: "समीक्षित परिचालन रिकॉर्ड", verifiedFields: "सत्यापित खेत",
@@ -336,7 +338,8 @@
       outcomes: {
         farmer_reach: { recently_reached: 1585, eligible_farmers: 2592, share_percent: 61.1, window_days: 14 },
         chemical_record: { reported_events: 0, review_cues: 0 },
-        crop_signals: { observations: 545, window_days: 7, lead_issue: { issue_code: "leaf folder", count: 265, highest_severity: "moderate" } }
+        crop_signals: { observations: 545, window_days: 7, lead_issue: { issue_code: "leaf folder", count: 265, highest_severity: "moderate" } },
+        purchase_share: { availability: "not_connected" }
       },
       freshness: { status: "available", age_hours: 1 }
     };
@@ -457,14 +460,22 @@
     var outcomes = metrics && metrics.outcomes ? metrics.outcomes : {};
     var sourceIsReady = freshness.status === "available";
     var farmerReach = outcomes.farmer_reach || {};
+    var purchaseShare = outcomes.purchase_share || {};
+    var purchaseAvailable = purchaseShare.availability === "available";
     var eligibleFarmers = firstKnownNumber([farmerReach.eligible_farmers]);
     var recentlyReached = firstKnownNumber([farmerReach.recently_reached]);
     var reachShare = firstKnownNumber([farmerReach.share_percent]);
+    element("home-supply-label").textContent = purchaseAvailable ? t("purchaseShare") : t("farmerReach");
     setHomeMetric(
       "home-supply-value", "home-supply-note",
-      !sourceIsReady || reachShare === null ? "—" : formatPercent(reachShare),
-      !sourceIsReady ? t("programmeDataLoading") : (!eligibleFarmers ? t("noEligibleFarmers") :
-        message("farmerReachNote", { recent: formatCount(recentlyReached), total: formatCount(eligibleFarmers) }))
+      purchaseAvailable ? formatPercent(purchaseShare.share_percent) :
+        (!sourceIsReady || reachShare === null ? "—" : formatPercent(reachShare)),
+      purchaseAvailable ? message("purchaseShareNote", {
+        purchase: formatQuantity(purchaseShare.fortune_purchase_qtl),
+        harvest: formatQuantity(purchaseShare.reported_harvest_qtl),
+        season: readable(purchaseShare.season_code)
+      }) : (!sourceIsReady ? t("programmeDataLoading") : (!eligibleFarmers ? t("noEligibleFarmers") :
+        message("farmerReachNote", { recent: formatCount(recentlyReached), total: formatCount(eligibleFarmers) })))
     );
     var chemicalRecord = outcomes.chemical_record || {};
     var chemicalEvents = firstKnownNumber([chemicalRecord.reported_events]);
@@ -493,6 +504,16 @@
     return new Intl.NumberFormat(interfaceLocale === "hi" ? "hi-IN" : "en-IN", {
       maximumFractionDigits: 1
     }).format(numeric) + "%";
+  }
+
+  function formatQuantity(value) {
+    var numeric = Number(value);
+    if (!isFinite(numeric)) {
+      return "—";
+    }
+    return new Intl.NumberFormat(interfaceLocale === "hi" ? "hi-IN" : "en-IN", {
+      maximumFractionDigits: 1
+    }).format(numeric);
   }
 
   function firstKnownNumber(values) {

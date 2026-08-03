@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from ffl.integrations.trackolap.contracts import TrackolapRecord
 from ffl.persistence import repository
+from ffl.services import procurement_capture
 from ffl.services.trackolap_ingest import SOURCE_KEY
 
 
@@ -23,6 +24,7 @@ def dashboard_metrics(
     recent_days: int = 14,
     issue_window_days: int = 7,
     reporting_timezone: str = DEFAULT_REPORTING_TIMEZONE,
+    procurement_snapshot: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     """Derive dashboard-equivalent aggregates without interpreting them as advice.
 
@@ -66,7 +68,9 @@ def dashboard_metrics(
         "visits": _visit_summary(valid_visits, officers, now),
         "issues": issue_summary,
         "pesticides": pesticide_summary,
-        "outcomes": _operating_outcomes(coverage, pesticide_summary, issue_summary),
+        "outcomes": _operating_outcomes(
+            coverage, pesticide_summary, issue_summary, procurement_snapshot
+        ),
         "freshness": _freshness(current, now),
         "warnings": warning_codes,
     }
@@ -82,9 +86,19 @@ def dashboard_metrics_for_source(
     source = repository.get_source_registry_by_key(conn, source_key)
     now = as_of or datetime.now(ZoneInfo(reporting_timezone))
     if source is None:
-        return dashboard_metrics((), now, reporting_timezone=reporting_timezone)
+        return dashboard_metrics(
+            (),
+            now,
+            reporting_timezone=reporting_timezone,
+            procurement_snapshot=procurement_capture.latest_published_procurement_capture(conn),
+        )
     records = repository.list_trackolap_records(conn, source.id, statuses=("published",))
-    return dashboard_metrics(records, now, reporting_timezone=reporting_timezone)
+    return dashboard_metrics(
+        records,
+        now,
+        reporting_timezone=reporting_timezone,
+        procurement_snapshot=procurement_capture.latest_published_procurement_capture(conn),
+    )
 
 
 def _coverage(
@@ -191,7 +205,12 @@ def _pesticide_summary(events: Iterable[Mapping[str, str]]) -> dict:
     }
 
 
-def _operating_outcomes(coverage: Mapping[str, int], pesticides: Mapping[str, int], issues: Mapping[str, Any]) -> dict:
+def _operating_outcomes(
+    coverage: Mapping[str, int],
+    pesticides: Mapping[str, int],
+    issues: Mapping[str, Any],
+    procurement_snapshot: Optional[Mapping[str, Any]],
+) -> dict:
     """Name the three useful management truths without overstating the source.
 
     Each outcome carries its own denominator and limitation so callers cannot
@@ -208,6 +227,7 @@ def _operating_outcomes(coverage: Mapping[str, int], pesticides: Mapping[str, in
     )
     issue_rows = issues.get("by_issue", [])
     lead_issue = issue_rows[0] if isinstance(issue_rows, list) and issue_rows else None
+    purchase_capture = _purchase_capture_outcome(procurement_snapshot)
     return {
         "farmer_reach": {
             "recently_reached": recently_reached,
@@ -230,6 +250,29 @@ def _operating_outcomes(coverage: Mapping[str, int], pesticides: Mapping[str, in
             "basis": "dated field observations",
             "limitation": "detection signal, not a diagnosis or prevalence rate",
         },
+        "purchase_share": purchase_capture,
+    }
+
+
+def _purchase_capture_outcome(snapshot: Optional[Mapping[str, Any]]) -> dict:
+    """Expose only a published aggregate capture ratio, never source rows."""
+    capture = snapshot.get("capture") if isinstance(snapshot, Mapping) else None
+    if not isinstance(capture, Mapping):
+        return {
+            "availability": "not_connected",
+            "basis": "not available until Fortune publishes a one-season purchase capture snapshot",
+            "limitation": "farmer reach is not crop purchase share",
+        }
+    return {
+        "availability": "available",
+        "season_code": capture.get("season_code"),
+        "snapshot_date": capture.get("snapshot_date"),
+        "reported_farmers": int(capture.get("reported_farmers", 0)),
+        "reported_harvest_qtl": float(capture.get("reported_harvest_qtl", 0)),
+        "fortune_purchase_qtl": float(capture.get("fortune_purchase_qtl", 0)),
+        "share_percent": float(capture.get("purchase_share_percent", 0)),
+        "basis": "Fortune purchase quantity divided by linked growers' reported harvest quantity",
+        "limitation": "reported-harvest coverage, not regional market share",
     }
 
 

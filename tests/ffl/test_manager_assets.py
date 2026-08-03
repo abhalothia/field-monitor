@@ -19,6 +19,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'id="weather-state"' in index_html
     assert 'id="sample-state"' not in index_html
     assert 'id="home-supply-value"' in index_html
+    assert 'id="home-supply-label"' in index_html
     assert 'id="home-compliance-value"' in index_html
     assert 'id="home-interventions-value"' in index_html
     assert 'id="home-map-canvas"' in index_html
@@ -56,7 +57,9 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "renderWeatherContext" in app_js
     assert "renderHomeMetrics" in app_js
     assert "formatPercent" in app_js
+    assert "formatQuantity" in app_js
     assert "farmerReachNote" in app_js
+    assert "purchaseShareNote" in app_js
     assert "chemicalRecordNote" in app_js
     assert "cropSignalsNote" in app_js
     assert "renderFortuneMap" in app_js
