@@ -625,6 +625,9 @@
   function renderPeople(runtime) {
     var people = Array.isArray(runtime.people) ? runtime.people : [];
     var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    var relationshipSummary = runtime.person_operating_relationships || {};
+    var relationships = Array.isArray(relationshipSummary.items) ? relationshipSummary.items : [];
+    var relationshipAvailability = relationshipSummary.availability || "not_configured";
     if (!people.length) {
       setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
       return;
@@ -635,8 +638,16 @@
       });
       var fields = assignedItems.map(function (item) { return fieldNameFor(item.allocation_id); })
         .filter(function (value, index, values) { return values.indexOf(value) === index; });
+      var assignments = relationships.filter(function (relationship) {
+        return relationship.person_id === person.id;
+      });
+      var assignmentCopy = assignments.length ? assignments.map(function (relationship) {
+        return readable(relationship.role) + (relationship.scope_name ? " · " + relationship.scope_name : "");
+      }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
+        (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
       return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
         '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
+        '<p class="person-assignment">' + escapeHtml(assignmentCopy) + '</p>' +
         '<p class="person-work">' + assignedItems.length + (assignedItems.length === 1 ? ' open item' : ' open items') +
         (fields.length ? ' · ' + escapeHtml(fields.join(", ")) : '') + '</p></article>';
     }).join(""));

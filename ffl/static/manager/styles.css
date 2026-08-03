@@ -139,7 +139,8 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .people-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .person-card { min-height: 154px; }
 .person-card h3 { color: #173b2e; font-family: Manrope, Arial, sans-serif; font-size: 1rem; font-weight: 800; }
-.person-role { margin: 7px 0 22px; color: #617064; font-size: .75rem; }
+.person-role { margin: 7px 0 8px; color: #617064; font-size: .75rem; }
+.person-assignment { min-height: 2.7em; margin: 0 0 14px; color: #315844; font-size: .72rem; line-height: 1.45; }
 .person-work { margin: 0; color: #315544; font-family: "DM Mono", monospace; font-size: .66rem; letter-spacing: .04em; text-transform: uppercase; }
 
 .portfolio-list { display: grid; gap: 10px; }

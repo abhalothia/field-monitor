@@ -110,6 +110,8 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "showView" in app_js
     assert "moveTab" in app_js
     assert "renderPeople" in app_js
+    assert "person_operating_relationships" in app_js
+    assert "Field relationship setup is pending." in app_js
     assert "/morning-brief" in app_js
     assert "loadMorningBrief" in app_js
     assert "The latest field record is visible here" in app_js

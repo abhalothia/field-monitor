@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ffl.app import create_app
+from ffl.persistence import repository
 from ffl.seed import seed_pilot
 from ffl.services import season, templates
 
@@ -37,6 +38,48 @@ def test_runtime_returns_seeded_pilot_state(seeded_client):
     assert payload["work_items"]
     assert payload["exceptions"] == []
     assert payload["latest_field_update"] is None
+    assert payload["person_operating_relationships"] == {"availability": "available", "items": []}
+
+
+def test_runtime_shows_only_active_safe_relationship_summaries_for_its_operating_unit(seeded_client):
+    connection = seeded_client.client.app.state.conn
+    grower = repository.create_person(connection, "Asha Grower", "field_operator")
+    repository.create_person_operating_relationship(
+        connection,
+        grower.id,
+        "crop_allocation",
+        seeded_client.seed["allocation_id"],
+        "landholder",
+        "2025-06-01",
+        ends_on="2025-11-30",
+        provenance="historical contract register",
+        reviewed_by_person_id=seeded_client.seed["manager_id"],
+    )
+    relationship = repository.create_person_operating_relationship(
+        connection,
+        grower.id,
+        "crop_allocation",
+        seeded_client.seed["allocation_id"],
+        "grower",
+        "2026-06-01",
+        provenance="reviewed contract register",
+        reviewed_by_person_id=seeded_client.seed["manager_id"],
+    )
+
+    summary = seeded_client.client.get("/api/v1/runtime").json()["person_operating_relationships"]
+
+    assert summary == {
+        "availability": "available",
+        "items": [{
+            "person_id": grower.id,
+            "role": "grower",
+            "scope_type": "crop_allocation",
+            "scope_name": "North Block",
+            "starts_on": "2026-06-01",
+        }],
+    }
+    assert relationship.provenance not in repr(summary)
+    assert relationship.reviewed_by_person_id not in repr(summary)
 
 
 def test_runtime_exposes_only_safe_latest_field_update_metadata(seeded_client):

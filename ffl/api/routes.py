@@ -1,6 +1,7 @@
 from dataclasses import asdict
 
 import json
+import sqlite3
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -90,6 +91,57 @@ def _runtime_rows(conn, table: str, where: str = "", params: tuple = ()) -> list
     return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
+def _person_operating_relationships_available(conn) -> bool:
+    """Do not break the runtime while a reviewed Postgres migration is pending."""
+    if getattr(conn, "dialect", "sqlite") == "postgres":
+        row = conn.execute(
+            "SELECT to_regclass(?) AS relation_name", ("agro_person_operating_relationships",)
+        ).fetchone()
+        return row is not None and row["relation_name"] is not None
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ("person_operating_relationships",),
+    ).fetchone()
+    return row is not None
+
+
+def _runtime_person_relationships(conn, operating_unit_id: str) -> dict:
+    """Return a minimal active assignment view; management history stays private."""
+    try:
+        if not _person_operating_relationships_available(conn):
+            return {"availability": "not_configured", "items": []}
+        rows = conn.execute(
+            """SELECT relationships.person_id, relationships.role, relationships.scope_type,
+                      relationships.starts_on,
+                      CASE relationships.scope_type
+                        WHEN 'operating_unit' THEN direct_unit.name
+                        WHEN 'land_parcel' THEN parcel.name
+                        WHEN 'operational_block' THEN block.name
+                        WHEN 'crop_allocation' THEN allocation_block.name
+                      END AS scope_name
+               FROM person_operating_relationships AS relationships
+               LEFT JOIN operating_units AS direct_unit
+                 ON direct_unit.id = relationships.operating_unit_id
+               LEFT JOIN land_parcels AS parcel
+                 ON parcel.id = relationships.land_parcel_id
+               LEFT JOIN operational_blocks AS block
+                 ON block.id = relationships.operational_block_id
+               LEFT JOIN crop_allocations AS allocation
+                 ON allocation.id = relationships.crop_allocation_id
+               LEFT JOIN operational_blocks AS allocation_block
+                 ON allocation_block.id = allocation.operational_block_id
+               WHERE relationships.status = 'active' AND (
+                 relationships.operating_unit_id = ? OR parcel.operating_unit_id = ?
+                 OR block.operating_unit_id = ? OR allocation.operating_unit_id = ?
+               )
+               ORDER BY relationships.person_id, relationships.starts_on, relationships.created_at""",
+            (operating_unit_id, operating_unit_id, operating_unit_id, operating_unit_id),
+        ).fetchall()
+    except (sqlite3.Error, TypeError, ValueError):
+        return {"availability": "unavailable", "items": []}
+    return {"availability": "available", "items": [dict(row) for row in rows]}
+
+
 @router.get("/runtime")
 def get_runtime(request: Request) -> dict:
     conn = _connection(request)
@@ -98,6 +150,7 @@ def get_runtime(request: Request) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="operating unit not found")
 
     operating_unit = dict(row)
+    person_operating_relationships = _runtime_person_relationships(conn, operating_unit["id"])
     people = [
         dict(person) for person in conn.execute(
             "SELECT id, name, role FROM people ORDER BY name, created_at"
@@ -122,6 +175,7 @@ def get_runtime(request: Request) -> dict:
             "work_items": [],
             "exceptions": [],
             "latest_field_update": None,
+            "person_operating_relationships": person_operating_relationships,
         }
 
     placeholders = ", ".join("?" for _ in allocation_ids)
@@ -146,6 +200,7 @@ def get_runtime(request: Request) -> dict:
         "work_items": work_items,
         "exceptions": exceptions,
         "latest_field_update": dict(latest_field_update) if latest_field_update is not None else None,
+        "person_operating_relationships": person_operating_relationships,
     }
 
 
