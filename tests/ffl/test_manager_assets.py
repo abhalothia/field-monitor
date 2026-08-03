@@ -15,6 +15,9 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "System" in index_html
     assert "Open field work" in index_html
     assert "Field pulse" in index_html
+    assert "Operations board" in index_html
+    assert "Record health, not a performance score." in index_html
+    assert 'id="operations-board"' in index_html
     assert "Crop allocations" in index_html
     assert 'id="allocations-heading"' in index_html
     assert index_html.count('id="allocation-list"') == 1
@@ -110,6 +113,10 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "ledger.slice(0, 6)" in app_js
     assert "Public context never replaces field evidence." in app_js
     assert "renderFieldPulse" in app_js
+    assert "renderOperationsBoard" in app_js
+    assert "Farmer programme" in app_js
+    assert "Source programme context, not a canonical farmer record." in app_js
+    assert "data-board-view" in app_js
     assert "renderAllocationCards" in app_js
     assert "allocationSnapshot" in app_js
     assert "loadAllocationCalendars" in app_js

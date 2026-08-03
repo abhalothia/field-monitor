@@ -250,6 +250,9 @@
     setHtml("programme-observations", '<p class="empty-state">No source observations are shown while manager access is locked.</p>');
     setHtml("programme-inputs", '<p class="empty-state">No source input signals are shown while manager access is locked.</p>');
     setHtml("programme-freshness", '<p class="empty-state">Source freshness is private manager context.</p>');
+    if (currentRuntime) {
+      renderOperationsBoard(currentRuntime);
+    }
   }
 
   function renderProgrammeUnavailable() {
@@ -260,6 +263,9 @@
     setHtml("programme-observations", '<p class="empty-state portfolio-unavailable">Observation context is unavailable; absence is not evidence of absence.</p>');
     setHtml("programme-inputs", '<p class="empty-state portfolio-unavailable">Input review cues are unavailable.</p>');
     setHtml("programme-freshness", '<p class="empty-state portfolio-unavailable">Source state could not be checked.</p>');
+    if (currentRuntime) {
+      renderOperationsBoard(currentRuntime);
+    }
   }
 
   function renderProgramme(metrics, health) {
@@ -310,6 +316,9 @@
       '<div><dt>Age</dt><dd>' + escapeHtml(formatAgeHours(freshness.age_hours)) + '</dd></div>' +
       '<div><dt>Source state</dt><dd>' + escapeHtml(sourceState) + '</dd></div>' +
       '</dl><p class="programme-note">Only published source records contribute here.</p>');
+    if (currentRuntime) {
+      renderOperationsBoard(currentRuntime);
+    }
   }
 
   function loadProgramme() {
@@ -409,6 +418,7 @@
     if (currentRuntime) {
       renderCards(currentRuntime);
       renderFieldPulse(currentRuntime);
+      renderOperationsBoard(currentRuntime);
     }
     element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
     setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
@@ -632,6 +642,7 @@
     if (currentRuntime) {
       renderCards(currentRuntime);
       renderFieldPulse(currentRuntime);
+      renderOperationsBoard(currentRuntime);
     }
     renderRiskLedger(portfolio);
     renderLearning(portfolio);
@@ -796,6 +807,84 @@
       fieldRecordMissing: !update || Boolean(reviewableEvidence && reviewableEvidence.evidence_attached === false),
       missing: missing
     };
+  }
+
+  function boardStatusLabel(status) {
+    var labels = {
+      ready: "recorded",
+      attention: "attention",
+      missing: "needs record",
+      private: "private",
+      unavailable: "unavailable"
+    };
+    return labels[status] || "review";
+  }
+
+  function boardPiece(view, icon, label, status, count, detail, action) {
+    return '<button class="board-piece is-' + escapeHtml(status) + '" type="button" data-board-view="' +
+      escapeHtml(view) + '"><span class="board-piece-top"><span class="board-piece-icon material-symbols-outlined" aria-hidden="true">' +
+      escapeHtml(icon) + '</span><span class="status">' + escapeHtml(boardStatusLabel(status)) +
+      '</span></span><span class="board-piece-label">' + escapeHtml(label) + '</span><strong>' +
+      escapeHtml(count) + '</strong><span class="board-piece-detail">' + escapeHtml(detail) +
+      '</span><span class="board-piece-action">' + escapeHtml(action) +
+      ' <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></span></button>';
+  }
+
+  function renderOperationsBoard(runtime) {
+    var source = runtime || currentRuntime;
+    if (!source) {
+      setHtml("operations-board", '<p class="empty-state">Set up one reviewed field to begin the operations board.</p>');
+      return;
+    }
+    var allocations = Array.isArray(source.allocations) ? source.allocations : [];
+    var workItems = Array.isArray(source.work_items) ? source.work_items : [];
+    var exceptions = Array.isArray(source.exceptions) ? source.exceptions.filter(isOpenException) : [];
+    var people = Array.isArray(source.people) ? source.people : [];
+    var relationships = source.person_operating_relationships && Array.isArray(source.person_operating_relationships.items) ?
+      source.person_operating_relationships.items : [];
+    var snapshots = allocations.map(function (allocation) { return allocationSnapshot(allocation, source); });
+    var fieldNames = allocations.map(function (allocation) { return allocation.operational_block_name || "Field"; })
+      .filter(function (name, index, values) { return values.indexOf(name) === index; });
+    var fieldEvidenceGaps = snapshots.filter(function (snapshot) { return snapshot.fieldRecordMissing; }).length;
+    var cropPlanGaps = snapshots.filter(function (snapshot) { return snapshot.stageMissing || snapshot.workMissing; }).length;
+    var unownedWork = workItems.filter(function (item) { return isOpenWork(item) && !item.owner_id; }).length;
+    var fieldTeam = people.filter(function (person) {
+      return ["field_operator", "agronomist", "farm_manager"].indexOf(person.role) !== -1;
+    });
+    var fieldStatus = !fieldNames.length ? "missing" : (exceptions.length ? "attention" :
+      (fieldEvidenceGaps ? "missing" : "ready"));
+    var fieldDetail = !fieldNames.length ? "No reviewed operating block yet." : exceptions.length ?
+      exceptions.length + (exceptions.length === 1 ? " open field issue." : " open field issues.") : fieldEvidenceGaps ?
+      fieldEvidenceGaps + (fieldEvidenceGaps === 1 ? " field needs a record." : " fields need records.") :
+      "Reviewed field record is present.";
+    var cropStatus = !allocations.length ? "missing" : (cropPlanGaps ? "attention" : "ready");
+    var cropDetail = !allocations.length ? "No active crop allocation yet." : cropPlanGaps ?
+      cropPlanGaps + (cropPlanGaps === 1 ? " crop needs a stage or work plan." : " crops need a stage or work plan.") :
+      "Stage and next work are in place.";
+    var teamStatus = !fieldTeam.length ? "missing" : (unownedWork || !relationships.length ? "attention" : "ready");
+    var teamDetail = !fieldTeam.length ? "No canonical field team yet." : unownedWork ?
+      unownedWork + (unownedWork === 1 ? " open item has no owner." : " open items have no owner.") : !relationships.length ?
+      "Reviewed team scope is still needed." : "Roles and scopes are recorded.";
+    var farmerStatus = "private";
+    var farmerCount = "Private programme";
+    var farmerDetail = "Unlock manager actions to read source coverage.";
+    if (managerSessionAuthenticated && currentProgramme && currentProgramme.metrics) {
+      var coverage = currentProgramme.metrics.coverage || {};
+      var takenKit = Number(coverage.taken_kit) || 0;
+      var recent = Number(coverage.recent) || 0;
+      var neverVisited = Number(coverage.never_visited) || 0;
+      var recentShare = takenKit ? recent / takenKit : 0;
+      farmerStatus = !takenKit ? "unavailable" : (recentShare >= 0.75 ? "ready" : "attention");
+      farmerCount = takenKit ? formatCount(takenKit) + " programme members" : "No published members";
+      farmerDetail = takenKit ? formatCount(recent) + " reached in 14 days · " + formatCount(neverVisited) + " never visited." :
+        "No published TrackOlap programme context.";
+    }
+    setHtml("operations-board",
+      boardPiece("fields", "landscape", "Fields", fieldStatus, fieldNames.length + (fieldNames.length === 1 ? " operating block" : " operating blocks"), fieldDetail, "Open crop work") +
+      boardPiece("fields", "agriculture", "Crop", cropStatus, allocations.length + (allocations.length === 1 ? " active allocation" : " active allocations"), cropDetail, "Open crop work") +
+      boardPiece("programme", "groups", "Field team", teamStatus, fieldTeam.length + (fieldTeam.length === 1 ? " field role" : " field roles"), teamDetail, "Open programme") +
+      boardPiece("programme", "diversity_3", "Farmer programme", farmerStatus, farmerCount, farmerDetail + " Source programme context, not a canonical farmer record.", "Open programme")
+    );
   }
 
   function allocationFact(label, value, missing) {
@@ -1105,6 +1194,7 @@
     }
     renderCards(currentRuntime);
     renderFieldPulse(currentRuntime);
+    renderOperationsBoard(currentRuntime);
     renderWork(currentRuntime);
     renderActionAllocationContext(currentRuntime);
     if (currentPortfolio) {
@@ -1160,6 +1250,7 @@
     renderCards(runtime);
     renderPeople(runtime);
     renderFieldPulse(runtime);
+    renderOperationsBoard(runtime);
     renderWork(runtime);
     renderActionAllocationContext(runtime);
     renderTodayFallback(runtime);
@@ -1191,6 +1282,7 @@
     element("work-context").textContent = "No active crop allocation";
     element("actions-allocation-context").hidden = true;
     setHtml("today-list", '<p class="empty-state">Reading the first-farm checklist…</p>');
+    renderOperationsBoard(null);
     loadPilotReadiness();
   }
 
@@ -1510,6 +1602,18 @@
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
+  });
+  element("operations-board").addEventListener("click", function (event) {
+    var piece = event.target.closest("[data-board-view]");
+    if (!piece) {
+      return;
+    }
+    var view = piece.getAttribute("data-board-view");
+    showView(view);
+    var target = view === "programme" ? element("programme-coverage-heading") : element("allocations-heading");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   });
   element("allocation-list").addEventListener("click", function (event) {
     var allocationCard = event.target.closest("[data-allocation-id]");
