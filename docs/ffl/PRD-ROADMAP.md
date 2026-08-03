@@ -6,6 +6,10 @@
 
 Fortune Farm Labs (FFL) is building the operating system for professionally managed farms. It gives a small, high-skill team a shared view of land, crop seasons, work, field evidence, risks, decisions, and outcomes so that a farm can be run deliberately rather than by memory, fragmented tools, or reactive calls.
 
+The [AGRO CEO system spine](PRD-SYSTEM-SPINE.md) is the cross-PRD contract:
+the season crop allocation is the operating centre; people attach through
+time-bounded roles; evidence and public context remain separate truth layers.
+
 This is not farm-management software sold as a generic SaaS product. It is an internal operating advantage for FFL first. It may eventually support Fortune's partner-farmer network, but it must prove itself on FFL-managed farms.
 
 ## Product thesis
