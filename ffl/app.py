@@ -17,6 +17,7 @@ from ffl.api.launch_routes import router as launch_router
 from ffl.api.portfolio_routes import router as portfolio_router
 from ffl.api.operating_profile_routes import router as operating_profile_router
 from ffl.api.procurement_history_routes import router as procurement_history_router
+from ffl.api.relationship_routes import router as relationship_router
 from ffl.api.routes import router
 from ffl.api.season_routes import router as season_router
 from ffl.api.source_routes import router as source_router
@@ -309,6 +310,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(import_router)
     app.include_router(farm_manifest_router)
     app.include_router(procurement_history_router)
+    app.include_router(relationship_router)
     app.include_router(context_router)
     app.include_router(data_lanes_router)
     app.include_router(trial_router)

@@ -90,6 +90,34 @@ class Person:
 
 
 @dataclass(frozen=True)
+class PersonOperatingRelationship:
+    """A time-bounded person's accountable operating relationship to one scope.
+
+    This deliberately does not infer ownership.  A grower, landholder,
+    lessee, field operator, or reviewer can each be connected to the same
+    physical operating record over distinct periods, with the review/source
+    context that admitted the link.
+    """
+
+    id: str
+    person_id: str
+    scope_type: str
+    operating_unit_id: Optional[str]
+    land_parcel_id: Optional[str]
+    operational_block_id: Optional[str]
+    crop_allocation_id: Optional[str]
+    role: str
+    starts_on: str
+    ends_on: Optional[str]
+    status: str
+    provenance: Optional[str]
+    reviewed_by_person_id: Optional[str]
+    ended_by_person_id: Optional[str]
+    ended_at: Optional[str]
+    created_at: str
+
+
+@dataclass(frozen=True)
 class SignalTemplate:
     id: str
     name: str

@@ -22,6 +22,7 @@ from ffl.domain.models import (
     OperatingUnitLocation,
     OperationalBlock,
     Person,
+    PersonOperatingRelationship,
     Playbook,
     RegionalSignal,
     RightToOperate,
@@ -37,6 +38,18 @@ from ffl.domain.models import (
     TrialConfounder,
     WorkItem,
 )
+
+
+PERSON_OPERATING_SCOPE_TABLES = {
+    "operating_unit": ("operating_units", "operating_unit_id"),
+    "land_parcel": ("land_parcels", "land_parcel_id"),
+    "operational_block": ("operational_blocks", "operational_block_id"),
+    "crop_allocation": ("crop_allocations", "crop_allocation_id"),
+}
+PERSON_OPERATING_RELATIONSHIP_ROLES = {
+    "grower", "landholder", "lessee", "field_operator", "manager",
+    "agronomist", "reviewer", "buyer_contact",
+}
 
 
 def _new_identity() -> Tuple[str, str]:
@@ -134,6 +147,15 @@ def _crop_allocation(row: sqlite3.Row) -> CropAllocation:
 
 def _person(row: sqlite3.Row) -> Person:
     return Person(row["id"], row["name"], row["role"], row["created_at"])
+
+
+def _person_operating_relationship(row: sqlite3.Row) -> PersonOperatingRelationship:
+    return PersonOperatingRelationship(
+        row["id"], row["person_id"], row["scope_type"], row["operating_unit_id"],
+        row["land_parcel_id"], row["operational_block_id"], row["crop_allocation_id"],
+        row["role"], row["starts_on"], row["ends_on"], row["status"], row["provenance"],
+        row["reviewed_by_person_id"], row["ended_by_person_id"], row["ended_at"], row["created_at"],
+    )
 
 
 def _signal_template(row: sqlite3.Row) -> SignalTemplate:
@@ -578,6 +600,194 @@ def create_person(conn: sqlite3.Connection, name: str, role: str) -> Person:
     conn.execute("INSERT INTO people VALUES (?, ?, ?, ?)", (identifier, name, role, created_at))
     conn.commit()
     return Person(identifier, name, role, created_at)
+
+
+def _validate_person_operating_scope(conn: sqlite3.Connection, scope_type: object, scope_id: object) -> tuple[str, str, str]:
+    if not isinstance(scope_type, str) or scope_type not in PERSON_OPERATING_SCOPE_TABLES:
+        raise ValueError("scope_type must be operating_unit, land_parcel, operational_block, or crop_allocation")
+    identifier = _required_text(scope_id, "scope_id", 128)
+    table, column = PERSON_OPERATING_SCOPE_TABLES[scope_type]
+    if conn.execute("SELECT 1 FROM {0} WHERE id = ?".format(table), (identifier,)).fetchone() is None:
+        raise ValueError("{0} scope does not exist".format(scope_type.replace("_", " ")))
+    return scope_type, identifier, column
+
+
+def _validate_relationship_role(role: object) -> str:
+    if not isinstance(role, str) or role not in PERSON_OPERATING_RELATIONSHIP_ROLES:
+        raise ValueError(
+            "role must be grower, landholder, lessee, field_operator, manager, agronomist, reviewer, or buyer_contact"
+        )
+    return role
+
+
+def _validate_relationship_dates(starts_on: object, ends_on: Optional[object]) -> tuple[str, Optional[str]]:
+    starts = _require_iso_date(starts_on, "starts_on")
+    if ends_on is None:
+        return starts, None
+    ends = _require_iso_date(ends_on, "ends_on")
+    if date.fromisoformat(ends) < date.fromisoformat(starts):
+        raise ValueError("ends_on must be on or after starts_on")
+    return starts, ends
+
+
+def get_person_operating_relationship(
+    conn: sqlite3.Connection, relationship_id: str
+) -> Optional[PersonOperatingRelationship]:
+    row = conn.execute(
+        "SELECT * FROM person_operating_relationships WHERE id = ?", (relationship_id,)
+    ).fetchone()
+    return _person_operating_relationship(row) if row is not None else None
+
+
+def create_person_operating_relationship(
+    conn: sqlite3.Connection, person_id: str, scope_type: str, scope_id: str, role: str,
+    starts_on: str, ends_on: Optional[str] = None, provenance: Optional[str] = None,
+    reviewed_by_person_id: Optional[str] = None,
+) -> PersonOperatingRelationship:
+    """Append a scoped person relationship without inferring land ownership.
+
+    Active records are protected by four database-level partial unique indexes,
+    one for each supported scope.  The preflight check makes ordinary client
+    errors readable; the constraint remains the concurrency-safe authority.
+    """
+    person_id = _required_text(person_id, "person_id", 128)
+    if get_person(conn, person_id) is None:
+        raise ValueError("person does not exist")
+    scope_type, scope_id, scope_column = _validate_person_operating_scope(conn, scope_type, scope_id)
+    role = _validate_relationship_role(role)
+    starts_on, ends_on = _validate_relationship_dates(starts_on, ends_on)
+    provenance = _optional_text(provenance, "provenance", 1000)
+    if reviewed_by_person_id is not None:
+        reviewed_by_person_id = _required_text(reviewed_by_person_id, "reviewed_by_person_id", 128)
+        if get_person(conn, reviewed_by_person_id) is None:
+            raise ValueError("reviewed_by_person_id does not exist")
+    if provenance is None and reviewed_by_person_id is None:
+        raise ValueError("provenance or reviewed_by_person_id is required")
+
+    status = "active" if ends_on is None else "ended"
+    if status == "active":
+        existing = conn.execute(
+            """SELECT id FROM person_operating_relationships
+               WHERE person_id = ? AND scope_type = ? AND {0} = ? AND role = ? AND status = 'active'""".format(
+                scope_column
+            ),
+            (person_id, scope_type, scope_id, role),
+        ).fetchone()
+        if existing is not None:
+            raise ValueError("an active relationship already exists for this person, scope, and role")
+
+    identifier, created_at = _new_identity()
+    scope_values = {
+        "operating_unit_id": None,
+        "land_parcel_id": None,
+        "operational_block_id": None,
+        "crop_allocation_id": None,
+    }
+    scope_values[scope_column] = scope_id
+    try:
+        conn.execute(
+            """INSERT INTO person_operating_relationships (
+                id, person_id, scope_type, operating_unit_id, land_parcel_id, operational_block_id,
+                crop_allocation_id, role, starts_on, ends_on, status, provenance,
+                reviewed_by_person_id, ended_by_person_id, ended_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                identifier, person_id, scope_type, scope_values["operating_unit_id"],
+                scope_values["land_parcel_id"], scope_values["operational_block_id"],
+                scope_values["crop_allocation_id"], role, starts_on, ends_on, status, provenance,
+                reviewed_by_person_id, None, None, created_at,
+            ),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as error:
+        conn.rollback()
+        if status == "active":
+            existing = conn.execute(
+                """SELECT id FROM person_operating_relationships
+                   WHERE person_id = ? AND scope_type = ? AND {0} = ? AND role = ? AND status = 'active'""".format(
+                    scope_column
+                ),
+                (person_id, scope_type, scope_id, role),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError("an active relationship already exists for this person, scope, and role") from error
+        raise
+    return get_person_operating_relationship(conn, identifier)  # type: ignore[return-value]
+
+
+def list_person_operating_relationships(
+    conn: sqlite3.Connection, person_id: Optional[str] = None, scope_type: Optional[str] = None,
+    scope_id: Optional[str] = None, status: Optional[str] = None,
+) -> List[PersonOperatingRelationship]:
+    """List relationship history without making a public people directory."""
+    if scope_id is not None and scope_type is None:
+        raise ValueError("scope_type is required when scope_id is supplied")
+    where = []
+    params: List[object] = []
+    if person_id is not None:
+        where.append("person_id = ?")
+        params.append(_required_text(person_id, "person_id", 128))
+    if scope_type is not None:
+        normalized_scope_type = _validate_person_operating_scope_name(scope_type)
+        scope_column = PERSON_OPERATING_SCOPE_TABLES[normalized_scope_type][1]
+        if scope_id is not None:
+            _, normalized_scope_id, _ = _validate_person_operating_scope(
+                conn, normalized_scope_type, scope_id
+            )
+        where.append("scope_type = ?")
+        params.append(normalized_scope_type)
+        if scope_id is not None:
+            where.append("{0} = ?".format(scope_column))
+            params.append(normalized_scope_id)
+    if status is not None:
+        if status not in {"active", "ended"}:
+            raise ValueError("status must be active or ended")
+        where.append("status = ?")
+        params.append(status)
+    query = "SELECT * FROM person_operating_relationships"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY starts_on DESC, created_at DESC, id DESC"
+    rows = conn.execute(query, tuple(params)).fetchall()
+    return [_person_operating_relationship(row) for row in rows]
+
+
+def _validate_person_operating_scope_name(scope_type: object) -> str:
+    if not isinstance(scope_type, str) or scope_type not in PERSON_OPERATING_SCOPE_TABLES:
+        raise ValueError("scope_type must be operating_unit, land_parcel, operational_block, or crop_allocation")
+    return scope_type
+
+
+def end_person_operating_relationship(
+    conn: sqlite3.Connection, relationship_id: str, ends_on: str, ended_by_person_id: str, reason: str,
+) -> PersonOperatingRelationship:
+    """Close a current relationship with an audit event; it is never deleted."""
+    relationship = get_person_operating_relationship(conn, relationship_id)
+    if relationship is None:
+        raise ValueError("person operating relationship does not exist")
+    if relationship.status != "active":
+        raise ValueError("only an active person operating relationship can be ended")
+    _, normalized_ends_on = _validate_relationship_dates(relationship.starts_on, ends_on)
+    ended_by_person_id = _required_text(ended_by_person_id, "ended_by_person_id", 128)
+    if get_person(conn, ended_by_person_id) is None:
+        raise ValueError("ended_by_person_id does not exist")
+    reason = _required_text(reason, "reason", 500)
+    audit_id, ended_at = _new_identity()
+    with conn:
+        updated = conn.execute(
+            """UPDATE person_operating_relationships
+               SET ends_on = ?, status = 'ended', ended_by_person_id = ?, ended_at = ?
+               WHERE id = ? AND status = 'active'""",
+            (normalized_ends_on, ended_by_person_id, ended_at, relationship_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("only an active person operating relationship can be ended")
+        conn.execute(
+            "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (audit_id, "person_operating_relationship", relationship_id, "active", "ended",
+             ended_by_person_id, reason, ended_at),
+        )
+    return get_person_operating_relationship(conn, relationship_id)  # type: ignore[return-value]
 
 
 def create_signal_template(

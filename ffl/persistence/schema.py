@@ -70,6 +70,50 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        -- A person may be related to one and only one operating scope at a
+        -- time.  The scope is explicit rather than inferred from a name or
+        -- imported procurement row: a grower is not automatically a
+        -- landholder, and a village is not a field.
+        CREATE TABLE IF NOT EXISTS person_operating_relationships (
+            id TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL REFERENCES people(id),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            operating_unit_id TEXT REFERENCES operating_units(id),
+            land_parcel_id TEXT REFERENCES land_parcels(id),
+            operational_block_id TEXT REFERENCES operational_blocks(id),
+            crop_allocation_id TEXT REFERENCES crop_allocations(id),
+            role TEXT NOT NULL CHECK (role IN (
+                'grower', 'landholder', 'lessee', 'field_operator', 'manager',
+                'agronomist', 'reviewer', 'buyer_contact'
+            )),
+            starts_on TEXT NOT NULL,
+            ends_on TEXT,
+            status TEXT NOT NULL CHECK (status IN ('active', 'ended')),
+            provenance TEXT,
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            ended_by_person_id TEXT REFERENCES people(id),
+            ended_at TEXT,
+            created_at TEXT NOT NULL,
+            CHECK (
+                (scope_type = 'operating_unit' AND operating_unit_id IS NOT NULL
+                    AND land_parcel_id IS NULL AND operational_block_id IS NULL AND crop_allocation_id IS NULL)
+                OR
+                (scope_type = 'land_parcel' AND land_parcel_id IS NOT NULL
+                    AND operating_unit_id IS NULL AND operational_block_id IS NULL AND crop_allocation_id IS NULL)
+                OR
+                (scope_type = 'operational_block' AND operational_block_id IS NOT NULL
+                    AND operating_unit_id IS NULL AND land_parcel_id IS NULL AND crop_allocation_id IS NULL)
+                OR
+                (scope_type = 'crop_allocation' AND crop_allocation_id IS NOT NULL
+                    AND operating_unit_id IS NULL AND land_parcel_id IS NULL AND operational_block_id IS NULL)
+            ),
+            CHECK ((status = 'active' AND ends_on IS NULL AND ended_by_person_id IS NULL AND ended_at IS NULL)
+                OR (status = 'ended' AND ends_on IS NOT NULL)),
+            CHECK (provenance IS NOT NULL OR reviewed_by_person_id IS NOT NULL)
+        );
+
         CREATE TABLE IF NOT EXISTS signal_templates (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -463,6 +507,23 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trial_conclusions (trial_id);
         CREATE INDEX IF NOT EXISTS idx_pilot_setup_acceptances_manager_created
             ON pilot_setup_acceptances (manager_person_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_person_operating_relationships_person_starts
+            ON person_operating_relationships (person_id, starts_on, created_at);
+        CREATE INDEX IF NOT EXISTS idx_person_operating_relationships_scope_starts
+            ON person_operating_relationships (scope_type, operating_unit_id, land_parcel_id,
+                operational_block_id, crop_allocation_id, starts_on, created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_person_operating_relationships_active_operating_unit
+            ON person_operating_relationships (person_id, operating_unit_id, role)
+            WHERE status = 'active' AND scope_type = 'operating_unit';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_person_operating_relationships_active_land_parcel
+            ON person_operating_relationships (person_id, land_parcel_id, role)
+            WHERE status = 'active' AND scope_type = 'land_parcel';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_person_operating_relationships_active_operational_block
+            ON person_operating_relationships (person_id, operational_block_id, role)
+            WHERE status = 'active' AND scope_type = 'operational_block';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_person_operating_relationships_active_crop_allocation
+            ON person_operating_relationships (person_id, crop_allocation_id, role)
+            WHERE status = 'active' AND scope_type = 'crop_allocation';
         """
     )
     # ``CREATE TABLE IF NOT EXISTS`` cannot add columns to V1 pilot databases

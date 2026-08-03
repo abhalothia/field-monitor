@@ -91,6 +91,9 @@ def test_postgres_translation_includes_follow_on_private_migrations():
     assert translate_sqlite_sql("SELECT * FROM pilot_setup_acceptances WHERE idempotency_key = ?") == (
         "SELECT * FROM agro_pilot_setup_acceptances WHERE idempotency_key = %s"
     )
+    assert translate_sqlite_sql("SELECT * FROM person_operating_relationships WHERE person_id = ?") == (
+        "SELECT * FROM agro_person_operating_relationships WHERE person_id = %s"
+    )
 
 
 def test_postgres_connection_preserves_repository_row_contract_without_a_network_call():
