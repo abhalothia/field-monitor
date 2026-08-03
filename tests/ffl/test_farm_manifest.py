@@ -20,6 +20,13 @@ FRL-001,PLOT-A,North block,2.5,active,Uttar Pradesh,Gautam Buddha Nagar,Dadri,Na
 FRL-001,PLOT-B,East block,1.8,active,Uttar Pradesh,Gautam Buddha Nagar,Dadri,Nangla Chamru,123456,201314,2026-08-02T08:00:00+05:30,trace:PLOT-B,Pusa Basmati 1121,1121,Kharif 2026,28.5601,77.5701,,field_point,boundary:sha256:plot-b
 '''
 
+READINESS_MANIFEST = b'''source_farm_id,source_plot_id,record_status,state_name,district_name,village_name,pincode,source_recorded_at,source_record_ref,latitude,longitude,boundary_geojson,location_precision,boundary_evidence_ref
+SRC-POINT,POINT-1,active,Uttar Pradesh,Gautam Buddha Nagar,Nangla Chamru,201314,2026-08-02T08:00:00+05:30,trace:POINT-1,28.5534523,77.5555503,,field_point,boundary:sha256:point-1
+SRC-BOUNDARY,BOUNDARY-1,inactive,Uttar Pradesh,Gautam Buddha Nagar,Nangla Chamru,201314,2026-08-02T08:00:00+05:30,trace:BOUNDARY-1,,,"{""type"":""Polygon"",""coordinates"":[[[77.5500,28.5500],[77.5600,28.5500],[77.5600,28.5600],[77.5500,28.5500]]]}",field_boundary,boundary:sha256:boundary-1
+SRC-VILLAGE,,pending_review,Uttar Pradesh,Gautam Buddha Nagar,Chhapraula,201301,2026-08-02T08:00:00+05:30,trace:VILLAGE-1,,,,,
+SRC-QUARANTINE,QUARANTINE-1,active
+'''
+
 
 def test_farm_manifest_retains_only_minimal_non_person_records(ffl_db, owner, tmp_path):
     result = imports.register_farm_manifest(
@@ -50,20 +57,59 @@ def test_farm_manifest_does_not_create_canonical_farms_or_land(ffl_db, owner, tm
     assert ffl_db.execute("SELECT COUNT(*) FROM operational_blocks").fetchone()[0] == 0
 
 
+def test_farm_manifest_readiness_aggregates_coverage_without_rows_or_geometry(ffl_db, owner, tmp_path):
+    result = imports.register_farm_manifest(
+        ffl_db, READINESS_MANIFEST, owner.id, evidence_directory=str(tmp_path)
+    )
+
+    readiness = imports.farm_manifest_readiness(ffl_db, result["batch"].id)
+    serialized = json.dumps(readiness)
+
+    assert readiness["coverage"] == {
+        "total_rows": 4,
+        "village_context_rows": 1,
+        "verified_field_point_rows": 1,
+        "verified_field_boundary_rows": 1,
+    }
+    assert readiness["row_states"] == {
+        "active_rows": 1,
+        "inactive_rows": 1,
+        "pending_review_rows": 1,
+        "invalid_rows": 0,
+        "quarantined_rows": 1,
+    }
+    assert readiness["gaps"]["missing_verified_geometry_evidence_rows"] == 2
+    assert readiness["map_readiness"]["private_features_ready"] == 0
+    assert readiness["map_readiness"]["public_features_ready"] == 0
+    assert readiness["provenance"]["evidence_artifact_id"] == result["batch"].evidence_artifact_id
+    assert "SRC-POINT" not in serialized
+    assert "77.5555503" not in serialized
+    assert "rows" not in readiness
+
+    imports.review_farm_manifest(ffl_db, result["batch"].id, owner.id)
+    with pytest.raises(ValueError, match="invalid or quarantined"):
+        imports.publish_farm_manifest(ffl_db, result["batch"].id, owner.id)
+    assert imports.farm_manifest_readiness(ffl_db, result["batch"].id)["map_readiness"]["private_features_ready"] == 0
+
+
 def test_published_farm_manifest_can_supply_private_verified_plot_features(ffl_db, owner, tmp_path):
     result = imports.register_farm_manifest(ffl_db, PLOT_MANIFEST, owner.id, evidence_directory=str(tmp_path))
 
     with pytest.raises(ValueError, match="published"):
         imports.farm_manifest_map_features(ffl_db, result["batch"].id)
+    assert imports.farm_manifest_readiness(ffl_db, result["batch"].id)["map_readiness"]["private_features_ready"] == 0
     imports.review_farm_manifest(ffl_db, result["batch"].id, owner.id)
     imports.publish_farm_manifest(ffl_db, result["batch"].id, owner.id)
     feature_collection = imports.farm_manifest_map_features(ffl_db, result["batch"].id)
+    map_readiness = imports.farm_manifest_readiness(ffl_db, result["batch"].id)["map_readiness"]
 
     assert feature_collection["type"] == "FeatureCollection"
     assert [feature["geometry"]["type"] for feature in feature_collection["features"]] == ["Polygon", "Point"]
     assert feature_collection["features"][0]["properties"]["feature_id"] == "PLOT-A"
     assert feature_collection["features"][0]["properties"]["area_hectares"] == 2.5
     assert feature_collection["features"][0]["properties"]["village_lgd_code"] == "123456"
+    assert map_readiness["private_features_ready"] == 2
+    assert map_readiness["public_features_ready"] == 0
 
 
 def test_farm_manifest_rejects_pii_before_evidence_is_retained(ffl_db, owner, tmp_path):
@@ -134,6 +180,11 @@ def test_farm_manifest_api_is_manager_only_and_never_returns_rows(tmp_path, monk
             "/api/v1/farm-manifests/" + batch_id,
             headers={"x-ffl-manager-token": "manager-token"},
         )
+        readiness_denied = client.get("/api/v1/farm-manifests/" + batch_id + "/readiness")
+        readiness = client.get(
+            "/api/v1/farm-manifests/" + batch_id + "/readiness",
+            headers={"x-ffl-manager-token": "manager-token"},
+        )
         map_denied = client.get("/api/v1/farm-manifests/" + batch_id + "/map-features")
         map_before_publish = client.get(
             "/api/v1/farm-manifests/" + batch_id + "/map-features",
@@ -167,6 +218,21 @@ def test_farm_manifest_api_is_manager_only_and_never_returns_rows(tmp_path, monk
     assert detail.status_code == 200
     assert "FRL-001" not in detail.text
     assert "77.5555503" not in detail.text
+    assert readiness_denied.status_code == 403
+    assert readiness.status_code == 200
+    assert readiness.json()["coverage"]["verified_field_point_rows"] == 1
+    assert readiness.json()["map_readiness"] == {
+        "verified_geometry_rows": 1,
+        "private_features_ready": 0,
+        "requires_published_manifest": True,
+        "public_features_ready": 0,
+        "policy": (
+            "No public map feature is supplied by a manifest. Published, evidence-backed geometry is available only "
+            "through the existing manager-only private map endpoint."
+        ),
+    }
+    assert "FRL-001" not in readiness.text
+    assert "77.5555503" not in readiness.text
     assert map_denied.status_code == 403
     assert map_before_publish.status_code == 422
     assert review.status_code == 200

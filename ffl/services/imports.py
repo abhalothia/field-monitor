@@ -43,6 +43,11 @@ FARM_MANIFEST_FORBIDDEN_COLUMNS = {
 FARM_MANIFEST_STATUSES = {"active", "inactive", "pending_review"}
 FARM_MANIFEST_PRECISIONS = {"village", "field_verified", "field_point", "field_boundary"}
 FARM_POINT_PRECISIONS = {"field_verified", "field_point"}
+FARM_MANIFEST_ACCEPTED_ROW_STATUSES = {"valid", "published"}
+FARM_MANIFEST_GEOMETRY_ELIGIBILITIES = {
+    "field_point_verified",
+    "field_boundary_verified",
+}
 _IMPORT_LOCK = threading.RLock()
 
 
@@ -462,6 +467,84 @@ def farm_manifest_summary(conn, import_batch_id: str) -> Dict[str, Any]:
         },
         "district_context_keys": districts,
         "map_policy": "only field-verified rows with evidence may become private map features",
+    }
+
+
+def farm_manifest_readiness(conn, import_batch_id: str) -> Dict[str, Any]:
+    """Return a manager-safe coverage and readiness view for one manifest.
+
+    This intentionally aggregates the retained rows.  It does not expose the
+    original CSV, source identifiers, row-level errors, geometry, people, or
+    free-text values.  A row only contributes verified geometry once it passed
+    the manifest validator; publication is a separate existing gate before a
+    private map feature can be obtained.
+    """
+    batch = repository.get_import_batch(conn, import_batch_id)
+    if batch is None or batch.purpose != "farm_manifest":
+        raise LookupError("farm manifest not found")
+
+    rows = repository.list_import_rows(conn, batch.id)
+    row_statuses = Counter(row.status for row in rows)
+    accepted = [row for row in rows if row.status in FARM_MANIFEST_ACCEPTED_ROW_STATUSES]
+    accepted_mapped = [row.mapped for row in accepted]
+
+    def source_status_count(status: str) -> int:
+        return sum(row.get("record_status") == status for row in accepted_mapped)
+
+    def eligibility_count(eligibility: str) -> int:
+        return sum(row.get("map_eligibility") == eligibility for row in accepted_mapped)
+
+    verified_geometry = sum(
+        row.get("map_eligibility") in FARM_MANIFEST_GEOMETRY_ELIGIBILITIES
+        for row in accepted_mapped
+    )
+    missing_verified_geometry = len(rows) - verified_geometry
+    private_features_ready = verified_geometry if batch.status == "published" else 0
+    return {
+        "manifest": {
+            "id": batch.id,
+            "status": batch.status,
+            "received_at": batch.received_at,
+            "reviewed_at": batch.reviewed_at,
+            "published_at": batch.published_at,
+        },
+        "coverage": {
+            "total_rows": len(rows),
+            "village_context_rows": eligibility_count("village_context_only"),
+            "verified_field_point_rows": eligibility_count("field_point_verified"),
+            "verified_field_boundary_rows": eligibility_count("field_boundary_verified"),
+        },
+        "row_states": {
+            "active_rows": source_status_count("active"),
+            "inactive_rows": source_status_count("inactive"),
+            "pending_review_rows": source_status_count("pending_review"),
+            "invalid_rows": row_statuses["invalid"],
+            "quarantined_rows": row_statuses["quarantined"],
+        },
+        "gaps": {
+            "missing_verified_geometry_evidence_rows": missing_verified_geometry,
+            "policy": (
+                "A village, PIN, invalid row, or quarantined row does not count as "
+                "verified field geometry."
+            ),
+        },
+        "map_readiness": {
+            "verified_geometry_rows": verified_geometry,
+            "private_features_ready": private_features_ready,
+            "requires_published_manifest": True,
+            "public_features_ready": 0,
+            "policy": (
+                "No public map feature is supplied by a manifest. Published, "
+                "evidence-backed geometry is available only through the existing "
+                "manager-only private map endpoint."
+            ),
+        },
+        "provenance": {
+            "evidence_artifact_id": batch.evidence_artifact_id,
+            "content_sha256": batch.content_hash,
+            "mapping_version": batch.mapping_version,
+            "policy": "Aggregate coverage only; no CSV rows or personal data are returned.",
+        },
     }
 
 

@@ -8,6 +8,21 @@ The manager-only endpoint is `POST /api/v1/farm-manifests/csv`. It requires the
 server-derived manager token and stores the CSV as private evidence. The normal
 CSV routes deliberately cannot create or read a farm-manifest batch.
 
+## Readiness before publication
+
+`GET /api/v1/farm-manifests/{import_batch_id}/readiness` is also manager-only.
+It returns a concise aggregate: total rows; village-context, verified point,
+and verified boundary counts; active/inactive/pending-review/invalid/quarantined
+counts; and how many rows still lack verified geometry evidence. It includes
+the evidence artifact ID, SHA-256 content hash, and mapping version so a
+manager can trace the review without exposing CSV rows, source identifiers,
+coordinates, names, or other personal data.
+
+The readiness response never publishes a field. Its `private_features_ready`
+count stays zero until the existing manager review and publication gates pass;
+`public_features_ready` is always zero. This importer is not a public-map data
+source.
+
 ## Required CSV columns
 
 ```csv

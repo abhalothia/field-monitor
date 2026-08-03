@@ -80,6 +80,20 @@ def get_farm_manifest(
         raise _not_found(error)
 
 
+@router.get("/farm-manifests/{import_batch_id}/readiness")
+def get_farm_manifest_readiness(
+    import_batch_id: str,
+    request: Request,
+    manager_id: str = Depends(require_manager),
+) -> dict:
+    """Return aggregate readiness only; never raw manifest rows or geometry."""
+    del manager_id
+    try:
+        return imports.farm_manifest_readiness(_connection(request), import_batch_id)
+    except LookupError as error:
+        raise _not_found(error)
+
+
 @router.post("/farm-manifests/{import_batch_id}/review")
 def review_farm_manifest(
     import_batch_id: str,
