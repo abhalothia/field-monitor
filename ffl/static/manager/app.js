@@ -3,6 +3,7 @@
 
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
+  var fortuneMapUrl = "/api/v1/fortune-map";
   var allocationCalendarUrl = "/api/v1/allocations/";
   var dataLanesUrl = "/api/v1/data-lanes";
   var operatingProfileUrl = "/api/v1/operating-profile";
@@ -16,8 +17,14 @@
   var currentRuntime = null;
   var currentPortfolio = null;
   var currentProgramme = null;
+  var currentFortuneMap = null;
   var currentView = "home";
   var currentOperatingUnitName = "";
+  var currentFarmView = "map";
+  var currentFarmerView = "cards";
+  var currentWorkerView = "cards";
+  var currentInboxMode = "priority";
+  var leafletMaps = {};
   var inboxOwnerId = null;
   var allocationCalendars = {};
   var focusedAllocationId = null;
@@ -106,6 +113,7 @@
     if (currentProgramme) {
       renderProgramme(currentProgramme.metrics, currentProgramme.health);
     }
+    renderTodayClock();
   }
 
   function setManagerSessionFeedback(message) {
@@ -239,17 +247,76 @@
     return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(value) + "</dd></div>";
   }
 
+  function renderTodayClock() {
+    var now = new Date();
+    var locale = interfaceLocale === "hi" ? "hi-IN" : "en-IN";
+    element("today-date").textContent = now.toLocaleDateString(locale, {
+      weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata"
+    });
+    element("today-time").textContent = now.toLocaleTimeString(locale, {
+      hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata"
+    });
+  }
+
+  function renderWeatherContext(snapshot) {
+    var lanes = snapshot && Array.isArray(snapshot.lanes) ? snapshot.lanes : [];
+    var weather = lanes.filter(function (lane) { return lane.key === "weather"; })[0];
+    if (!weather) {
+      element("weather-state").textContent = "Weather source unavailable";
+      element("weather-note").textContent = "No forecast is shown until the approved district source is available.";
+      return;
+    }
+    var ready = weather.status === "context_available";
+    element("weather-state").textContent = ready ? "District weather context available" : "Weather context " + readable(weather.status);
+    element("weather-note").textContent = weather.fact || "No forecast is shown until the approved district source is available.";
+  }
+
+  function renderWeatherUnavailable() {
+    element("weather-state").textContent = "Weather source unavailable";
+    element("weather-note").textContent = "No forecast is shown until the approved district source is available.";
+  }
+
+  function setHomeMetric(valueId, noteId, value, note) {
+    element(valueId).textContent = value;
+    element(noteId).textContent = note;
+  }
+
+  function renderHomeMetrics() {
+    var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
+    var visits = metrics && metrics.visits ? metrics.visits : null;
+    var coverage = metrics && metrics.coverage ? metrics.coverage : null;
+    setHomeMetric(
+      "home-visits-value", "home-visits-note",
+      visits ? formatCount(visits.filed_on_reporting_day) : "—",
+      visits ? "filed today" : "unlock source"
+    );
+    setHomeMetric(
+      "home-overdue-value", "home-overdue-note",
+      coverage ? formatCount(coverage.overdue) : "—",
+      coverage ? "farmers need a visit" : "unlock source"
+    );
+    var issues = metrics && metrics.issues ? metrics.issues : null;
+    var highRiskIssues = issues && Array.isArray(issues.by_issue) ? issues.by_issue.reduce(function (total, issue) {
+      return ["critical", "high"].indexOf(issue.highest_severity) !== -1 ? total + (Number(issue.count) || 0) : total;
+    }, 0) : null;
+    setHomeMetric(
+      "home-issues-value", "home-issues-note",
+      highRiskIssues === null ? "—" : formatCount(highRiskIssues),
+      highRiskIssues === null ? "unlock source" : "high / critical · 7 days"
+    );
+  }
+
   function renderWorkerActivity() {
     var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
     if (!metrics) {
       var locked = !managerSessionAuthenticated;
-      element("worker-source-state").textContent = locked ? "locked" : "unavailable";
       element("worker-boundary").textContent = locked ?
         "Unlock Settings to view the daily field-worker source aggregate on this browser." :
         "Daily worker activity is unavailable. Do not infer worker performance from an empty source.";
-      setHtml("worker-activity", '<p class="empty-state">' + (locked ?
-        "Daily activity stays private until manager access is unlocked." :
-        "No published daily worker activity is available right now.") + "</p>");
+      element("worker-activity").textContent = locked ?
+        "Unlock Settings to see daily filing. Named worker records remain separate." :
+        "No published daily worker activity is available right now.";
+      renderHomeMetrics();
       return;
     }
     var visits = metrics.visits || {};
@@ -258,11 +325,10 @@
     var filed = Number(visits.filed_on_reporting_day) || 0;
     var filing = Number(visits.filing_officers) || 0;
     var missing = Number(visits.active_officers_without_filed_visit) || 0;
-    element("worker-source-state").textContent = freshness.status === "available" ? "published" : "no timestamp";
     element("worker-boundary").textContent = "Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.";
-    setHtml("worker-activity", '<strong>' + escapeHtml(formatCount(missing)) +
-      '</strong><span>active officers filed no visit</span><p>' + escapeHtml(formatCount(filed)) +
-      ' visits filed by ' + escapeHtml(formatCount(filing)) + ' of ' + escapeHtml(formatCount(active)) + ' active officers</p>');
+    element("worker-activity").textContent = formatCount(filed) + " visits filed today · " +
+      formatCount(missing) + " active officers have not filed.";
+    renderHomeMetrics();
   }
 
   function programmeWarningCopy(code) {
@@ -274,20 +340,20 @@
 
   function renderProgrammeLocked() {
     currentProgramme = null;
-    element("farmer-source-state").textContent = "locked";
     element("farmer-boundary").textContent = "Open Settings to unlock Fortune farmer coverage context on this browser.";
-    setHtml("farmer-coverage", '<p class="empty-state">Farmer coverage stays private until manager access is unlocked.</p>');
+    element("farmer-coverage").textContent = "Farmer coverage stays private until manager access is unlocked.";
     renderWorkerActivity();
     renderDailyDirection();
+    renderHomeMetrics();
   }
 
   function renderProgrammeUnavailable() {
     currentProgramme = null;
-    element("farmer-source-state").textContent = "unavailable";
     element("farmer-boundary").textContent = "Farmer coverage is unavailable. Review the source state before taking action from this gap.";
-    setHtml("farmer-coverage", '<p class="empty-state portfolio-unavailable">No published farmer coverage aggregate is available right now.</p>');
+    element("farmer-coverage").textContent = "No published farmer coverage aggregate is available right now.";
     renderWorkerActivity();
     renderDailyDirection();
+    renderHomeMetrics();
   }
 
   function renderProgramme(metrics, health) {
@@ -298,12 +364,12 @@
 
     currentProgramme = { metrics: metrics || {}, health: health || {} };
     renderDailyDirection();
-    element("farmer-source-state").textContent = sourceLabel;
     element("farmer-boundary").textContent = "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.";
-    setHtml("farmer-coverage", '<strong>' + escapeHtml(formatCount(coverage.overdue)) +
-      '</strong><span>farmers overdue for a visit</span><p>' + escapeHtml(formatCount(coverage.never_visited)) +
-      ' never visited · ' + escapeHtml(formatCount(coverage.recent)) + ' reached in 14 days</p>');
+    element("farmer-coverage").textContent = formatCount(coverage.overdue) + " farmers overdue · " +
+      formatCount(coverage.never_visited) + " never visited · " + formatCount(coverage.recent) +
+      " reached in 14 days · source " + sourceLabel + ".";
     renderWorkerActivity();
+    renderHomeMetrics();
   }
 
   function loadProgramme() {
@@ -399,6 +465,50 @@
       view.classList.toggle("is-active", selected);
     });
     renderPageIntro();
+    window.setTimeout(function () {
+      if (viewName === "home" || (viewName === "farms" && currentFarmView === "map")) {
+        Object.keys(leafletMaps).forEach(function (id) { leafletMaps[id].invalidateSize(); });
+      }
+    }, 0);
+  }
+
+  function setDirectoryView(kind, value) {
+    var settings = {
+      farm: { value: value, cards: "farm-cards-view", table: "farm-table-view", map: "farm-map-view", selector: "[data-farm-view]" },
+      farmer: { value: value, cards: "farmer-cards-view", table: "farmer-table-view", selector: "[data-farmer-view]" },
+      worker: { value: value, cards: "worker-cards-view", table: "worker-table-view", selector: "[data-worker-view]" }
+    };
+    var setting = settings[kind];
+    if (!setting) {
+      return;
+    }
+    if (kind === "farm") { currentFarmView = value; }
+    if (kind === "farmer") { currentFarmerView = value; }
+    if (kind === "worker") { currentWorkerView = value; }
+    ["cards", "table", "map"].forEach(function (view) {
+      if (!setting[view]) {
+        return;
+      }
+      element(setting[view]).hidden = view !== value;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(setting.selector), function (button) {
+      var selected = button.getAttribute(kind === "farm" ? "data-farm-view" : (kind === "farmer" ? "data-farmer-view" : "data-worker-view")) === value;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    if (kind === "farm" && value === "map" && leafletMaps["farm-map-canvas"]) {
+      window.setTimeout(function () { leafletMaps["farm-map-canvas"].invalidateSize(); }, 0);
+    }
+  }
+
+  function setInboxMode(mode) {
+    currentInboxMode = mode === "all" ? "all" : "priority";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-inbox-mode]"), function (button) {
+      var selected = button.getAttribute("data-inbox-mode") === currentInboxMode;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    renderRiskLedger();
   }
 
   function activateView(event) {
@@ -426,24 +536,63 @@
       renderDailyDirection();
     }
     element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
-    setHtml("portfolio-ledger", '<p class="empty-state portfolio-unavailable">Risk and action context is unavailable right now.</p>');
+    element("inbox-summary").textContent = "The decision queue is unavailable right now.";
+    setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">Risk and action context is unavailable right now.</td></tr>');
+    renderHomeMetrics();
   }
 
-  function renderRiskLedger(portfolio) {
-    var ledger = listedItems(portfolio.risk_action_ledger);
-    if (!ledger.length) {
-      setHtml("portfolio-ledger", '<p class="empty-state">No decision needs attention right now.</p>');
+  function inboxRows() {
+    var ledger = currentPortfolio ? listedItems(currentPortfolio.risk_action_ledger) : [];
+    var rows = ledger.map(function (item) {
+      return {
+        key: (item.entity && item.entity.type ? item.entity.type : "decision") + ":" + (item.entity && item.entity.id ? item.entity.id : item.title),
+        severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
+        ownerId: item.owner_id, dueAt: item.due_at || item.observed_at, status: item.status,
+        action: item.action
+      };
+    });
+    if (currentInboxMode !== "all" || !currentRuntime) {
+      return rows;
+    }
+    var known = {};
+    rows.forEach(function (row) { known[row.key] = true; });
+    (currentRuntime.exceptions || []).filter(isOpenException).forEach(function (item) {
+      var key = "exception_record:" + item.id;
+      if (!known[key]) {
+        rows.push({ key: key, severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
+          ownerId: item.owner_id, dueAt: item.observed_at, status: item.status, action: "review exception" });
+      }
+    });
+    (currentRuntime.work_items || []).filter(isOpenWork).forEach(function (item) {
+      var key = "work_item:" + item.id;
+      if (!known[key]) {
+        rows.push({ key: key, severity: item.status === "blocked" ? "high" : "medium", title: item.title,
+          allocationId: item.allocation_id, ownerId: item.owner_id, dueAt: item.due_at, status: item.status,
+          action: "complete or replan" });
+      }
+    });
+    return rows;
+  }
+
+  function renderRiskLedger() {
+    var rows = inboxRows();
+    if (!rows.length) {
+      element("inbox-summary").textContent = currentInboxMode === "all" ?
+        "No reviewed open work or decisions." : "No decision needs attention right now.";
+      setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">Nothing is waiting for a manager decision.</td></tr>');
+      renderHomeMetrics();
       return;
     }
-    setHtml("portfolio-ledger", ledger.slice(0, 1).map(function (item) {
-      var severity = safeSeverity(item.severity);
-      return '<article class="portfolio-item">' +
-        '<h4>' + escapeHtml(item.title) + '</h4>' +
-        '<p>' + escapeHtml(portfolioActionDetail(item)) + '</p>' +
-        '<div class="portfolio-meta"><span class="severity severity-' + severity + '">' +
-        escapeHtml(severity) + '</span><span class="status">' + escapeHtml(readable(item.status)) +
-        '</span></div></article>';
+    element("inbox-summary").textContent = currentInboxMode === "all" ?
+      formatCount(rows.length) + " reviewed decisions and open work items." :
+      formatCount(rows.length) + " priority decisions, most urgent first.";
+    setHtml("portfolio-ledger", rows.map(function (item) {
+      return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(item.severity) +
+        '</span></td><th scope="row">' + escapeHtml(item.title) + '</th><td>' + escapeHtml(fieldNameFor(item.allocationId)) +
+        '</td><td>' + escapeHtml(personName(item.ownerId)) + '</td><td>' + escapeHtml(formatTime(item.dueAt)) +
+        '</td><td><span class="status">' + escapeHtml(readable(item.status)) + '</span></td></tr>';
     }).join(""));
+    renderHomeMetrics();
   }
 
   function portfolioActionDetail(item) {
@@ -631,8 +780,9 @@
     if (currentRuntime) {
       renderDailyDirection();
     }
-    renderRiskLedger(portfolio);
+    renderRiskLedger();
     element("portfolio-status").textContent = "Actions updated just now.";
+    renderHomeMetrics();
   }
 
   function renderPilotReadiness(readiness) {
@@ -885,21 +1035,129 @@
     if (!allocations.length) {
       element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
       setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
+      setHtml("farm-table-body", '<tr><td colspan="4" class="table-empty">No verified fields yet.</td></tr>');
       return;
     }
     element("allocation-summary").textContent = allocations.length === 1 ?
       "One verified field is recorded." : "Verified fields and active crops.";
     setHtml("allocation-list", allocations.map(function (allocation) {
-      return '<article class="allocation-card">' +
+      return '<article class="directory-card allocation-card">' +
         '<div class="allocation-card-heading"><h3>' + escapeHtml(allocation.operational_block_name || "Field") + '</h3>' +
         '<span class="status">verified record</span></div>' +
-        '<p class="allocation-crop">' + escapeHtml(allocation.crop_name + (allocation.cultivar ? " · " + allocation.cultivar : "")) + '</p>' +
+        '<p class="allocation-crop">' + escapeHtml(allocation.crop_name || "Crop not recorded") + '</p>' +
+        '<p class="directory-detail">' + escapeHtml(allocation.cultivar || "Variety not recorded") + '</p>' +
         '</article>';
+    }).join(""));
+    setHtml("farm-table-body", allocations.map(function (allocation) {
+      return '<tr><th scope="row">' + escapeHtml(allocation.operational_block_name || "Field") + '</th><td>' +
+        escapeHtml(allocation.crop_name || "Not recorded") + '</td><td>' + escapeHtml(allocation.cultivar || "Not recorded") +
+        '</td><td><span class="status">verified</span></td></tr>';
     }).join(""));
   }
 
   function renderCards(runtime) {
     renderAllocationCards(runtime);
+  }
+
+  function clearLeafletMap(containerId, emptyMessage) {
+    var container = element(containerId);
+    if (leafletMaps[containerId]) {
+      leafletMaps[containerId].remove();
+      delete leafletMaps[containerId];
+    }
+    container.innerHTML = '<p class="map-empty-state">' + escapeHtml(emptyMessage) + '</p>';
+  }
+
+  function mapPopup(feature) {
+    var properties = feature && feature.properties ? feature.properties : {};
+    var parts = [properties.plot_label || "Reviewed field"];
+    if (properties.crop_name) {
+      parts.push(properties.crop_name + (properties.cultivar ? " · " + properties.cultivar : ""));
+    }
+    if (properties.area_hectares) {
+      parts.push(properties.area_hectares + " ha");
+    }
+    return escapeHtml(parts.join(" · "));
+  }
+
+  function renderMapCanvas(containerId, featureCollection) {
+    var features = featureCollection && Array.isArray(featureCollection.features) ? featureCollection.features : [];
+    if (!features.length) {
+      clearLeafletMap(containerId, "No reviewed field geometry is available yet. A programme village or coverage count is never placed on this map.");
+      return;
+    }
+    var container = element(containerId);
+    if (!window.L) {
+      clearLeafletMap(containerId, "The map library is unavailable. Reviewed field geometry remains protected until the map can load.");
+      return;
+    }
+    if (leafletMaps[containerId]) {
+      leafletMaps[containerId].remove();
+    }
+    container.innerHTML = "";
+    var map = window.L.map(container, { zoomControl: true, attributionControl: true });
+    leafletMaps[containerId] = map;
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
+    var layer = window.L.geoJSON(featureCollection, {
+      style: { color: "#bc7a1e", weight: 2, fillColor: "#d8b14d", fillOpacity: 0.28 },
+      pointToLayer: function (_feature, latlng) {
+        return window.L.circleMarker(latlng, {
+          radius: 7, color: "#173f2c", weight: 2, fillColor: "#d7aa3f", fillOpacity: 0.95
+        });
+      },
+      onEachFeature: function (feature, featureLayer) {
+        featureLayer.bindTooltip(mapPopup(feature), { sticky: true });
+      }
+    }).addTo(map);
+    var bounds = layer.getBounds();
+    if (bounds.isValid()) {
+      map.fitBounds(bounds.pad(0.3), { maxZoom: 13 });
+    }
+  }
+
+  function renderFortuneMap(featureCollection) {
+    currentFortuneMap = featureCollection || { type: "FeatureCollection", features: [] };
+    var features = currentFortuneMap.features || [];
+    var count = features.length;
+    element("home-map-status").textContent = count ? formatCount(count) + " reviewed field" + (count === 1 ? "" : "s") : "No reviewed geometry";
+    element("home-map-note").textContent = count ?
+      "Map detail comes only from the latest published, reviewed farm manifest." :
+      "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.";
+    element("farm-map-note").textContent = count ?
+      "The map is the same reviewed farm geometry used in Today." :
+      "Only reviewed field geometry is shown. No source village is treated as a farm point.";
+    renderMapCanvas("home-map-canvas", currentFortuneMap);
+    renderMapCanvas("farm-map-canvas", currentFortuneMap);
+  }
+
+  function renderFortuneMapUnavailable() {
+    currentFortuneMap = { type: "FeatureCollection", features: [] };
+    element("home-map-status").textContent = managerSessionAuthenticated ? "Map unavailable" : "Unlock to reveal map";
+    element("home-map-note").textContent = managerSessionAuthenticated ?
+      "Reviewed field geometry could not be loaded right now." :
+      "Manager access is required before private reviewed field geometry can be shown.";
+    element("farm-map-note").textContent = element("home-map-note").textContent;
+    clearLeafletMap("home-map-canvas", element("home-map-note").textContent);
+    clearLeafletMap("farm-map-canvas", element("farm-map-note").textContent);
+  }
+
+  function loadFortuneMap() {
+    if (!managerSessionAuthenticated) {
+      renderFortuneMapUnavailable();
+      return Promise.resolve();
+    }
+    return fetch(fortuneMapUrl, { credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Reviewed field geometry is unavailable.");
+        }
+        return response.json();
+      })
+      .then(renderFortuneMap)
+      .catch(renderFortuneMapUnavailable);
   }
 
   function personFor(personId) {
@@ -946,7 +1204,7 @@
     return person && ["field_operator", "agronomist"].indexOf(person.role) !== -1;
   }
 
-  function personCardMarkup(person, runtime, relationships, relationshipAvailability, showInboxAction) {
+  function personDirectoryData(person, runtime, relationships, relationshipAvailability) {
     var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
     var assignedItems = workItems.filter(function (item) {
       return item.owner_id === person.id && isOpenWork(item);
@@ -960,13 +1218,32 @@
       return readable(relationship.role) + (relationship.scope_name ? " · " + relationship.scope_name : "");
     }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
       (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
-    var action = showInboxAction && assignedItems.length ? '<button class="detail-button person-inbox-link" type="button" data-inbox-owner="' +
-      escapeHtml(person.id) + '">Open work in Inbox</button>' : "";
-    return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
-      '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
-      '<p class="person-assignment">' + escapeHtml(assignmentCopy) + '</p>' +
-      '<p class="person-work">' + assignedItems.length + (assignedItems.length === 1 ? ' open item' : ' open items') +
-      (fields.length ? ' · ' + escapeHtml(fields.join(", ")) : '') + '</p>' + action + '</article>';
+    return {
+      name: person.name,
+      role: readable(person.role),
+      scope: assignmentCopy,
+      openWork: assignedItems.length,
+      fields: fields
+    };
+  }
+
+  function personCardMarkup(personData) {
+    return '<article class="directory-card person-card"><h3>' + escapeHtml(personData.name) + '</h3>' +
+      '<p class="person-role">' + escapeHtml(personData.role) + '</p>' +
+      '<p class="person-assignment">' + escapeHtml(personData.scope) + '</p>' +
+      '<p class="person-work">' + personData.openWork + (personData.openWork === 1 ? ' open item' : ' open items') +
+      (personData.fields.length ? ' · ' + escapeHtml(personData.fields.join(", ")) : '') + '</p></article>';
+  }
+
+  function peopleTableMarkup(people) {
+    if (!people.length) {
+      return '<tr><td colspan="4" class="table-empty">No reviewed people records are available yet.</td></tr>';
+    }
+    return people.map(function (person) {
+      return '<tr><th scope="row">' + escapeHtml(person.name) + '</th><td>' + escapeHtml(person.role) +
+        '</td><td>' + escapeHtml(person.scope) + '</td><td>' + escapeHtml(person.openWork + (person.openWork === 1 ? " item" : " items")) +
+        '</td></tr>';
+    }).join("");
   }
 
   function renderPeople(runtime) {
@@ -974,14 +1251,18 @@
     var relationshipSummary = runtime.person_operating_relationships || {};
     var relationships = Array.isArray(relationshipSummary.items) ? relationshipSummary.items : [];
     var relationshipAvailability = relationshipSummary.availability || "not_configured";
-    var farmers = people.filter(isFarmer);
-    var workers = people.filter(isFieldWorker);
-    setHtml("farmer-list", farmers.length ? farmers.map(function (person) {
-      return personCardMarkup(person, runtime, relationships, relationshipAvailability, false);
-    }).join("") : '<p class="empty-state">No reviewed farmer record is available yet. Coverage context above is not a named farmer list.</p>');
-    setHtml("worker-list", workers.length ? workers.map(function (person) {
-      return personCardMarkup(person, runtime, relationships, relationshipAvailability, true);
-    }).join("") : '<p class="empty-state">No reviewed field worker record is available yet. Daily source activity above stays aggregate until reviewed.</p>');
+    var farmers = people.filter(isFarmer).map(function (person) {
+      return personDirectoryData(person, runtime, relationships, relationshipAvailability);
+    });
+    var workers = people.filter(isFieldWorker).map(function (person) {
+      return personDirectoryData(person, runtime, relationships, relationshipAvailability);
+    });
+    setHtml("farmer-list", farmers.length ? farmers.map(personCardMarkup).join("") :
+      '<p class="empty-state">No reviewed farmer record is available yet. Programme coverage stays separate.</p>');
+    setHtml("worker-list", workers.length ? workers.map(personCardMarkup).join("") :
+      '<p class="empty-state">No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.</p>');
+    setHtml("farmer-table-body", peopleTableMarkup(farmers));
+    setHtml("worker-table-body", peopleTableMarkup(workers));
   }
 
   function renderInboxWork(runtime) {
@@ -1012,7 +1293,6 @@
   }
 
   function setDailyDirection(status, title, note, officerActivity, visitGap, nextMove, confidence, targetView) {
-    element("field-crop").textContent = "Fortune paddy network";
     element("field-title").textContent = title;
     element("field-note").textContent = note;
     element("field-status").textContent = status;
@@ -1294,7 +1574,10 @@
     currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderPageIntro();
     renderCards(runtime);
+    renderPeople(runtime);
+    renderRiskLedger();
     renderDailyDirection();
+    renderHomeMetrics();
   }
 
   function renderRuntimeUnavailable() {
@@ -1303,7 +1586,6 @@
     focusedAllocationId = null;
     allocationCalendars = {};
     renderPageIntro();
-    element("field-crop").textContent = "Farm setup";
     element("field-title").textContent = "First field";
     element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
     element("field-status").textContent = "set up";
@@ -1311,6 +1593,13 @@
     setFocusAction("Prepare first farm", "setup", null);
     element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
     setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
+    setHtml("farm-table-body", '<tr><td colspan="4" class="table-empty">No verified fields yet.</td></tr>');
+    setHtml("farmer-list", '<p class="empty-state">No reviewed farmer record is available yet.</p>');
+    setHtml("worker-list", '<p class="empty-state">No reviewed field worker record is available yet.</p>');
+    setHtml("farmer-table-body", '<tr><td colspan="4" class="table-empty">No reviewed farmer records yet.</td></tr>');
+    setHtml("worker-table-body", '<tr><td colspan="4" class="table-empty">No reviewed field-worker records yet.</td></tr>');
+    renderRiskLedger();
+    renderHomeMetrics();
   }
 
   function renderAudit(detail) {
@@ -1578,7 +1867,18 @@
   function loadActionCentre() {
     element("load-status").textContent = "Loading…";
     element("portfolio-status").textContent = "Loading actions…";
+    renderTodayClock();
     loadProgramme();
+    fetch(dataLanesUrl, { credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Weather context is unavailable.");
+        }
+        return response.json();
+      })
+      .then(renderWeatherContext)
+      .catch(renderWeatherUnavailable);
+    loadFortuneMap();
     fetch(runtimeUrl)
       .then(function (response) {
         if (!response.ok) {
@@ -1610,6 +1910,18 @@
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-farm-view]"), function (button) {
+    button.addEventListener("click", function () { setDirectoryView("farm", button.getAttribute("data-farm-view")); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-farmer-view]"), function (button) {
+    button.addEventListener("click", function () { setDirectoryView("farmer", button.getAttribute("data-farmer-view")); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-worker-view]"), function (button) {
+    button.addEventListener("click", function () { setDirectoryView("worker", button.getAttribute("data-worker-view")); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-inbox-mode]"), function (button) {
+    button.addEventListener("click", function () { setInboxMode(button.getAttribute("data-inbox-mode")); });
   });
   element("close-setup").addEventListener("click", function () {
     element("setup-dialog").close();
@@ -1657,11 +1969,11 @@
       return;
     }
     if (focusTargetView === "farmers") {
-      element("farmer-coverage-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      element("farmer-directory-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (focusTargetView === "workers") {
-      element("worker-activity-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      element("worker-directory-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (focusTargetView === "inbox") {
@@ -1673,5 +1985,7 @@
     }
   });
   applyLanguage();
+  renderTodayClock();
+  window.setInterval(renderTodayClock, 60000);
   loadManagerSessionStatus().then(loadActionCentre);
 }());

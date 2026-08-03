@@ -8,6 +8,7 @@
     <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
     <link rel="stylesheet" href="/assets/manager.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQj+QZQ2beA7J9PzNfHMLI0zLlwVMQ=" crossorigin="">
   </head>
   <body>
     <main class="shell">
@@ -40,74 +41,121 @@
       </section>
 
       <section id="panel-home" class="command-view is-active" role="tabpanel" aria-labelledby="tab-home">
-        <article class="command-card single-focus-card field-pulse" aria-labelledby="field-title">
-          <div class="card-heading pulse-heading">
-            <div>
-              <p class="eyebrow" data-i18n="fieldPulse">One move</p>
-              <h2 id="field-title">Reading today’s network.</h2>
+        <section class="today-command" aria-labelledby="field-title">
+          <header class="today-heading-block">
+            <div class="today-kicker"><p class="eyebrow">Fortune paddy · <span id="today-date">Loading date…</span></p><span id="field-status" class="status">loading</span></div>
+            <h2 id="field-title">Reading today’s network.</h2>
+            <p id="field-note" class="today-direction">Officer activity, visit gaps, and field signals determine the first move.</p>
+            <button id="review-focus" class="pulse-action" type="button">
+              <span id="focus-action-label" data-i18n="openFieldWork">Open field workers</span>
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+            </button>
+          </header>
+          <aside class="today-context" aria-label="Today’s local context">
+            <p class="eyebrow">India Standard Time</p>
+            <p id="today-time" class="today-time">—</p>
+            <div class="weather-context">
+              <span class="material-symbols-outlined" aria-hidden="true">partly_cloudy_day</span>
+              <div>
+                <strong id="weather-state">Weather context loading</strong>
+                <p id="weather-note">No forecast is shown until the approved district source is available.</p>
+              </div>
             </div>
-            <span id="field-status" class="status">loading</span>
+          </aside>
+        </section>
+
+        <section class="home-metrics" aria-label="Today’s three operating metrics">
+          <article class="metric-card"><p>Visits filed</p><strong id="home-visits-value">—</strong><span id="home-visits-note">today</span></article>
+          <article class="metric-card"><p>Farmers overdue</p><strong id="home-overdue-value">—</strong><span id="home-overdue-note">visit gap</span></article>
+          <article class="metric-card"><p>High-risk issues</p><strong id="home-issues-value">—</strong><span id="home-issues-note">last 7 days</span></article>
+        </section>
+
+        <section class="network-map-card" aria-labelledby="home-map-heading">
+          <div class="directory-toolbar network-map-toolbar">
+            <div>
+              <p class="eyebrow">Fortune network</p>
+              <h3 id="home-map-heading">Where verified farms are.</h3>
+            </div>
+            <p id="home-map-status" class="map-status">Reading reviewed field geometry…</p>
           </div>
-          <p id="field-note" class="field-note">Officer activity, visit gaps, and field signals determine the first move.</p>
-          <p id="field-crop" class="single-focus-detail">Fortune paddy network</p>
-          <button id="review-focus" class="pulse-action" type="button">
-            <span id="focus-action-label" data-i18n="openFieldWork">Open field workers</span>
-            <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
-          </button>
-        </article>
+          <div id="home-map-canvas" class="fortune-map" aria-label="Map of reviewed Fortune farm geometry"></div>
+          <p id="home-map-note" class="map-note">Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.</p>
+        </section>
       </section>
 
       <section id="panel-farms" class="command-view object-view" role="tabpanel" aria-labelledby="tab-farms" hidden>
-        <section class="command-card single-focus-card allocations-card" aria-labelledby="allocations-heading">
-          <div class="card-heading">
+        <section class="directory-surface" aria-labelledby="allocations-heading">
+          <div class="directory-toolbar">
             <div>
-              <p class="eyebrow" data-i18n="currentFields">One thing</p>
+              <p class="eyebrow" data-i18n="currentFields">Reviewed operating record</p>
               <h2 id="allocations-heading">Verified fields</h2>
             </div>
+            <div class="view-switcher" role="group" aria-label="Farm view">
+              <button class="view-toggle is-selected" type="button" data-farm-view="map" aria-pressed="true">Map</button>
+              <button class="view-toggle" type="button" data-farm-view="cards" aria-pressed="false">Cards</button>
+              <button class="view-toggle" type="button" data-farm-view="table" aria-pressed="false">Table</button>
+            </div>
           </div>
-          <p id="allocation-summary" class="single-focus-detail">A source village or coverage count never becomes a farm record on its own.</p>
-          <div id="allocation-list" class="allocation-list" aria-label="Active crop allocations"></div>
+          <p id="allocation-summary" class="directory-summary">A source village or coverage count never becomes a farm record on its own.</p>
+          <div id="farm-map-view" class="directory-view"><div id="farm-map-canvas" class="fortune-map" aria-label="Map of reviewed Fortune farm geometry"></div><p id="farm-map-note" class="map-note">Only reviewed field geometry is shown.</p></div>
+          <div id="farm-cards-view" class="directory-view" hidden><div id="allocation-list" class="directory-card-grid" aria-label="Verified fields"></div></div>
+          <div id="farm-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Field</th><th>Crop</th><th>Variety</th><th>Status</th></tr></thead><tbody id="farm-table-body"></tbody></table></div></div>
         </section>
       </section>
 
       <section id="panel-farmers" class="command-view object-view" role="tabpanel" aria-labelledby="tab-farmers" hidden>
-        <section class="command-card single-focus-card" aria-labelledby="farmer-coverage-heading">
-          <div class="card-heading">
+        <section class="directory-surface" aria-labelledby="farmer-directory-heading">
+          <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">One thing</p>
-              <h2 id="farmer-coverage-heading">Coverage gap</h2>
+              <p class="eyebrow">Reviewed people</p>
+              <h2 id="farmer-directory-heading">Farmers</h2>
             </div>
-            <span id="farmer-source-state" class="status">loading</span>
+            <div class="view-switcher" role="group" aria-label="Farmer view">
+              <button class="view-toggle is-selected" type="button" data-farmer-view="cards" aria-pressed="true">Cards</button>
+              <button class="view-toggle" type="button" data-farmer-view="table" aria-pressed="false">Table</button>
+            </div>
           </div>
-          <p id="farmer-boundary" class="single-focus-detail">Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.</p>
-          <div id="farmer-coverage" class="single-focus-value" aria-live="polite">Loading coverage…</div>
+          <p id="farmer-coverage" class="directory-summary" aria-live="polite">Loading coverage…</p>
+          <div id="farmer-cards-view" class="directory-view"><div id="farmer-list" class="directory-card-grid" aria-label="Reviewed farmers"></div></div>
+          <div id="farmer-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Farmer</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="farmer-table-body"></tbody></table></div></div>
+          <p id="farmer-boundary" class="directory-boundary">Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.</p>
         </section>
       </section>
 
       <section id="panel-workers" class="command-view object-view" role="tabpanel" aria-labelledby="tab-workers" hidden>
-        <section class="command-card single-focus-card" aria-labelledby="worker-activity-heading">
-          <div class="card-heading">
+        <section class="directory-surface" aria-labelledby="worker-directory-heading">
+          <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">One thing</p>
-              <h2 id="worker-activity-heading">Visits filed today</h2>
+              <p class="eyebrow">Reviewed people</p>
+              <h2 id="worker-directory-heading">Field workers</h2>
             </div>
-            <span id="worker-source-state" class="status">loading</span>
+            <div class="view-switcher" role="group" aria-label="Field worker view">
+              <button class="view-toggle is-selected" type="button" data-worker-view="cards" aria-pressed="true">Cards</button>
+              <button class="view-toggle" type="button" data-worker-view="table" aria-pressed="false">Table</button>
+            </div>
           </div>
-          <p id="worker-boundary" class="single-focus-detail">Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.</p>
-          <div id="worker-activity" class="single-focus-value" aria-live="polite">Loading daily activity…</div>
+          <p id="worker-activity" class="directory-summary" aria-live="polite">Loading daily activity…</p>
+          <div id="worker-cards-view" class="directory-view"><div id="worker-list" class="directory-card-grid" aria-label="Reviewed field workers"></div></div>
+          <div id="worker-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Field worker</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="worker-table-body"></tbody></table></div></div>
+          <p id="worker-boundary" class="directory-boundary">Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.</p>
         </section>
       </section>
 
       <section id="panel-inbox" class="command-view object-view" role="tabpanel" aria-labelledby="tab-inbox" hidden>
         <p id="portfolio-status" class="visually-hidden" aria-live="polite">Loading actions…</p>
-        <section class="command-card single-focus-card" aria-labelledby="ledger-heading">
-          <div class="card-heading">
+        <section class="directory-surface" aria-labelledby="ledger-heading">
+          <div class="directory-toolbar">
             <div>
-              <p class="eyebrow">One thing</p>
-              <h2 id="ledger-heading">Next decision</h2>
+              <p class="eyebrow">Decision queue</p>
+              <h2 id="ledger-heading">Inbox</h2>
+            </div>
+            <div class="view-switcher" role="group" aria-label="Inbox view">
+              <button class="view-toggle is-selected" type="button" data-inbox-mode="priority" aria-pressed="true">Priority</button>
+              <button class="view-toggle" type="button" data-inbox-mode="all" aria-pressed="false">All</button>
             </div>
           </div>
-          <div id="portfolio-ledger" class="portfolio-list" aria-live="polite"></div>
+          <p id="inbox-summary" class="directory-summary">Decisions that need human attention, ordered by urgency.</p>
+          <div class="directory-table-wrap"><table class="directory-table inbox-table"><thead><tr><th>Priority</th><th>Decision</th><th>Field</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody id="portfolio-ledger" aria-live="polite"></tbody></table></div>
         </section>
       </section>
 
@@ -216,6 +264,7 @@
         </section>
       </dialog>
     </main>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="/assets/manager.js"></script>
   </body>
 </html>

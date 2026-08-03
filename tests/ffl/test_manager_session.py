@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ffl.app import create_app
 from ffl.seed import seed_pilot
+from ffl.services import imports
 
 
 def _manager_app(tmp_path, **overrides):
@@ -27,6 +28,7 @@ def test_manager_routes_reject_anonymous_and_bad_manager_secret(tmp_path):
 
     with TestClient(app) as client:
         assert client.get("/api/v1/communications/readiness").status_code == 403
+        assert client.get("/api/v1/fortune-map").status_code == 403
         assert client.get("/api/v1/manager-session/status").json() == {"authenticated": False}
 
         rejected = client.post("/api/v1/manager-session/login", json={"secret": "not-the-secret"})
@@ -52,6 +54,35 @@ def test_valid_manager_session_unlocks_existing_manager_routes_without_a_browser
         # signed HttpOnly session cookie: the browser sends no manager header.
         assert client.get("/api/v1/communications/readiness").status_code == 200
         assert client.get("/api/v1/trackolap/metrics").status_code == 200
+        assert client.get("/api/v1/fortune-map").json() == {"type": "FeatureCollection", "features": []}
+
+
+def test_fortune_map_returns_only_reviewed_geometry_and_map_safe_labels(tmp_path):
+    app = _manager_app(tmp_path)
+    manifest = b"""source_farm_id,source_plot_id,plot_label,area_hectares,record_status,state_name,district_name,village_name,pincode,source_recorded_at,source_record_ref,crop_name,cultivar,season_name,latitude,longitude,location_precision,boundary_evidence_ref
+FRL-001,PLOT-A,North block,2.5,active,Uttar Pradesh,Gautam Buddha Nagar,Nangla Chamru,201314,2026-08-02T08:00:00+05:30,trace:PLOT-A,Pusa Basmati 1121,1121,Kharif 2026,28.5534523,77.5555503,field_verified,boundary:sha256:plot-a
+"""
+    result = imports.register_farm_manifest(app.state.conn, manifest, app.state.manager_person_id)
+    imports.review_farm_manifest(app.state.conn, result["batch"].id, app.state.manager_person_id)
+    imports.publish_farm_manifest(app.state.conn, result["batch"].id, app.state.manager_person_id)
+
+    with TestClient(app) as client:
+        assert client.post("/api/v1/manager-session/login", json={"secret": "browser-manager-secret"}).status_code == 200
+        response = client.get("/api/v1/fortune-map")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "FeatureCollection"
+    assert payload["features"][0]["geometry"]["type"] == "Point"
+    assert payload["features"][0]["properties"] == {
+        "plot_label": "North block",
+        "crop_name": "Pusa Basmati 1121",
+        "cultivar": "1121",
+        "area_hectares": 2.5,
+        "location_precision": "field_verified",
+    }
+    assert "FRL-001" not in response.text
+    assert "evidence_artifact_id" not in response.text
 
 
 def test_tampered_browser_session_never_becomes_manager_authority(tmp_path):

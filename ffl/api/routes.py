@@ -12,7 +12,7 @@ from ffl.communications import persistence as communications_persistence
 from ffl.communications import service as communications_service
 from ffl.communications.readiness import WhatsAppReadinessConfig, whatsapp_readiness
 from ffl.communications.auth import require_manager
-from ffl.services import operations
+from ffl.services import imports, operations
 
 
 router = APIRouter(prefix="/api/v1")
@@ -213,6 +213,41 @@ def get_runtime(request: Request) -> dict:
         "latest_field_update": dict(latest_field_update) if latest_field_update is not None else None,
         "person_operating_relationships": person_operating_relationships,
     }
+
+
+@router.get("/fortune-map")
+def get_fortune_map(request: Request, manager_id: str = Depends(require_manager)) -> dict:
+    """Return only the latest reviewed field geometry for the manager map.
+
+    TrackOlap's published programme aggregates deliberately do not become map
+    pins.  The map therefore consumes only the most recent published farm
+    manifest with reviewed geometry, and omits source evidence identifiers and
+    raw import metadata from the browser response.
+    """
+
+    del manager_id
+    published = [
+        batch for batch in repository.list_import_batches(_connection(request), purpose="farm_manifest")
+        if batch.status == "published"
+    ]
+    if not published:
+        return {"type": "FeatureCollection", "features": []}
+    feature_collection = imports.farm_manifest_map_features(_connection(request), published[-1].id)
+    features = []
+    for feature in feature_collection["features"]:
+        properties = feature.get("properties", {})
+        features.append({
+            "type": "Feature",
+            "geometry": feature.get("geometry"),
+            "properties": {
+                "plot_label": properties.get("plot_label"),
+                "crop_name": properties.get("crop_name"),
+                "cultivar": properties.get("cultivar"),
+                "area_hectares": properties.get("area_hectares"),
+                "location_precision": properties.get("location_precision"),
+            },
+        })
+    return {"type": "FeatureCollection", "features": features}
 
 
 @router.post("/work-items/{work_item_id}/transitions")
