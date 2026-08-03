@@ -19,6 +19,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d1af35; outline-offs
 .load-status { min-height: 1em; margin: 0; color: #5e6c5d; font-size: .72rem; text-align: right; }
 .quiet-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(24, 57, 46, .48); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #18392e; cursor: pointer; font-size: .78rem; font-weight: 800; padding: 9px 12px; }
 .quiet-button:hover { background: #fff8e9; }
+.system-button { padding-right: 9px; padding-left: 9px; }
 .language-toggle { min-width: 38px; border: 1px solid rgba(24, 57, 46, .35); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #254c39; cursor: pointer; font-size: .7rem; font-weight: 800; padding: 9px 10px; }
 .language-toggle:hover { background: #fff8e9; }
 
@@ -31,6 +32,13 @@ h2 { margin-bottom: 0; color: #12372b; font-size: clamp(1.65rem, 2.5vw, 2.4rem);
 h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height: 1.05; }
 .subtle { margin-bottom: 0; color: #596759; font-size: .9rem; line-height: 1.55; }
 .command-view[hidden] { display: none; }
+.drilldown-view { padding-bottom: 32px; }
+.drilldown-intro { max-width: 740px; padding: 42px 0 28px; }
+.drilldown-intro h1 { margin: 14px 0 12px; font-size: clamp(2.6rem, 5.6vw, 5rem); }
+.drilldown-intro > p:last-child { max-width: 58ch; margin-bottom: 0; color: #536a5a; font-size: .88rem; line-height: 1.55; }
+.view-back { display: inline-flex; align-items: center; gap: 6px; border: 0; border-bottom: 1px solid #335c48; background: transparent; color: #214e3a; cursor: pointer; font-size: .72rem; font-weight: 800; padding: 0 0 3px; }
+.view-back:hover { border-color: #0d3826; color: #0d3826; }
+.view-back .material-symbols-outlined { font-size: .94rem; }
 
 .programme-view { padding-bottom: 32px; }
 .programme-intro { max-width: 780px; padding: 58px 0 34px; }
@@ -350,6 +358,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .field-pulse { min-height: 360px; }
   .map-intro { padding: 42px 0 25px; }
   .programme-intro { padding: 42px 0 25px; }
+  .drilldown-intro { padding: 34px 0 23px; }
   .operations-board { padding: 20px 18px 0; }
   .operations-board-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
   .operations-territories { grid-template-columns: 1fr; margin: 0 -18px; }

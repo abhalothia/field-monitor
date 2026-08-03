@@ -16,17 +16,17 @@
           <img src="/assets/rice-sheaf-icon.png" alt="">
           <span id="wordmark-name">AGRO CEO</span>
         </a>
-        <nav class="command-tabs" aria-label="Operating command views" role="tablist">
-          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Briefing</button>
+        <nav class="command-tabs" aria-label="Fortune COO views" role="tablist">
+          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Today</button>
           <button id="tab-programme" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-programme" data-view="programme" tabindex="-1" data-i18n="navProgramme">Programme</button>
-          <button id="tab-fields" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-fields" data-view="fields" tabindex="-1" data-i18n="navFields">Crop work</button>
-          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Places</button>
-          <button id="tab-actions" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-actions" data-view="actions" tabindex="-1" data-i18n="navActions">Decisions</button>
-          <button id="tab-settings" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1" data-i18n="navSettings">System</button>
+          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Territory</button>
         </nav>
         <div class="header-actions">
           <p id="load-status" class="load-status" aria-live="polite"></p>
           <button id="language-toggle" class="language-toggle" type="button" aria-label="Switch interface language">हिं</button>
+          <button id="open-system" class="quiet-button system-button" type="button" aria-label="Open system controls" title="System controls">
+            <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+          </button>
           <button id="refresh" class="quiet-button" type="button">
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
             <span class="refresh-label" data-i18n="refresh">Refresh</span>
@@ -40,25 +40,25 @@
       </section>
 
       <section id="panel-home" class="command-view is-active" role="tabpanel" aria-labelledby="tab-home">
-        <section class="home-grid" aria-label="Field focus and today's work">
+        <section class="home-grid" aria-label="Daily direction and today's work">
           <article class="command-card field-pulse" aria-labelledby="field-title">
             <div class="card-heading pulse-heading">
               <div>
-                <p class="eyebrow" data-i18n="fieldPulse">Field pulse</p>
-                <h2 id="field-title">Loading the field.</h2>
+                <p class="eyebrow" data-i18n="fieldPulse">Daily direction</p>
+                <h2 id="field-title">Reading today’s programme.</h2>
               </div>
               <span id="field-status" class="status">loading</span>
             </div>
-            <p id="field-crop" class="field-crop">Current crop</p>
-            <p id="field-note" class="field-note">The latest field update will appear here.</p>
+            <p id="field-crop" class="field-crop">Fortune paddy programme</p>
+            <p id="field-note" class="field-note">Officer activity, visit gaps, and field signals determine the first move.</p>
             <dl class="pulse-facts">
-              <div><dt>Stage</dt><dd id="field-stage">—</dd></div>
-              <div><dt>Next work</dt><dd id="field-next-work">—</dd></div>
-              <div><dt>Owner</dt><dd id="field-owner">—</dd></div>
-              <div><dt>Evidence / record</dt><dd id="field-update">—</dd></div>
+              <div><dt>Officer activity</dt><dd id="field-stage">—</dd></div>
+              <div><dt>Visit gap</dt><dd id="field-next-work">—</dd></div>
+              <div><dt>Next move</dt><dd id="field-owner">—</dd></div>
+              <div><dt>Data confidence</dt><dd id="field-update">—</dd></div>
             </dl>
             <button id="review-focus" class="pulse-action" type="button">
-              <span id="focus-action-label" data-i18n="openFieldWork">Open field work</span>
+              <span id="focus-action-label" data-i18n="openFieldWork">Open programme</span>
               <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
             </button>
           </article>
@@ -97,7 +97,7 @@
         <section class="command-card home-network-card" aria-labelledby="home-coverage-heading">
           <div class="card-heading">
             <div>
-              <p class="eyebrow">Network map</p>
+              <p class="eyebrow">Territory</p>
               <h2 id="home-coverage-heading">Where we operate</h2>
             </div>
             <button id="open-map" class="detail-button" type="button" data-i18n="openMap">Open map</button>
@@ -107,7 +107,13 @@
         </section>
       </section>
 
-      <section id="panel-fields" class="command-view" role="tabpanel" aria-labelledby="tab-fields" hidden>
+      <section id="panel-fields" class="command-view drilldown-view" role="region" aria-labelledby="fields-heading" hidden>
+        <header class="drilldown-intro">
+          <button class="view-back" type="button" data-return-view="programme"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to programme</button>
+          <p class="eyebrow">Verified operating record</p>
+          <h1 id="fields-heading">Crop work</h1>
+          <p>Only reviewed fields and crop allocations appear here. Programme source context remains separate.</p>
+        </header>
         <section class="command-card allocations-card" aria-labelledby="allocations-heading">
           <div class="card-heading">
             <div>
@@ -142,8 +148,8 @@
       <section id="panel-programme" class="command-view programme-view" role="tabpanel" aria-labelledby="tab-programme" hidden>
         <header class="programme-intro">
           <p class="eyebrow">Fortune paddy programme</p>
-          <h1>Read coverage.<br><em>Keep the boundary.</em></h1>
-          <p>TrackOlap shows programme activity. It helps a COO decide where to look next; it does not replace the reviewed operating record.</p>
+          <h1>Read coverage.<br><em>Move the work.</em></h1>
+          <p>Start with officer activity, visit gaps, and field signals. Then move into the territory that needs follow-through.</p>
         </header>
 
         <section class="command-card programme-coverage-card" aria-labelledby="programme-coverage-heading">
@@ -154,7 +160,7 @@
             </div>
             <span id="programme-source-state" class="status">loading</span>
           </div>
-          <p id="programme-boundary" class="programme-boundary">Source programme context does not prove a farm, field, work completion, or input compliance.</p>
+          <p id="programme-boundary" class="programme-boundary">Published programme context. Verified farm and field records remain separate until reviewed.</p>
           <dl id="programme-coverage" class="programme-facts" aria-live="polite">
             <div><dt>Taken kit</dt><dd>—</dd></div>
             <div><dt>Visited</dt><dd>—</dd></div>
@@ -210,7 +216,7 @@
 
       <section id="panel-map" class="command-view map-view" role="tabpanel" aria-labelledby="tab-map" hidden>
         <header class="map-intro">
-          <p class="eyebrow">Operating geography</p>
+          <p class="eyebrow">Territory</p>
           <h1>See the ground.<br><em>Know the edge.</em></h1>
           <p>Start with what is publicly known. Add supply villages, then verified fields, only when the records support them.</p>
         </header>
@@ -218,8 +224,8 @@
           <div class="map-canvas">
             <div class="map-stage-heading">
               <div>
-                <p class="eyebrow">Map</p>
-                <h2 id="map-stage-heading">Operating footprint</h2>
+                <p class="eyebrow">Territory map</p>
+                <h2 id="map-stage-heading">Operating reach</h2>
               </div>
               <p id="map-stage-guard" class="map-guard">Public coverage only</p>
             </div>
@@ -237,7 +243,7 @@
           <div class="card-heading">
             <div>
               <p class="eyebrow">From broad to precise</p>
-              <h2 id="map-path-heading">How this map earns detail</h2>
+              <h2 id="map-path-heading">How this territory earns detail</h2>
             </div>
           </div>
           <ol class="map-steps">
@@ -249,7 +255,13 @@
         </section>
       </section>
 
-      <section id="panel-actions" class="command-view" role="tabpanel" aria-labelledby="tab-actions" hidden>
+      <section id="panel-actions" class="command-view drilldown-view" role="region" aria-labelledby="actions-heading" hidden>
+        <header class="drilldown-intro">
+          <button class="view-back" type="button" data-return-view="home"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to today</button>
+          <p class="eyebrow">Decision detail</p>
+          <h1 id="actions-heading">Action record</h1>
+          <p>Today identifies the action. This is the retained record behind it.</p>
+        </header>
         <p id="portfolio-status" class="visually-hidden" aria-live="polite">Loading actions…</p>
         <section id="actions-allocation-context" class="allocation-context" aria-labelledby="actions-allocation-name" hidden>
           <div>
@@ -277,7 +289,13 @@
         </div>
       </section>
 
-      <section id="panel-settings" class="command-view" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <section id="panel-settings" class="command-view drilldown-view" role="region" aria-labelledby="settings-heading" hidden>
+        <header class="drilldown-intro">
+          <button class="view-back" type="button" data-return-view="home"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to today</button>
+          <p class="eyebrow">System controls</p>
+          <h1 id="settings-heading">System</h1>
+          <p>Access, source state, and the verified operating foundation.</p>
+        </header>
         <div class="settings-grid">
           <section class="command-card operating-profile-card" aria-labelledby="profile-heading">
             <div class="card-heading">

@@ -7,48 +7,48 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     app_js = (root / "app.js").read_text()
 
     assert "Today." in index_html
-    assert "Briefing" in index_html
+    assert "Today" in index_html
     assert "Programme" in index_html
-    assert "Crop work" in index_html
-    assert "Places" in index_html
-    assert "Decisions" in index_html
-    assert "System" in index_html
-    assert "Open field work" in index_html
-    assert "Field pulse" in index_html
+    assert "Territory" in index_html
+    assert "Daily direction" in index_html
+    assert "Officer activity, visit gaps, and field signals determine the first move." in index_html
     assert "Operations board" in index_html
     assert "Record health, not a performance score." in index_html
     assert 'id="operations-board"' in index_html
     assert "Crop allocations" in index_html
     assert 'id="allocations-heading"' in index_html
     assert index_html.count('id="allocation-list"') == 1
-    assert "Evidence / record" in index_html
+    assert "Data confidence" in index_html
     assert 'id="actions-allocation-context"' in index_html
     assert 'id="open-focused-field"' in index_html
-    assert "Loading the field." in index_html
+    assert "Reading today’s programme." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
-    assert index_html.count('<button id="tab-') == 6
+    assert index_html.count('<button id="tab-') == 3
     assert 'data-view="home"' in index_html
     assert 'data-view="programme"' in index_html
-    assert 'data-view="fields"' in index_html
+    assert 'data-view="fields"' not in index_html
     assert 'data-view="farmers"' not in index_html
     assert 'data-view="map"' in index_html
-    assert 'data-view="actions"' in index_html
-    assert 'data-view="settings"' in index_html
+    assert 'data-view="actions"' not in index_html
+    assert 'data-view="settings"' not in index_html
+    assert 'id="open-system"' in index_html
+    assert 'data-return-view="programme"' in index_html
+    assert 'data-return-view="home"' in index_html
     assert 'id="programme-coverage"' in index_html
     assert 'id="programme-observations"' in index_html
     assert 'id="programme-inputs"' in index_html
     assert 'id="programme-freshness"' in index_html
     assert 'id="programme-people"' in index_html
-    assert "Source programme context does not prove a farm, field, work completion, or input compliance." in index_html
+    assert "Published programme context. Verified farm and field records remain separate until reviewed." in index_html
     assert "Tools" not in index_html
-    assert "Actions" in index_html
+    assert "Action record" in index_html
     assert "Data connections" in index_html
     assert 'id="open-map"' in index_html
     assert 'id="map-explorer"' in index_html
-    assert "How this map earns detail" in index_html
+    assert "How this territory earns detail" in index_html
     assert "A village name never becomes a field pin." in index_html
-    assert "Network map" in index_html
+    assert "Territory map" in index_html
     assert "Public coverage only" in index_html
     assert 'id="language-toggle"' in index_html
     assert 'id="action-dialog"' in index_html
@@ -63,7 +63,7 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "/api/v1/operating-profile" in app_js
     assert "/api/v1/trackolap/metrics" in app_js
     assert "/api/v1/trackolap/health" in app_js
-    assert "Unlock manager actions in System to view Fortune programme data." in app_js
+    assert "Open System controls to unlock Fortune programme context on this browser." in app_js
     assert "review cue only; not an application recommendation or compliance verdict" in app_js
     assert "Observation confidence is low. Fewer detections do not mean risk has fallen." in app_js
     assert "/api/v1/pilot/readiness" in app_js
@@ -112,7 +112,9 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert ".catch(renderPortfolioUnavailable)" in app_js
     assert "ledger.slice(0, 6)" in app_js
     assert "Public context never replaces field evidence." in app_js
-    assert "renderFieldPulse" in app_js
+    assert "renderDailyDirection" in app_js
+    assert "active_officers_without_filed_visit" in app_js
+    assert "officers filed no visit today." in app_js
     assert "renderOperationsBoard" in app_js
     assert "Farmer programme" in app_js
     assert "Source programme context, not a canonical farmer record." in app_js
@@ -143,7 +145,6 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "Field relationship setup is pending." in app_js
     assert "/morning-brief" in app_js
     assert "loadMorningBrief" in app_js
-    assert "The latest field record is visible here" in app_js
     assert "focusExceptionId" in app_js
     assert 'element("audit").scrollIntoView' in app_js
     assert "renderOperatingProfile" in app_js
