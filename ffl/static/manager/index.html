@@ -27,6 +27,7 @@
         </nav>
         <div class="header-actions">
           <p id="load-status" class="load-status" aria-live="polite"></p>
+          <span id="sample-state" class="sample-state" hidden>Sample view</span>
           <button id="language-toggle" class="language-toggle" type="button" aria-label="Switch interface language">हिं</button>
           <button id="refresh" class="quiet-button" type="button">
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
@@ -57,8 +58,8 @@
             <div class="weather-context">
               <span class="material-symbols-outlined" aria-hidden="true">partly_cloudy_day</span>
               <div>
-                <strong id="weather-state">Weather context loading</strong>
-                <p id="weather-note">No forecast is shown until the approved district source is available.</p>
+                <strong id="weather-state">Weather loading</strong>
+                <p id="weather-note"></p>
               </div>
             </div>
           </aside>
@@ -118,7 +119,7 @@
           <p id="farmer-coverage" class="directory-summary" aria-live="polite">Loading coverage…</p>
           <div id="farmer-cards-view" class="directory-view"><div id="farmer-list" class="directory-card-grid" aria-label="Reviewed farmers"></div></div>
           <div id="farmer-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Farmer</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="farmer-table-body"></tbody></table></div></div>
-          <p id="farmer-boundary" class="directory-boundary">Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.</p>
+          <p id="farmer-boundary" class="directory-boundary"></p>
         </section>
       </section>
 
@@ -137,7 +138,7 @@
           <p id="worker-activity" class="directory-summary" aria-live="polite">Loading daily activity…</p>
           <div id="worker-cards-view" class="directory-view"><div id="worker-list" class="directory-card-grid" aria-label="Reviewed field workers"></div></div>
           <div id="worker-table-view" class="directory-view" hidden><div class="directory-table-wrap"><table class="directory-table"><thead><tr><th>Field worker</th><th>Role</th><th>Scope</th><th>Open work</th></tr></thead><tbody id="worker-table-body"></tbody></table></div></div>
-          <p id="worker-boundary" class="directory-boundary">Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.</p>
+          <p id="worker-boundary" class="directory-boundary"></p>
         </section>
       </section>
 
@@ -196,73 +197,6 @@
         </section>
       </dialog>
 
-      <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">
-        <section class="setup-sheet">
-          <header class="setup-header">
-            <div>
-              <p class="eyebrow">First farm</p>
-              <h2 id="setup-title">Start with one field.</h2>
-              <p class="setup-intro">Six facts now. The formal farm pack comes later, when there is something real to review.</p>
-            </div>
-            <button id="close-setup" class="dialog-close" type="button" aria-label="Close first farm setup">
-              <span class="material-symbols-outlined" aria-hidden="true">close</span>
-            </button>
-          </header>
-
-          <div class="setup-mode-tabs" role="tablist" aria-label="How to begin">
-            <button class="setup-mode is-active" type="button" role="tab" aria-selected="true" data-setup-mode="field">Add one field</button>
-            <button class="setup-mode" type="button" role="tab" aria-selected="false" data-setup-mode="file">Use a CSV</button>
-          </div>
-
-          <form id="setup-form" class="setup-form quick-setup-form" novalidate>
-            <section id="setup-field-mode" class="setup-mode-panel" aria-labelledby="setup-field-heading">
-              <div class="quick-setup-copy">
-                <p class="step-number">01</p>
-                <div>
-                  <h3 id="setup-field-heading">Just the first field.</h3>
-                  <p>Farm and manager, then field, crop, area, and place. Nothing is saved yet.</p>
-                </div>
-              </div>
-              <div class="quick-setup-fields">
-                <label>Farm name<input name="farm_name" maxlength="200" autocomplete="organization" required></label>
-                <label>Your name<input name="manager_name" maxlength="200" autocomplete="name" required></label>
-                <label>Field or block name<input name="field_name" maxlength="200" required></label>
-                <label>Crop<input name="crop_name" maxlength="200" placeholder="e.g. Pusa basmati" required></label>
-                <label>Area in hectares<input name="area_hectares" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
-                <label>District<input name="district_name" maxlength="200" required></label>
-                <label>Village or PIN<input name="location_hint" maxlength="200" placeholder="e.g. Nangla Chamru or 201314" required></label>
-              </div>
-              <input name="state_name" value="Uttar Pradesh" type="hidden">
-            </section>
-
-            <section id="setup-file-mode" class="setup-mode-panel setup-file-panel" hidden aria-labelledby="setup-file-heading">
-              <div class="quick-setup-copy">
-                <p class="step-number">02</p>
-                <div>
-                  <h3 id="setup-file-heading">Start from a file.</h3>
-                  <p>Choose a CSV. We check what it can safely do before we keep anything.</p>
-                </div>
-              </div>
-              <label class="file-picker" for="setup-file">
-                <span>Choose CSV</span>
-                <input id="setup-file" type="file" accept=".csv,text/csv">
-                <small id="setup-file-name">No file chosen.</small>
-              </label>
-              <div id="setup-file-result" class="file-result" aria-live="polite">
-                <p>A farm/plot list helps map verified fields. A purchase ledger helps show village and variety history. They stay separate.</p>
-              </div>
-              <a class="template-download" href="/assets/first-field-manifest.csv" download>Download blank field-manifest template <span aria-hidden="true">↓</span></a>
-            </section>
-
-            <div id="setup-error" class="setup-message" role="alert" aria-live="assertive" hidden></div>
-            <div id="setup-result" class="setup-result" aria-live="polite" hidden></div>
-            <footer class="setup-footer">
-              <p id="setup-footer-copy">You will only add land rights, season dates, and the first work after this basic check.</p>
-              <button id="validate-setup" class="setup-submit" type="submit">Check this field <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
-            </footer>
-          </form>
-        </section>
-      </dialog>
     </main>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="/assets/manager.js"></script>

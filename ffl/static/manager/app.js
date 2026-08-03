@@ -8,7 +8,6 @@
   var dataLanesUrl = "/api/v1/data-lanes";
   var operatingProfileUrl = "/api/v1/operating-profile";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
-  var quickStartValidationUrl = "/api/v1/pilot/quick-start/validate";
   var managerSessionStatusUrl = "/api/v1/manager-session/status";
   var managerSessionLoginUrl = "/api/v1/manager-session/login";
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
@@ -25,6 +24,7 @@
   var currentWorkerView = "cards";
   var currentInboxMode = "priority";
   var leafletMaps = {};
+  var sampleMode = false;
   var inboxOwnerId = null;
   var allocationCalendars = {};
   var focusedAllocationId = null;
@@ -212,6 +212,76 @@
       });
   }
 
+  function setSampleMode(enabled) {
+    sampleMode = Boolean(enabled);
+    element("sample-state").hidden = !sampleMode;
+  }
+
+  function sampleRuntime() {
+    return {
+      operating_unit: { name: "Fortune Rice" },
+      allocations: [{ id: "sample-north-block", operational_block_name: "North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121" }],
+      people: [
+        { id: "sample-asha", name: "Asha Devi", role: "grower" },
+        { id: "sample-ravi", name: "Ravi Kumar", role: "field_operator" }
+      ],
+      work_items: [{ id: "sample-visit", allocation_id: "sample-north-block", title: "Check stem borer cluster", owner_id: "sample-ravi", due_at: new Date().toISOString(), status: "planned" }],
+      exceptions: [],
+      latest_field_update: null,
+      person_operating_relationships: {
+        availability: "available",
+        items: [
+          { person_id: "sample-asha", role: "grower", scope_name: "North Block" },
+          { person_id: "sample-ravi", role: "field operator", scope_name: "North Block" }
+        ]
+      }
+    };
+  }
+
+  function sampleProgramme() {
+    return {
+      coverage: { taken_kit: 2592, visited: 1941, recent: 1585, overdue: 1007, never_visited: 651 },
+      visits: { filed_on_reporting_day: 5, filing_officers: 2, active_officers: 24, active_officers_without_filed_visit: 22 },
+      issues: {
+        window_days: 7,
+        observation_count: 545,
+        by_issue: [
+          { issue_code: "stem borer", count: 215, highest_severity: "high" },
+          { issue_code: "leaf folder", count: 265, highest_severity: "moderate" }
+        ]
+      },
+      freshness: { status: "available", age_hours: 1 }
+    };
+  }
+
+  function samplePortfolio() {
+    return {
+      risk_action_ledger: {
+        items: [{
+          severity: "high", action: "review field signal", entity: { type: "exception_record", id: "sample-stem-borer" },
+          status: "reported", title: "Review stem borer cluster", allocation_id: "sample-north-block",
+          owner_id: "sample-ravi", observed_at: new Date().toISOString()
+        }]
+      }
+    };
+  }
+
+  function sampleMap() {
+    return {
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [77.5555503, 28.5534523] },
+        properties: { plot_label: "North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121", area_hectares: 2.5, location_precision: "sample" }
+      }]
+    };
+  }
+
+  function renderSampleWeather() {
+    element("weather-state").textContent = "31°C · partly cloudy";
+    element("weather-note").textContent = "Sample local context";
+  }
+
   function formatTime(value) {
     if (!value) {
       return "Not scheduled";
@@ -259,21 +329,29 @@
   }
 
   function renderWeatherContext(snapshot) {
+    if (sampleMode) {
+      renderSampleWeather();
+      return;
+    }
     var lanes = snapshot && Array.isArray(snapshot.lanes) ? snapshot.lanes : [];
     var weather = lanes.filter(function (lane) { return lane.key === "weather"; })[0];
     if (!weather) {
-      element("weather-state").textContent = "Weather source unavailable";
-      element("weather-note").textContent = "No forecast is shown until the approved district source is available.";
+      element("weather-state").textContent = "Weather pending";
+      element("weather-note").textContent = "";
       return;
     }
     var ready = weather.status === "context_available";
-    element("weather-state").textContent = ready ? "District weather context available" : "Weather context " + readable(weather.status);
-    element("weather-note").textContent = weather.fact || "No forecast is shown until the approved district source is available.";
+    element("weather-state").textContent = ready ? "Weather context ready" : "Weather pending";
+    element("weather-note").textContent = ready ? weather.fact : "";
   }
 
   function renderWeatherUnavailable() {
-    element("weather-state").textContent = "Weather source unavailable";
-    element("weather-note").textContent = "No forecast is shown until the approved district source is available.";
+    if (sampleMode) {
+      renderSampleWeather();
+      return;
+    }
+    element("weather-state").textContent = "Weather pending";
+    element("weather-note").textContent = "";
   }
 
   function setHomeMetric(valueId, noteId, value, note) {
@@ -288,12 +366,12 @@
     setHomeMetric(
       "home-visits-value", "home-visits-note",
       visits ? formatCount(visits.filed_on_reporting_day) : "—",
-      visits ? "filed today" : "unlock source"
+      visits ? "filed today" : "loading"
     );
     setHomeMetric(
       "home-overdue-value", "home-overdue-note",
       coverage ? formatCount(coverage.overdue) : "—",
-      coverage ? "farmers need a visit" : "unlock source"
+      coverage ? "farmers need a visit" : "loading"
     );
     var issues = metrics && metrics.issues ? metrics.issues : null;
     var highRiskIssues = issues && Array.isArray(issues.by_issue) ? issues.by_issue.reduce(function (total, issue) {
@@ -302,20 +380,16 @@
     setHomeMetric(
       "home-issues-value", "home-issues-note",
       highRiskIssues === null ? "—" : formatCount(highRiskIssues),
-      highRiskIssues === null ? "unlock source" : "high / critical · 7 days"
+      highRiskIssues === null ? "loading" : "high / critical · 7 days"
     );
   }
 
   function renderWorkerActivity() {
     var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
     if (!metrics) {
-      var locked = !managerSessionAuthenticated;
-      element("worker-boundary").textContent = locked ?
-        "Unlock Settings to view the daily field-worker source aggregate on this browser." :
-        "Daily worker activity is unavailable. Do not infer worker performance from an empty source.";
-      element("worker-activity").textContent = locked ?
-        "Unlock Settings to see daily filing. Named worker records remain separate." :
-        "No published daily worker activity is available right now.";
+      element("worker-boundary").textContent = "";
+      element("worker-activity").textContent = managerSessionAuthenticated ?
+        "Daily filing is unavailable." : "Daily filing is loading.";
       renderHomeMetrics();
       return;
     }
@@ -325,7 +399,7 @@
     var filed = Number(visits.filed_on_reporting_day) || 0;
     var filing = Number(visits.filing_officers) || 0;
     var missing = Number(visits.active_officers_without_filed_visit) || 0;
-    element("worker-boundary").textContent = "Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.";
+    element("worker-boundary").textContent = "";
     element("worker-activity").textContent = formatCount(filed) + " visits filed today · " +
       formatCount(missing) + " active officers have not filed.";
     renderHomeMetrics();
@@ -339,18 +413,26 @@
   }
 
   function renderProgrammeLocked() {
+    if (sampleMode) {
+      renderProgramme(sampleProgramme(), { state: "sample" });
+      return;
+    }
     currentProgramme = null;
-    element("farmer-boundary").textContent = "Open Settings to unlock Fortune farmer coverage context on this browser.";
-    element("farmer-coverage").textContent = "Farmer coverage stays private until manager access is unlocked.";
+    element("farmer-boundary").textContent = "";
+    element("farmer-coverage").textContent = "Coverage is loading.";
     renderWorkerActivity();
     renderDailyDirection();
     renderHomeMetrics();
   }
 
   function renderProgrammeUnavailable() {
+    if (sampleMode) {
+      renderProgramme(sampleProgramme(), { state: "sample" });
+      return;
+    }
     currentProgramme = null;
-    element("farmer-boundary").textContent = "Farmer coverage is unavailable. Review the source state before taking action from this gap.";
-    element("farmer-coverage").textContent = "No published farmer coverage aggregate is available right now.";
+    element("farmer-boundary").textContent = "";
+    element("farmer-coverage").textContent = "Coverage is unavailable.";
     renderWorkerActivity();
     renderDailyDirection();
     renderHomeMetrics();
@@ -358,16 +440,13 @@
 
   function renderProgramme(metrics, health) {
     var coverage = metrics && metrics.coverage ? metrics.coverage : {};
-    var freshness = metrics && metrics.freshness ? metrics.freshness : {};
-    var sourceState = health && health.state ? readable(health.state) : "published context";
-    var sourceLabel = freshness.status === "available" ? sourceState : "no published data";
 
     currentProgramme = { metrics: metrics || {}, health: health || {} };
     renderDailyDirection();
-    element("farmer-boundary").textContent = "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.";
+    element("farmer-boundary").textContent = "";
     element("farmer-coverage").textContent = formatCount(coverage.overdue) + " farmers overdue · " +
       formatCount(coverage.never_visited) + " never visited · " + formatCount(coverage.recent) +
-      " reached in 14 days · source " + sourceLabel + ".";
+      " reached in 14 days.";
     renderWorkerActivity();
     renderHomeMetrics();
   }
@@ -531,6 +610,12 @@
   }
 
   function renderPortfolioUnavailable() {
+    if (sampleMode) {
+      currentPortfolio = samplePortfolio();
+      renderRiskLedger();
+      renderHomeMetrics();
+      return;
+    }
     currentPortfolio = null;
     if (currentRuntime) {
       renderDailyDirection();
@@ -774,6 +859,12 @@
   function renderPortfolio(portfolio) {
     if (!portfolio || typeof portfolio !== "object") {
       renderPortfolioUnavailable();
+      return;
+    }
+    if (sampleMode && !listedItems(portfolio.risk_action_ledger).length) {
+      currentPortfolio = samplePortfolio();
+      renderRiskLedger();
+      renderHomeMetrics();
       return;
     }
     currentPortfolio = portfolio;
@@ -1122,18 +1213,23 @@
     currentFortuneMap = featureCollection || { type: "FeatureCollection", features: [] };
     var features = currentFortuneMap.features || [];
     var count = features.length;
-    element("home-map-status").textContent = count ? formatCount(count) + " reviewed field" + (count === 1 ? "" : "s") : "No reviewed geometry";
-    element("home-map-note").textContent = count ?
+    element("home-map-status").textContent = sampleMode ? "Sample · North Block" :
+      (count ? formatCount(count) + " reviewed field" + (count === 1 ? "" : "s") : "No reviewed geometry");
+    element("home-map-note").textContent = sampleMode ? "Sample geometry" : (count ?
       "Map detail comes only from the latest published, reviewed farm manifest." :
-      "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.";
-    element("farm-map-note").textContent = count ?
+      "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.");
+    element("farm-map-note").textContent = sampleMode ? "Sample geometry" : (count ?
       "The map is the same reviewed farm geometry used in Today." :
-      "Only reviewed field geometry is shown. No source village is treated as a farm point.";
+      "Only reviewed field geometry is shown. No source village is treated as a farm point.");
     renderMapCanvas("home-map-canvas", currentFortuneMap);
     renderMapCanvas("farm-map-canvas", currentFortuneMap);
   }
 
   function renderFortuneMapUnavailable() {
+    if (sampleMode) {
+      renderFortuneMap(sampleMap());
+      return;
+    }
     currentFortuneMap = { type: "FeatureCollection", features: [] };
     element("home-map-status").textContent = managerSessionAuthenticated ? "Map unavailable" : "Unlock to reveal map";
     element("home-map-note").textContent = managerSessionAuthenticated ?
@@ -1310,18 +1406,10 @@
   function renderDailyDirection() {
     var programme = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
     if (!programme) {
-      if (!managerSessionAuthenticated) {
-        setDailyDirection(
-          "private", "Unlock today’s coverage.",
-          "Officer activity, visit gaps, and spreading issues become visible after manager access is unlocked.",
-          "Private manager context", "Coverage not yet visible", "Unlock manager actions", "No source aggregate loaded", "settings"
-        );
-        return;
-      }
       setDailyDirection(
-        "unavailable", "Today’s source is not ready.",
-        "There is no published Fortune aggregate to steer from yet.",
-        "No reporting-day activity", "No coverage denominator", "Review source state", "Published source unavailable", "settings"
+        "reading", "Reading today’s operation.",
+        "The field picture is loading.",
+        "Daily activity loading", "Coverage loading", "Open field workers", "Awaiting today’s signal", "workers"
       );
       return;
     }
@@ -1570,6 +1658,7 @@
   }
 
   function renderRuntime(runtime) {
+    setSampleMode(false);
     currentRuntime = runtime;
     currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
     renderPageIntro();
@@ -1581,24 +1670,19 @@
   }
 
   function renderRuntimeUnavailable() {
-    currentRuntime = null;
-    currentOperatingUnitName = "No verified farm is set up yet.";
+    setSampleMode(true);
+    currentRuntime = sampleRuntime();
+    currentPortfolio = samplePortfolio();
+    currentOperatingUnitName = "Fortune Rice";
     focusedAllocationId = null;
     allocationCalendars = {};
     renderPageIntro();
-    element("field-title").textContent = "First field";
-    element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
-    element("field-status").textContent = "set up";
-    element("field-status").className = "status";
-    setFocusAction("Prepare first farm", "setup", null);
-    element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
-    setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
-    setHtml("farm-table-body", '<tr><td colspan="4" class="table-empty">No verified fields yet.</td></tr>');
-    setHtml("farmer-list", '<p class="empty-state">No reviewed farmer record is available yet.</p>');
-    setHtml("worker-list", '<p class="empty-state">No reviewed field worker record is available yet.</p>');
-    setHtml("farmer-table-body", '<tr><td colspan="4" class="table-empty">No reviewed farmer records yet.</td></tr>');
-    setHtml("worker-table-body", '<tr><td colspan="4" class="table-empty">No reviewed field-worker records yet.</td></tr>');
+    renderCards(currentRuntime);
+    renderPeople(currentRuntime);
+    renderProgramme(sampleProgramme(), { state: "sample" });
     renderRiskLedger();
+    renderSampleWeather();
+    renderFortuneMap(sampleMap());
     renderHomeMetrics();
   }
 
@@ -1677,193 +1761,6 @@
     }
   }
 
-  function clearSetupFeedback() {
-    element("setup-error").hidden = true;
-    element("setup-error").textContent = "";
-    element("setup-result").hidden = true;
-    element("setup-result").innerHTML = "";
-  }
-
-  function showSetupError(message) {
-    element("setup-error").textContent = message;
-    element("setup-error").hidden = false;
-  }
-
-  function buildQuickSetup(form) {
-    var area = Number(formValue(form, "area_hectares"));
-    var locationHint = formValue(form, "location_hint").trim();
-    if (!isFinite(area) || area <= 0) {
-      throw new Error("Area must be a positive number.");
-    }
-    if (!locationHint) {
-      throw new Error("Add a village or six-digit PIN.");
-    }
-    return {
-      farm_name: formValue(form, "farm_name"),
-      manager_name: formValue(form, "manager_name"),
-      field_name: formValue(form, "field_name"),
-      crop_name: formValue(form, "crop_name"),
-      area_hectares: area,
-      state_name: formValue(form, "state_name"),
-      district_name: formValue(form, "district_name"),
-      village_name: /^[0-9]{6}$/.test(locationHint) ? null : locationHint,
-      pincode: /^[0-9]{6}$/.test(locationHint) ? locationHint : null
-    };
-  }
-
-  function renderQuickSetup(result) {
-    var remaining = Array.isArray(result.still_needed_before_acceptance) ? result.still_needed_before_acceptance : [];
-    element("setup-result").innerHTML = '<h3>Good starting point.</h3><p>' +
-      escapeHtml(result.farm.name) + ' · ' + escapeHtml(result.field.name) + ' · ' +
-      escapeHtml(result.field.crop_name) + ' · ' + escapeHtml(result.location.district_name) + '</p><ul>' + remaining.map(function (item) {
-        return '<li>' + escapeHtml(item) + '</li>';
-      }).join("") + '</ul><p>Nothing has been saved, mapped, or assigned from this check.</p>';
-    element("setup-result").hidden = false;
-  }
-
-  function setSetupMode(mode) {
-    var fieldMode = mode !== "file";
-    element("setup-field-mode").hidden = !fieldMode;
-    element("setup-file-mode").hidden = fieldMode;
-    element("validate-setup").hidden = !fieldMode;
-    element("setup-footer-copy").textContent = fieldMode
-      ? "You will only add land rights, season dates, and the first work after this basic check."
-      : "The file stays on this device while we recognize its header. A manager reviews any real import before it is retained.";
-    Array.prototype.forEach.call(document.querySelectorAll("[data-setup-mode]"), function (button) {
-      var selected = button.getAttribute("data-setup-mode") === (fieldMode ? "field" : "file");
-      button.classList.toggle("is-active", selected);
-      button.setAttribute("aria-selected", String(selected));
-    });
-    clearSetupFeedback();
-  }
-
-  function csvHeader(source) {
-    var cells = [];
-    var cell = "";
-    var quoted = false;
-    var index;
-    for (index = 0; index < source.length; index += 1) {
-      var character = source.charAt(index);
-      if (character === '"') {
-        if (quoted && source.charAt(index + 1) === '"') {
-          cell += '"';
-          index += 1;
-        } else {
-          quoted = !quoted;
-        }
-      } else if (character === "," && !quoted) {
-        cells.push(cell.trim());
-        cell = "";
-      } else if ((character === "\n" || character === "\r") && !quoted) {
-        if (character === "\r" && source.charAt(index + 1) === "\n") {
-          index += 1;
-        }
-        cells.push(cell.trim());
-        return cells;
-      } else {
-        cell += character;
-      }
-    }
-    cells.push(cell.trim());
-    return cells;
-  }
-
-  function canonicalCsvHeader(value) {
-    return String(value || "").replace(/^\uFEFF/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-  }
-
-  function setFileResult(html, status) {
-    var result = element("setup-file-result");
-    result.className = "file-result" + (status ? " is-" + status : "");
-    result.innerHTML = html;
-  }
-
-  function recognizeCsvFile(file) {
-    element("setup-file-name").textContent = file ? file.name : "No file chosen.";
-    if (!file) {
-      setFileResult("<p>A farm/plot list helps map verified fields. A purchase ledger helps show village and variety history. They stay separate.</p>");
-      return;
-    }
-    if (file.size > 3 * 1024 * 1024) {
-      setFileResult("<p>This file is larger than the quick check. Use a CSV under 3 MB, or ask the team to split an export.</p>", "warning");
-      return;
-    }
-    var reader = new FileReader();
-    reader.onerror = function () {
-      setFileResult("<p>We could not read that file. Please choose a UTF-8 CSV.</p>", "warning");
-    };
-    reader.onload = function () {
-      var headers = csvHeader(String(reader.result || "")).map(canonicalCsvHeader);
-      var present = {};
-      headers.forEach(function (header) { present[header] = true; });
-      var procurement = ["entry_date", "village", "rate_per_qtl", "paddy_quantity_qtl", "variety_type"];
-      var manifest = ["source_farm_id", "record_status", "state_name", "district_name", "village_name", "pincode", "source_recorded_at", "source_record_ref"];
-      var isProcurement = procurement.every(function (header) { return present[header]; });
-      var isManifest = manifest.every(function (header) { return present[header]; });
-      if (isProcurement) {
-        setFileResult("<h3>Purchase history recognized.</h3><p>We will keep only monthly village, variety, quantity, bag, and rate cohorts—not names, purchase numbers, PO names, or bills. A manager reviews it before retention.</p>", "ready");
-      } else if (isManifest) {
-        setFileResult("<h3>Farm / plot list recognized.</h3><p>We will check IDs, location hierarchy, and any verified field proof before it can appear on the map. Village and PIN never create a field pin on their own.</p>", "ready");
-      } else {
-        setFileResult("<h3>We do not recognize this safely yet.</h3><p>Use a farm / plot CSV or the purchase-history format. Nothing from this file has left this device.</p>", "warning");
-      }
-    };
-    reader.readAsText(file.slice(0, 65536));
-  }
-
-  function openSetupDialog() {
-    clearSetupFeedback();
-    var dialog = element("setup-dialog");
-    if (!dialog.open) {
-      dialog.showModal();
-    }
-    var firstInput = element("setup-form").querySelector("input[name='farm_name']");
-    if (firstInput) {
-      firstInput.focus();
-    }
-  }
-
-  function validateSetup(event) {
-    event.preventDefault();
-    var form = event.currentTarget;
-    clearSetupFeedback();
-    if (!form.reportValidity()) {
-      return;
-    }
-    var proposal;
-    try {
-      proposal = buildQuickSetup(form);
-    } catch (error) {
-      showSetupError(error.message || "Complete the basic field details.");
-      return;
-    }
-    var submit = element("validate-setup");
-    submit.disabled = true;
-    submit.textContent = "Checking…";
-    fetch(quickStartValidationUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(proposal)
-    })
-      .then(function (response) {
-        return response.json().then(function (body) {
-          if (!response.ok) {
-            throw new Error(body.detail || "The field could not be checked.");
-          }
-          return body;
-        });
-      })
-      .then(renderQuickSetup)
-      .catch(function (error) {
-        showSetupError(error.message || "The field could not be checked.");
-      })
-      .finally(function () {
-        submit.disabled = false;
-        submit.innerHTML = 'Check this field <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
-      });
-  }
-
   function loadActionCentre() {
     element("load-status").textContent = "Loading…";
     element("portfolio-status").textContent = "Loading actions…";
@@ -1892,7 +1789,7 @@
       })
       .catch(function () {
         renderRuntimeUnavailable();
-        element("load-status").textContent = "Set up the farm to begin.";
+        element("load-status").textContent = "Showing sample operation.";
       });
 
     fetch(portfolioUrl)
@@ -1923,21 +1820,6 @@
   Array.prototype.forEach.call(document.querySelectorAll("[data-inbox-mode]"), function (button) {
     button.addEventListener("click", function () { setInboxMode(button.getAttribute("data-inbox-mode")); });
   });
-  element("close-setup").addEventListener("click", function () {
-    element("setup-dialog").close();
-  });
-  element("setup-dialog").addEventListener("cancel", function () {
-    clearSetupFeedback();
-  });
-  element("setup-form").addEventListener("submit", validateSetup);
-  Array.prototype.forEach.call(document.querySelectorAll("[data-setup-mode]"), function (button) {
-    button.addEventListener("click", function () {
-      setSetupMode(button.getAttribute("data-setup-mode"));
-    });
-  });
-  element("setup-file").addEventListener("change", function (event) {
-    recognizeCsvFile(event.target.files && event.target.files[0]);
-  });
   element("language-toggle").addEventListener("click", function () {
     setLocale(interfaceLocale === "en" ? "hi" : "en");
   });
@@ -1959,10 +1841,6 @@
   });
   element("manager-session-form").addEventListener("submit", submitManagerSession);
   element("review-focus").addEventListener("click", function () {
-    if (focusTargetView === "setup") {
-      openSetupDialog();
-      return;
-    }
     showView(focusTargetView);
     if (focusTargetView === "farms") {
       element("allocations-heading").scrollIntoView({ behavior: "smooth", block: "start" });

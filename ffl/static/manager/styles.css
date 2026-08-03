@@ -17,6 +17,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d1af35; outline-offs
 .command-tab.is-active { background: #173f2c; color: #fff8e9; box-shadow: 0 2px 5px rgba(15, 48, 34, .2); }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
 .load-status { min-height: 1em; margin: 0; color: #5e6c5d; font-size: .72rem; text-align: right; }
+.sample-state { border: 1px solid rgba(24, 57, 46, .24); border-radius: 999px; color: #5d704f; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .055em; padding: 6px 8px; text-transform: uppercase; white-space: nowrap; }
 .quiet-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(24, 57, 46, .48); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #18392e; cursor: pointer; font-size: .78rem; font-weight: 800; padding: 9px 12px; }
 .quiet-button:hover { background: #fff8e9; }
 .language-toggle { min-width: 38px; border: 1px solid rgba(24, 57, 46, .35); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #254c39; cursor: pointer; font-size: .7rem; font-weight: 800; padding: 9px 10px; }

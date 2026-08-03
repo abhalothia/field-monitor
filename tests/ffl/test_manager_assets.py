@@ -17,6 +17,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'id="today-date"' in index_html
     assert 'id="today-time"' in index_html
     assert 'id="weather-state"' in index_html
+    assert 'id="sample-state"' in index_html
     assert 'id="home-visits-value"' in index_html
     assert 'id="home-overdue-value"' in index_html
     assert 'id="home-issues-value"' in index_html
@@ -62,14 +63,20 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "currentFarmView" in app_js
     assert "renderPeople" in app_js
     assert "inboxRows" in app_js
+    assert "sampleRuntime" in app_js
+    assert "sampleProgramme" in app_js
+    assert "samplePortfolio" in app_js
+    assert "sampleMap" in app_js
+    assert "North Block" in app_js
+    assert "Asha Devi" in app_js
+    assert "Ravi Kumar" in app_js
+    assert "Showing sample operation." in app_js
     assert "Map detail comes only from the latest published, reviewed farm manifest." in app_js
     assert "Programme coverage never becomes a farm pin." in app_js
 
-    assert 'name="location_hint"' in index_html
-    assert 'id="setup-file"' in index_html
-    assert "/assets/first-field-manifest.csv" in index_html
-    assert "buildQuickSetup" in app_js
-    assert "recognizeCsvFile" in app_js
+    assert "Start with one field" not in index_html + app_js
+    assert "Prepare first farm" not in index_html + app_js
+    assert "first-field-manifest" not in index_html + app_js
     assert "ffl.manager.interface-locale" in app_js
     assert "X-FFL-Manager-Token" not in index_html + app_js
     assert "FFL_MANAGER_API_TOKEN" not in index_html + app_js
