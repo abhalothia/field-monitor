@@ -23,6 +23,7 @@ from ffl.api.routes import router
 from ffl.api.season_routes import router as season_router
 from ffl.api.source_routes import router as source_router
 from ffl.api.trial_routes import router as trial_router
+from ffl.api.trackolap_routes import router as trackolap_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
@@ -332,6 +333,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(source_router)
     app.include_router(portfolio_router)
     app.include_router(operating_profile_router)
+    app.include_router(trackolap_router)
     return app
 
 

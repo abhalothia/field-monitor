@@ -19,6 +19,7 @@ from ffl.services.evidence_store import EvidenceStore, LocalEvidenceStore
 ALLOWED_MEDIA_TYPES = {
     "text/csv",
     "text/plain",
+    "application/zip",
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }

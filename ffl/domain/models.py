@@ -403,6 +403,23 @@ class ImportRow:
 
 
 @dataclass(frozen=True)
+class TrackolapStoredRecord:
+    """A normalized TrackOlap source revision with private provenance."""
+
+    id: str
+    source_id: str
+    source_run_id: Optional[str]
+    import_batch_id: Optional[str]
+    feed: str
+    source_identifier: str
+    source_updated_at: str
+    tenant_id: str
+    values: Any
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class Playbook:
     id: str
     name: str

@@ -38,6 +38,7 @@ from ffl.domain.models import (
     TrialAllocation,
     TrialConclusion,
     TrialConfounder,
+    TrackolapStoredRecord,
     WorkItem,
 )
 
@@ -322,6 +323,14 @@ def _import_row(row: sqlite3.Row) -> ImportRow:
         row["id"], row["import_batch_id"], row["row_number"], json.loads(row["raw_json"]),
         json.loads(row["mapped_json"]), row["status"], json.loads(row["validation_errors_json"]),
         row["target_entity_type"], row["target_entity_id"], row["published_record_id"], row["created_at"],
+    )
+
+
+def _trackolap_record(row: sqlite3.Row) -> TrackolapStoredRecord:
+    return TrackolapStoredRecord(
+        row["id"], row["source_id"], row["source_run_id"], row["import_batch_id"],
+        row["feed"], row["source_identifier"], row["source_updated_at"], row["tenant_id"],
+        json.loads(row["values_json"]), row["status"], row["created_at"],
     )
 
 
@@ -1611,6 +1620,88 @@ def list_import_rows(conn: sqlite3.Connection, import_batch_id: str) -> List[Imp
     return [_import_row(row) for row in conn.execute(
         "SELECT * FROM import_rows WHERE import_batch_id = ? ORDER BY row_number", (import_batch_id,)
     ).fetchall()]
+
+
+def create_trackolap_record(
+    conn: sqlite3.Connection, source_id: str, source_run_id: Optional[str],
+    import_batch_id: Optional[str], feed: str, source_identifier: str,
+    source_updated_at: str, tenant_id: str, values: Any, status: str = "valid",
+    commit: bool = True,
+) -> TrackolapStoredRecord:
+    """Store an immutable source revision, returning an existing replay safely."""
+    identifier, created_at = _new_identity()
+    try:
+        conn.execute(
+            """INSERT INTO trackolap_records
+               (id, source_id, source_run_id, import_batch_id, feed, source_identifier,
+                source_updated_at, tenant_id, values_json, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                identifier, source_id, source_run_id, import_batch_id, feed, source_identifier,
+                source_updated_at, tenant_id, _json_value(values), status, created_at,
+            ),
+        )
+        if commit:
+            conn.commit()
+    except sqlite3.IntegrityError:
+        if commit:
+            conn.rollback()
+        existing = get_trackolap_record_by_revision(
+            conn, source_id, feed, source_identifier, source_updated_at
+        )
+        if existing is None:
+            raise
+        return existing
+    return get_trackolap_record(conn, identifier)  # type: ignore[return-value]
+
+
+def get_trackolap_record(conn: sqlite3.Connection, record_id: str) -> Optional[TrackolapStoredRecord]:
+    row = conn.execute("SELECT * FROM trackolap_records WHERE id = ?", (record_id,)).fetchone()
+    return _trackolap_record(row) if row is not None else None
+
+
+def get_trackolap_record_by_revision(
+    conn: sqlite3.Connection, source_id: str, feed: str, source_identifier: str, source_updated_at: str,
+) -> Optional[TrackolapStoredRecord]:
+    row = conn.execute(
+        """SELECT * FROM trackolap_records
+           WHERE source_id = ? AND feed = ? AND source_identifier = ? AND source_updated_at = ?""",
+        (source_id, feed, source_identifier, source_updated_at),
+    ).fetchone()
+    return _trackolap_record(row) if row is not None else None
+
+
+def list_trackolap_records(
+    conn: sqlite3.Connection, source_id: str, statuses: Optional[Tuple[str, ...]] = None,
+) -> List[TrackolapStoredRecord]:
+    if statuses is None:
+        rows = conn.execute(
+            """SELECT * FROM trackolap_records
+               WHERE source_id = ? ORDER BY feed, source_updated_at, source_identifier""",
+            (source_id,),
+        ).fetchall()
+    else:
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = conn.execute(
+            """SELECT * FROM trackolap_records WHERE source_id = ? AND status IN ("""
+            + placeholders
+            + ") ORDER BY feed, source_updated_at, source_identifier",
+            (source_id, *statuses),
+        ).fetchall()
+    return [_trackolap_record(row) for row in rows]
+
+
+def publish_trackolap_records(conn: sqlite3.Connection, import_batch_id: str, commit: bool = True) -> int:
+    """Advance normalized records only after their linked batch is published."""
+    cursor = conn.execute(
+        "UPDATE trackolap_records SET status = 'published' WHERE import_batch_id = ? AND status = 'valid'",
+        (import_batch_id,),
+    )
+    if commit:
+        conn.commit()
+    return cursor.rowcount
 
 
 def review_import_batch(

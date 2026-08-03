@@ -496,6 +496,28 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (import_batch_id, row_number)
         );
 
+        -- Private, source-backed operational context.  These rows do not
+        -- establish farms, parcels, task completion, or agronomic decisions.
+        -- Source revisions are append-only and remain separate from the
+        -- reviewed import lifecycle that governs their publication.
+        CREATE TABLE IF NOT EXISTS trackolap_records (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            import_batch_id TEXT REFERENCES import_batches(id),
+            feed TEXT NOT NULL CHECK (feed IN (
+                'officers', 'attendance', 'farmer_tasks', 'visits',
+                'issue_observations', 'pesticide_events'
+            )),
+            source_identifier TEXT NOT NULL,
+            source_updated_at TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            values_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('valid', 'quarantined', 'published')),
+            created_at TEXT NOT NULL,
+            UNIQUE (source_id, feed, source_identifier, source_updated_at)
+        );
+
         CREATE TABLE IF NOT EXISTS playbooks (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -604,6 +626,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON import_rows (import_batch_id, row_number);
         CREATE INDEX IF NOT EXISTS idx_import_batches_purpose_received
             ON import_batches (purpose, received_at);
+        CREATE INDEX IF NOT EXISTS idx_trackolap_records_source_status_feed
+            ON trackolap_records (source_id, status, feed, source_updated_at);
         CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial
             ON trial_allocations (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trials_owner_created
