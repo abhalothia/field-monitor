@@ -18,15 +18,15 @@
         </a>
         <nav class="command-tabs" aria-label="Fortune COO views" role="tablist">
           <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Today</button>
-          <button id="tab-programme" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-programme" data-view="programme" tabindex="-1" data-i18n="navProgramme">Programme</button>
-          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Territory</button>
+          <button id="tab-farms" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farms" data-view="farms" tabindex="-1" data-i18n="navFarms">Farms</button>
+          <button id="tab-farmers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farmers" data-view="farmers" tabindex="-1" data-i18n="navFarmers">Farmers</button>
+          <button id="tab-workers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-workers" data-view="workers" tabindex="-1" data-i18n="navWorkers">Field workers</button>
+          <button id="tab-inbox" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-inbox" data-view="inbox" tabindex="-1" data-i18n="navInbox">Inbox</button>
+          <button id="tab-settings" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1" data-i18n="navSettings">Settings</button>
         </nav>
         <div class="header-actions">
           <p id="load-status" class="load-status" aria-live="polite"></p>
           <button id="language-toggle" class="language-toggle" type="button" aria-label="Switch interface language">हिं</button>
-          <button id="open-system" class="quiet-button system-button" type="button" aria-label="Open system controls" title="System controls">
-            <span class="material-symbols-outlined" aria-hidden="true">settings</span>
-          </button>
           <button id="refresh" class="quiet-button" type="button">
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
             <span class="refresh-label" data-i18n="refresh">Refresh</span>
@@ -45,11 +45,11 @@
             <div class="card-heading pulse-heading">
               <div>
                 <p class="eyebrow" data-i18n="fieldPulse">Daily direction</p>
-                <h2 id="field-title">Reading today’s programme.</h2>
+                <h2 id="field-title">Reading today’s network.</h2>
               </div>
               <span id="field-status" class="status">loading</span>
             </div>
-            <p id="field-crop" class="field-crop">Fortune paddy programme</p>
+            <p id="field-crop" class="field-crop">Fortune paddy network</p>
             <p id="field-note" class="field-note">Officer activity, visit gaps, and field signals determine the first move.</p>
             <dl class="pulse-facts">
               <div><dt>Officer activity</dt><dd id="field-stage">—</dd></div>
@@ -58,7 +58,7 @@
               <div><dt>Data confidence</dt><dd id="field-update">—</dd></div>
             </dl>
             <button id="review-focus" class="pulse-action" type="button">
-              <span id="focus-action-label" data-i18n="openFieldWork">Open programme</span>
+              <span id="focus-action-label" data-i18n="openFieldWork">Open field workers</span>
               <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
             </button>
           </article>
@@ -87,38 +87,26 @@
               <p class="eyebrow">Operations board</p>
               <h2 id="operations-board-heading">See the whole operation.</h2>
             </div>
-            <p>Record health, not a performance score. Each territory tells you whether its evidence, ownership, or coverage needs attention.</p>
+            <p>Not a performance score. Each card says whether a record, coverage gap, owner, or decision needs attention.</p>
           </div>
           <div id="operations-board" class="operations-territories" aria-live="polite">
             <p class="empty-state">Reading the operating board…</p>
           </div>
         </section>
 
-        <section class="command-card home-network-card" aria-labelledby="home-coverage-heading">
-          <div class="card-heading">
-            <div>
-              <p class="eyebrow">Territory</p>
-              <h2 id="home-coverage-heading">Where we operate</h2>
-            </div>
-            <button id="open-map" class="detail-button" type="button" data-i18n="openMap">Open map</button>
-          </div>
-          <p id="home-coverage-note" class="coverage-note">Loading public coverage…</p>
-          <div id="home-coverage-map" class="coverage-map" aria-live="polite"></div>
-        </section>
       </section>
 
-      <section id="panel-fields" class="command-view drilldown-view" role="region" aria-labelledby="fields-heading" hidden>
-        <header class="drilldown-intro">
-          <button class="view-back" type="button" data-return-view="programme"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to programme</button>
+      <section id="panel-farms" class="command-view object-view" role="tabpanel" aria-labelledby="tab-farms" hidden>
+        <header class="object-intro">
           <p class="eyebrow">Verified operating record</p>
-          <h1 id="fields-heading">Crop work</h1>
-          <p>Only reviewed fields and crop allocations appear here. Programme source context remains separate.</p>
+          <h2 id="farms-heading">Farms are ground truth.</h2>
+          <p>Fields, crops, work, and evidence meet here. A source village or coverage count never becomes a farm record on its own.</p>
         </header>
         <section class="command-card allocations-card" aria-labelledby="allocations-heading">
           <div class="card-heading">
             <div>
-              <p class="eyebrow" data-i18n="currentFields">Current fields</p>
-              <h2 id="allocations-heading">Crop allocations</h2>
+              <p class="eyebrow" data-i18n="currentFields">Farm records</p>
+              <h3 id="allocations-heading">Fields and active crops</h3>
             </div>
           </div>
           <p id="allocation-summary" class="allocation-summary">Choose one active crop to bring its work and field record into focus.</p>
@@ -129,7 +117,7 @@
             <div class="card-heading">
               <div>
                 <p id="work-context" class="eyebrow">In focus</p>
-                <h2 id="work-heading" data-i18n="work">Work</h2>
+                <h3 id="work-heading" data-i18n="work">Work</h3>
               </div>
             </div>
             <div id="work-list" class="item-list work-list" aria-live="polite"></div>
@@ -138,30 +126,63 @@
           <aside id="audit" class="command-card" aria-labelledby="audit-heading">
             <div class="card-heading">
               <p class="eyebrow" data-i18n="selectedSignal">Selected signal</p>
-              <h2 id="audit-heading" data-i18n="review">Review</h2>
+              <h3 id="audit-heading" data-i18n="review">Review</h3>
             </div>
             <div id="exception-detail" class="empty-state">Choose an open issue to inspect its history.</div>
           </aside>
         </div>
+        <section class="map-stage farm-map-stage" aria-labelledby="map-stage-heading">
+          <div class="map-canvas">
+            <div class="map-stage-heading">
+              <div>
+                <p class="eyebrow">Operating geography</p>
+                <h3 id="map-stage-heading">Where farms can earn a place</h3>
+              </div>
+              <p id="map-stage-guard" class="map-guard">Public coverage only</p>
+            </div>
+            <p id="map-stage-note" class="coverage-note">Loading map context…</p>
+            <div id="map-explorer" class="map-explorer" aria-live="polite"></div>
+          </div>
+          <aside class="map-context" aria-labelledby="map-context-heading">
+            <p class="eyebrow">What is here</p>
+            <h3 id="map-context-heading">Map truth</h3>
+            <dl id="map-facts" class="map-facts"></dl>
+            <a id="map-source" class="detail-button" href="#" target="_blank" rel="noopener" hidden>View public source</a>
+          </aside>
+        </section>
+        <section class="map-path" aria-labelledby="map-path-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">From broad to precise</p>
+              <h3 id="map-path-heading">How a farm earns map detail</h3>
+            </div>
+          </div>
+          <ol class="map-steps">
+            <li><span>01</span><div><h4>Public network</h4><p>One public hub and disclosed operating area. Useful orientation, not farm geography.</p></div></li>
+            <li><span>02</span><div><h4>Supply villages</h4><p>Historical cohorts appear only after Fortune confirms hierarchy and source provenance.</p></div></li>
+            <li><span>03</span><div><h4>Verified farms</h4><p>A point or boundary needs a reviewed farm manifest and evidence. A village name never becomes a field pin.</p></div></li>
+            <li><span>04</span><div><h4>Field conditions</h4><p>Weather, market, and satellite context attach only at the right reviewed geography.</p></div></li>
+          </ol>
+        </section>
       </section>
 
-      <section id="panel-programme" class="command-view programme-view" role="tabpanel" aria-labelledby="tab-programme" hidden>
-        <header class="programme-intro">
-          <p class="eyebrow">Fortune paddy programme</p>
-          <h1>Read coverage.<br><em>Move the work.</em></h1>
-          <p>Start with officer activity, visit gaps, and field signals. Then move into the territory that needs follow-through.</p>
+      <section id="panel-farmers" class="command-view object-view" role="tabpanel" aria-labelledby="tab-farmers" hidden>
+        <header class="object-intro">
+          <p class="eyebrow">Farmer relationship</p>
+          <h2>Coverage earns a visit.</h2>
+          <p>See who the programme is reaching, where the visit gap is growing, and which named farmer records are actually reviewed.</p>
         </header>
 
-        <section class="command-card programme-coverage-card" aria-labelledby="programme-coverage-heading">
+        <section class="command-card programme-coverage-card" aria-labelledby="farmer-coverage-heading">
           <div class="card-heading">
             <div>
               <p class="eyebrow">Coverage</p>
-              <h2 id="programme-coverage-heading">Coverage, not assumptions.</h2>
+              <h3 id="farmer-coverage-heading">Coverage, not assumptions.</h3>
             </div>
-            <span id="programme-source-state" class="status">loading</span>
+            <span id="farmer-source-state" class="status">loading</span>
           </div>
-          <p id="programme-boundary" class="programme-boundary">Published programme context. Verified farm and field records remain separate until reviewed.</p>
-          <dl id="programme-coverage" class="programme-facts" aria-live="polite">
+          <p id="farmer-boundary" class="programme-boundary">Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.</p>
+          <dl id="farmer-coverage" class="programme-facts" aria-live="polite">
             <div><dt>Taken kit</dt><dd>—</dd></div>
             <div><dt>Visited</dt><dd>—</dd></div>
             <div><dt>Recent</dt><dd>—</dd></div>
@@ -171,105 +192,108 @@
         </section>
 
         <div class="command-grid programme-grid">
-          <section class="command-card programme-card" aria-labelledby="programme-observations-heading">
+          <section class="command-card programme-card" aria-labelledby="farmer-observations-heading">
             <div class="card-heading">
               <div>
                 <p class="eyebrow">Last 7 days</p>
-                <h2 id="programme-observations-heading">Field observations</h2>
+                <h3 id="farmer-observations-heading">What farmers are reporting</h3>
               </div>
             </div>
-            <div id="programme-observations" aria-live="polite"><p class="empty-state">Loading observations…</p></div>
+            <div id="farmer-observations" aria-live="polite"><p class="empty-state">Loading observations…</p></div>
           </section>
 
-          <section class="command-card programme-card" aria-labelledby="programme-inputs-heading">
+          <section class="command-card programme-card" aria-labelledby="farmer-inputs-heading">
             <div class="card-heading">
               <div>
                 <p class="eyebrow">Review queue</p>
-                <h2 id="programme-inputs-heading">Input signals</h2>
+                <h3 id="farmer-inputs-heading">Input signals</h3>
               </div>
             </div>
-            <div id="programme-inputs" aria-live="polite"><p class="empty-state">Loading input signals…</p></div>
+            <div id="farmer-inputs" aria-live="polite"><p class="empty-state">Loading input signals…</p></div>
           </section>
 
-          <section class="command-card programme-card" aria-labelledby="programme-freshness-heading">
+          <section class="command-card programme-card" aria-labelledby="farmer-freshness-heading">
             <div class="card-heading">
               <div>
                 <p class="eyebrow">Source state</p>
-                <h2 id="programme-freshness-heading">Freshness</h2>
+                <h3 id="farmer-freshness-heading">Freshness</h3>
               </div>
             </div>
-            <div id="programme-freshness" aria-live="polite"><p class="empty-state">Checking the published source…</p></div>
+            <div id="farmer-freshness" aria-live="polite"><p class="empty-state">Checking the published source…</p></div>
           </section>
         </div>
 
-        <section id="programme-people" class="programme-people" aria-labelledby="programme-people-heading">
+        <section class="programme-people" aria-labelledby="farmer-records-heading">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Canonical operation</p>
-              <h2 id="programme-people-heading">People &amp; assignments</h2>
+              <p class="eyebrow">Verified people</p>
+              <h3 id="farmer-records-heading">Named farmer records</h3>
             </div>
-            <p>Named people appear only from the reviewed operating record, never from a source task alone.</p>
+            <p>Only reviewed grower, landholder, and lessee records appear here. Source rows stay separate until matched and reviewed.</p>
           </div>
-          <div id="people-list" class="people-list" aria-live="polite"></div>
+          <div id="farmer-list" class="people-list" aria-live="polite"></div>
         </section>
       </section>
 
-      <section id="panel-map" class="command-view map-view" role="tabpanel" aria-labelledby="tab-map" hidden>
-        <header class="map-intro">
-          <p class="eyebrow">Territory</p>
-          <h1>See the ground.<br><em>Know the edge.</em></h1>
-          <p>Start with what is publicly known. Add supply villages, then verified fields, only when the records support them.</p>
+      <section id="panel-workers" class="command-view object-view" role="tabpanel" aria-labelledby="tab-workers" hidden>
+        <header class="object-intro">
+          <p class="eyebrow">Execution</p>
+          <h2>Field workers make the visit real.</h2>
+          <p>Daily source activity shows whether the field force is moving. Named worker records and farm scope remain reviewed separately.</p>
         </header>
-        <section class="map-stage" aria-labelledby="map-stage-heading">
-          <div class="map-canvas">
-            <div class="map-stage-heading">
-              <div>
-                <p class="eyebrow">Territory map</p>
-                <h2 id="map-stage-heading">Operating reach</h2>
-              </div>
-              <p id="map-stage-guard" class="map-guard">Public coverage only</p>
-            </div>
-            <p id="map-stage-note" class="coverage-note">Loading map context…</p>
-            <div id="map-explorer" class="map-explorer" aria-live="polite"></div>
-          </div>
-          <aside class="map-context" aria-labelledby="map-context-heading">
-            <p class="eyebrow">What is here</p>
-            <h2 id="map-context-heading">Map truth</h2>
-            <dl id="map-facts" class="map-facts"></dl>
-            <a id="map-source" class="detail-button" href="#" target="_blank" rel="noopener" hidden>View public source</a>
-          </aside>
-        </section>
-        <section class="map-path" aria-labelledby="map-path-heading">
+        <section class="command-card programme-coverage-card" aria-labelledby="worker-activity-heading">
           <div class="card-heading">
             <div>
-              <p class="eyebrow">From broad to precise</p>
-              <h2 id="map-path-heading">How this territory earns detail</h2>
+              <p class="eyebrow">Daily activity</p>
+              <h3 id="worker-activity-heading">Work filed today</h3>
             </div>
+            <span id="worker-source-state" class="status">loading</span>
           </div>
-          <ol class="map-steps">
-            <li><span>01</span><div><h3>Public network</h3><p>One public hub and a disclosed operating area. Useful orientation, not farm geography.</p></div></li>
-            <li><span>02</span><div><h3>Supply villages</h3><p>Historical purchase cohorts appear only after Fortune confirms village hierarchy and source provenance.</p></div></li>
-            <li><span>03</span><div><h3>Verified fields</h3><p>A point or boundary needs a reviewed farm manifest and evidence. A village name never becomes a field pin.</p></div></li>
-            <li><span>04</span><div><h3>Conditions around the field</h3><p>Weather, market, and satellite context attach only at the right reviewed geography and stay context—not decisions.</p></div></li>
-          </ol>
+          <p id="worker-boundary" class="programme-boundary">Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.</p>
+          <dl id="worker-activity" class="programme-facts" aria-live="polite">
+            <div><dt>Active</dt><dd>—</dd></div>
+            <div><dt>Filed visits</dt><dd>—</dd></div>
+            <div><dt>Filed</dt><dd>—</dd></div>
+            <div><dt>No visit filed</dt><dd>—</dd></div>
+            <div><dt>Reporting day</dt><dd>—</dd></div>
+          </dl>
+        </section>
+        <section class="programme-people" aria-labelledby="workers-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Verified people</p>
+              <h3 id="workers-heading">Field worker roster</h3>
+            </div>
+            <p>Open work is linked to the named owner only from the reviewed operating record.</p>
+          </div>
+          <div id="worker-list" class="people-list" aria-live="polite"></div>
         </section>
       </section>
 
-      <section id="panel-actions" class="command-view drilldown-view" role="region" aria-labelledby="actions-heading" hidden>
-        <header class="drilldown-intro">
-          <button class="view-back" type="button" data-return-view="home"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to today</button>
-          <p class="eyebrow">Decision detail</p>
-          <h1 id="actions-heading">Action record</h1>
-          <p>Today identifies the action. This is the retained record behind it.</p>
+      <section id="panel-inbox" class="command-view object-view" role="tabpanel" aria-labelledby="tab-inbox" hidden>
+        <header class="object-intro">
+          <p class="eyebrow">Decisions and follow-through</p>
+          <h2>Inbox is where work becomes owned.</h2>
+          <p>Review what needs a decision, make the owner clear, and return to the farm or worker with the next move.</p>
         </header>
         <p id="portfolio-status" class="visually-hidden" aria-live="polite">Loading actions…</p>
         <section id="actions-allocation-context" class="allocation-context" aria-labelledby="actions-allocation-name" hidden>
           <div>
-            <p class="eyebrow">In focus</p>
-            <h2 id="actions-allocation-name">Current crop allocation</h2>
+            <p class="eyebrow">Farm context</p>
+            <h3 id="actions-allocation-name">Current crop allocation</h3>
             <p id="actions-allocation-note">Field action is shown only when it is linked to this crop allocation.</p>
           </div>
-          <button id="open-focused-field" class="detail-button" type="button">Open crop record</button>
+          <button id="open-focused-field" class="detail-button" type="button">Open farm</button>
+        </section>
+        <section class="command-card inbox-work-card" aria-labelledby="inbox-work-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">Open work</p>
+              <h3 id="inbox-work-heading">What needs an owner</h3>
+            </div>
+            <button id="inbox-clear-filter" class="detail-button" type="button" hidden>Show all work</button>
+          </div>
+          <div id="inbox-work-list" class="item-list work-list" aria-live="polite"></div>
         </section>
         <div class="command-grid two-column">
           <section class="command-card" aria-labelledby="ledger-heading">
@@ -289,11 +313,10 @@
         </div>
       </section>
 
-      <section id="panel-settings" class="command-view drilldown-view" role="region" aria-labelledby="settings-heading" hidden>
-        <header class="drilldown-intro">
-          <button class="view-back" type="button" data-return-view="home"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Back to today</button>
+      <section id="panel-settings" class="command-view object-view" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <header class="object-intro">
           <p class="eyebrow">System controls</p>
-          <h1 id="settings-heading">System</h1>
+          <h2 id="settings-heading">Settings keep the boundary clear.</h2>
           <p>Access, source state, and the verified operating foundation.</p>
         </header>
         <div class="settings-grid">

@@ -8,47 +8,52 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
 
     assert "Today." in index_html
     assert "Today" in index_html
-    assert "Programme" in index_html
-    assert "Territory" in index_html
+    assert "Farms" in index_html
+    assert "Farmers" in index_html
+    assert "Field workers" in index_html
+    assert "Inbox" in index_html
+    assert "Settings" in index_html
     assert "Daily direction" in index_html
     assert "Officer activity, visit gaps, and field signals determine the first move." in index_html
     assert "Operations board" in index_html
-    assert "Record health, not a performance score." in index_html
+    assert "Not a performance score. Each card says whether a record, coverage gap, owner, or decision needs attention." in index_html
     assert 'id="operations-board"' in index_html
-    assert "Crop allocations" in index_html
+    assert "Farms are ground truth." in index_html
+    assert "Fields and active crops" in index_html
     assert 'id="allocations-heading"' in index_html
     assert index_html.count('id="allocation-list"') == 1
     assert "Data confidence" in index_html
     assert 'id="actions-allocation-context"' in index_html
     assert 'id="open-focused-field"' in index_html
-    assert "Reading today’s programme." in index_html
+    assert "Reading today’s network." in index_html
     assert "Open work" in index_html
     assert "Awaiting review" in index_html
-    assert index_html.count('<button id="tab-') == 3
+    assert index_html.count('<button id="tab-') == 6
     assert 'data-view="home"' in index_html
-    assert 'data-view="programme"' in index_html
+    assert 'data-view="farms"' in index_html
+    assert 'data-view="farmers"' in index_html
+    assert 'data-view="workers"' in index_html
+    assert 'data-view="inbox"' in index_html
+    assert 'data-view="settings"' in index_html
+    assert 'data-view="programme"' not in index_html
     assert 'data-view="fields"' not in index_html
-    assert 'data-view="farmers"' not in index_html
-    assert 'data-view="map"' in index_html
+    assert 'data-view="map"' not in index_html
     assert 'data-view="actions"' not in index_html
-    assert 'data-view="settings"' not in index_html
-    assert 'id="open-system"' in index_html
-    assert 'data-return-view="programme"' in index_html
-    assert 'data-return-view="home"' in index_html
-    assert 'id="programme-coverage"' in index_html
-    assert 'id="programme-observations"' in index_html
-    assert 'id="programme-inputs"' in index_html
-    assert 'id="programme-freshness"' in index_html
-    assert 'id="programme-people"' in index_html
-    assert "Published programme context. Verified farm and field records remain separate until reviewed." in index_html
+    assert 'id="farmer-coverage"' in index_html
+    assert 'id="farmer-observations"' in index_html
+    assert 'id="farmer-inputs"' in index_html
+    assert 'id="farmer-freshness"' in index_html
+    assert 'id="farmer-list"' in index_html
+    assert 'id="worker-activity"' in index_html
+    assert 'id="worker-list"' in index_html
+    assert 'id="inbox-work-list"' in index_html
+    assert "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision." in index_html
     assert "Tools" not in index_html
-    assert "Action record" in index_html
+    assert "Inbox is where work becomes owned." in index_html
     assert "Data connections" in index_html
-    assert 'id="open-map"' in index_html
     assert 'id="map-explorer"' in index_html
-    assert "How this territory earns detail" in index_html
+    assert "How a farm earns map detail" in index_html
     assert "A village name never becomes a field pin." in index_html
-    assert "Territory map" in index_html
     assert "Public coverage only" in index_html
     assert 'id="language-toggle"' in index_html
     assert 'id="action-dialog"' in index_html
@@ -63,7 +68,7 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "/api/v1/operating-profile" in app_js
     assert "/api/v1/trackolap/metrics" in app_js
     assert "/api/v1/trackolap/health" in app_js
-    assert "Open System controls to unlock Fortune programme context on this browser." in app_js
+    assert "Open Settings to unlock Fortune farmer coverage context on this browser." in app_js
     assert "review cue only; not an application recommendation or compliance verdict" in app_js
     assert "Observation confidence is low. Fewer detections do not mean risk has fallen." in app_js
     assert "/api/v1/pilot/readiness" in app_js
@@ -116,8 +121,7 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "active_officers_without_filed_visit" in app_js
     assert "officers filed no visit today." in app_js
     assert "renderOperationsBoard" in app_js
-    assert "Farmer programme" in app_js
-    assert "Source programme context, not a canonical farmer record." in app_js
+    assert "Farmer coverage stays private until manager access is unlocked." in app_js
     assert "data-board-view" in app_js
     assert "renderAllocationCards" in app_js
     assert "allocationSnapshot" in app_js
@@ -141,6 +145,11 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert "showView" in app_js
     assert "moveTab" in app_js
     assert "renderPeople" in app_js
+    assert "isFarmer" in app_js
+    assert "isFieldWorker" in app_js
+    assert "renderWorkerActivity" in app_js
+    assert "renderInboxWork" in app_js
+    assert "data-inbox-owner" in app_js
     assert "person_operating_relationships" in app_js
     assert "Field relationship setup is pending." in app_js
     assert "/morning-brief" in app_js
@@ -149,7 +158,7 @@ def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check
     assert 'element("audit").scrollIntoView' in app_js
     assert "renderOperatingProfile" in app_js
     assert "renderMapExplorer" in app_js
-    assert 'showView("map")' in app_js
+    assert 'showView("farms")' in app_js
     assert "map_embed_url" in app_js
     assert "currentAttention" in app_js
     assert "openActionDetail" in app_js

@@ -19,7 +19,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d1af35; outline-offs
 .load-status { min-height: 1em; margin: 0; color: #5e6c5d; font-size: .72rem; text-align: right; }
 .quiet-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(24, 57, 46, .48); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #18392e; cursor: pointer; font-size: .78rem; font-weight: 800; padding: 9px 12px; }
 .quiet-button:hover { background: #fff8e9; }
-.system-button { padding-right: 9px; padding-left: 9px; }
 .language-toggle { min-width: 38px; border: 1px solid rgba(24, 57, 46, .35); border-radius: 999px; background: rgba(250, 246, 235, .52); color: #254c39; cursor: pointer; font-size: .7rem; font-weight: 800; padding: 9px 10px; }
 .language-toggle:hover { background: #fff8e9; }
 
@@ -32,6 +31,10 @@ h2 { margin-bottom: 0; color: #12372b; font-size: clamp(1.65rem, 2.5vw, 2.4rem);
 h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height: 1.05; }
 .subtle { margin-bottom: 0; color: #596759; font-size: .9rem; line-height: 1.55; }
 .command-view[hidden] { display: none; }
+.object-view { padding-bottom: 32px; }
+.object-intro { max-width: 780px; padding: 48px 0 30px; }
+.object-intro h2 { margin: 0 0 13px; font-size: clamp(2.5rem, 5vw, 4.5rem); }
+.object-intro > p:last-child { max-width: 62ch; margin-bottom: 0; color: #536a5a; font-size: .91rem; line-height: 1.58; }
 .drilldown-view { padding-bottom: 32px; }
 .drilldown-intro { max-width: 740px; padding: 42px 0 28px; }
 .drilldown-intro h1 { margin: 14px 0 12px; font-size: clamp(2.6rem, 5.6vw, 5rem); }
@@ -102,6 +105,7 @@ h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height:
 .map-intro h1 em { color: #b07a22; }
 .map-intro > p:last-child { max-width: 56ch; margin-bottom: 0; color: #536a5a; font-size: .95rem; line-height: 1.62; }
 .map-stage { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .45fr); min-height: 580px; border: 1px solid rgba(24, 57, 46, .32); background: rgba(249, 243, 229, .84); box-shadow: 0 13px 36px rgba(70, 65, 42, .07); }
+.farm-map-stage { margin-top: 16px; }
 .map-canvas { display: flex; min-width: 0; flex-direction: column; padding: 24px; }
 .map-stage-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid rgba(24, 57, 46, .22); padding-bottom: 14px; }
 .map-stage-heading .eyebrow { margin-bottom: 5px; }
@@ -109,7 +113,7 @@ h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height:
 .map-explorer { display: grid; min-height: 430px; flex: 1; overflow: hidden; place-items: center; border: 1px solid rgba(24, 57, 46, .2); background: #e4e7d8; }
 .map-explorer iframe { display: block; width: 100%; height: 100%; min-height: 430px; border: 0; }
 .map-context { display: flex; flex-direction: column; border-left: 1px solid rgba(24, 57, 46, .28); background: rgba(229, 232, 210, .48); padding: 25px 22px; }
-.map-context h2 { font-size: 1.65rem; }
+.map-context h2, .map-context h3 { font-size: 1.65rem; }
 .map-facts { display: grid; gap: 17px; margin: 28px 0; }
 .map-facts div { padding-bottom: 14px; border-bottom: 1px solid rgba(24, 57, 46, .18); }
 .map-facts dd { color: #315544; font-size: .78rem; line-height: 1.45; }
@@ -120,7 +124,7 @@ h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height:
 .map-steps li:first-child { border-left: 0; padding-left: 0; }
 .map-steps li:last-child { padding-right: 0; }
 .map-steps span { color: #b38426; font-family: "DM Mono", monospace; font-size: .63rem; letter-spacing: .05em; }
-.map-steps h3 { color: #244b3b; font-family: Manrope, Arial, sans-serif; font-size: .79rem; font-weight: 800; letter-spacing: -.02em; }
+.map-steps h3, .map-steps h4 { color: #244b3b; font-family: Manrope, Arial, sans-serif; font-size: .79rem; font-weight: 800; letter-spacing: -.02em; }
 .map-steps p { margin: 6px 0 0; color: #617064; font-size: .7rem; line-height: 1.45; }
 .field-pulse { display: flex; min-height: 430px; flex-direction: column; }
 .pulse-heading { align-items: flex-start; }
@@ -195,6 +199,11 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .person-role { margin: 7px 0 8px; color: #617064; font-size: .75rem; }
 .person-assignment { min-height: 2.7em; margin: 0 0 14px; color: #315844; font-size: .72rem; line-height: 1.45; }
 .person-work { margin: 0; color: #315544; font-family: "DM Mono", monospace; font-size: .66rem; letter-spacing: .04em; text-transform: uppercase; }
+.person-inbox-link { margin-top: 16px; }
+.inbox-work-card { margin-bottom: 16px; }
+.inbox-work-item { border-top: 1px solid rgba(24, 57, 46, .2); padding: 14px 0; }
+.inbox-work-item:first-child { border-top: 0; padding-top: 0; }
+.inbox-work-item h4 { margin: 0; color: #153a2e; font-family: Manrope, Arial, sans-serif; font-size: .88rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.28; }
 
 .portfolio-list { display: grid; gap: 10px; }
 .portfolio-item { border-bottom: 1px solid rgba(24, 57, 46, .16); padding-bottom: 10px; }
@@ -204,7 +213,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .portfolio-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 7px; }
 .portfolio-meta .status { background: #e4e9d9; color: #55705d; }
 .allocation-context { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 16px; border-bottom: 1px solid rgba(24, 57, 46, .3); background: rgba(226, 233, 209, .5); padding: 19px 21px; }
-.allocation-context h2 { font-size: clamp(1.45rem, 2.3vw, 2rem); }
+.allocation-context h2, .allocation-context h3 { font-size: clamp(1.45rem, 2.3vw, 2rem); }
 .allocation-context p:last-child { max-width: 56ch; margin: 8px 0 0; color: #516655; font-size: .75rem; line-height: 1.45; }
 .allocation-context .detail-button { flex: 0 0 auto; }
 .portfolio-counts { display: grid; gap: 9px; margin: 0; }
@@ -358,6 +367,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .field-pulse { min-height: 360px; }
   .map-intro { padding: 42px 0 25px; }
   .programme-intro { padding: 42px 0 25px; }
+  .object-intro { padding: 38px 0 25px; }
   .drilldown-intro { padding: 34px 0 23px; }
   .operations-board { padding: 20px 18px 0; }
   .operations-board-heading { align-items: flex-start; flex-direction: column; gap: 9px; }

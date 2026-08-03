@@ -16,21 +16,24 @@
   var currentRuntime = null;
   var currentPortfolio = null;
   var currentProgramme = null;
+  var currentView = "home";
+  var currentOperatingUnitName = "";
+  var inboxOwnerId = null;
   var allocationCalendars = {};
   var focusedAllocationId = null;
   var allocationCalendarRequest = 0;
   var currentAttention = [];
   var pendingAction = null;
   var focusExceptionId = null;
-  var focusTargetView = "fields";
+  var focusTargetView = "farms";
   var managerSessionAuthenticated = false;
   var localeStorageKey = "ffl.manager.interface-locale";
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
     en: {
-      navHome: "Today", navProgramme: "Programme", navMap: "Territory",
-      refresh: "Refresh", openMap: "Open territory", pageTitle: "Today.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
-      openFieldWork: "Open programme", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
+      navHome: "Today", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
+      refresh: "Refresh", pageTitle: "Today.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
+      openFieldWork: "Open field workers", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
       priority: "Priority", riskAction: "Risk & action", learning: "Learning", trialsPlaybooks: "Trials & playbooks",
       operatingProfile: "Operating profile", coverage: "Coverage", interface: "Interface", language: "Language",
@@ -45,9 +48,9 @@
       openFieldAsks: "Open field asks"
     },
     hi: {
-      navHome: "आज", navProgramme: "कार्यक्रम", navMap: "क्षेत्र",
-      refresh: "ताज़ा करें", openMap: "क्षेत्र खोलें", pageTitle: "आज।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
-      openFieldWork: "कार्यक्रम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
+      navHome: "आज", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
+      refresh: "ताज़ा करें", pageTitle: "आज।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      openFieldWork: "फील्ड टीम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
       priority: "प्राथमिकता", riskAction: "जोखिम और अगला काम", learning: "सीख", trialsPlaybooks: "परीक्षण और तरीके",
       operatingProfile: "ऑपरेटिंग प्रोफ़ाइल", coverage: "कवरेज", interface: "इंटरफ़ेस", language: "भाषा",
@@ -89,6 +92,7 @@
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    renderPageIntro();
   }
 
   function setLocale(locale) {
@@ -235,6 +239,40 @@
     return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(formatCount(value)) + "</dd></div>";
   }
 
+  function workerFact(label, value) {
+    return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(value) + "</dd></div>";
+  }
+
+  function renderWorkerActivity() {
+    var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
+    if (!metrics) {
+      var locked = !managerSessionAuthenticated;
+      element("worker-source-state").textContent = locked ? "locked" : "unavailable";
+      element("worker-boundary").textContent = locked ?
+        "Unlock Settings to view the daily field-worker source aggregate on this browser." :
+        "Daily worker activity is unavailable. Do not infer worker performance from an empty source.";
+      setHtml("worker-activity", '<p class="empty-state">' + (locked ?
+        "Daily activity stays private until manager access is unlocked." :
+        "No published daily worker activity is available right now.") + "</p>");
+      return;
+    }
+    var visits = metrics.visits || {};
+    var freshness = metrics.freshness || {};
+    var active = Number(visits.active_officers) || 0;
+    var filed = Number(visits.filed_on_reporting_day) || 0;
+    var filing = Number(visits.filing_officers) || 0;
+    var missing = Number(visits.active_officers_without_filed_visit) || 0;
+    element("worker-source-state").textContent = freshness.status === "available" ? "published" : "no timestamp";
+    element("worker-boundary").textContent = "Daily activity is a published source aggregate. It does not assign a source visit to a named worker until reviewed.";
+    setHtml("worker-activity",
+      workerFact("Active officers", formatCount(active)) +
+      workerFact("Visits filed", formatCount(filed)) +
+      workerFact("Officers filed", formatCount(filing) + " / " + formatCount(active)) +
+      workerFact("No visit filed", formatCount(missing)) +
+      workerFact("Source age", formatAgeHours(freshness.age_hours))
+    );
+  }
+
   function programmeWarningCopy(code) {
     if (code === "low_observation_confidence") {
       return "Observation confidence is low. Fewer detections do not mean risk has fallen.";
@@ -244,12 +282,13 @@
 
   function renderProgrammeLocked() {
     currentProgramme = null;
-    element("programme-source-state").textContent = "locked";
-    element("programme-boundary").textContent = "Open System controls to unlock Fortune programme context on this browser.";
-    setHtml("programme-coverage", '<p class="empty-state">Programme aggregates stay private until manager access is unlocked.</p>');
-    setHtml("programme-observations", '<p class="empty-state">No source observations are shown while manager access is locked.</p>');
-    setHtml("programme-inputs", '<p class="empty-state">No source input signals are shown while manager access is locked.</p>');
-    setHtml("programme-freshness", '<p class="empty-state">Source freshness is private manager context.</p>');
+    element("farmer-source-state").textContent = "locked";
+    element("farmer-boundary").textContent = "Open Settings to unlock Fortune farmer coverage context on this browser.";
+    setHtml("farmer-coverage", '<p class="empty-state">Farmer coverage stays private until manager access is unlocked.</p>');
+    setHtml("farmer-observations", '<p class="empty-state">No source observations are shown while manager access is locked.</p>');
+    setHtml("farmer-inputs", '<p class="empty-state">No source input signals are shown while manager access is locked.</p>');
+    setHtml("farmer-freshness", '<p class="empty-state">Source freshness is private manager context.</p>');
+    renderWorkerActivity();
     renderDailyDirection();
     if (currentRuntime) {
       renderOperationsBoard(currentRuntime);
@@ -258,12 +297,13 @@
 
   function renderProgrammeUnavailable() {
     currentProgramme = null;
-    element("programme-source-state").textContent = "unavailable";
-    element("programme-boundary").textContent = "Programme metrics are unavailable. Review the source state before taking action from this gap.";
-    setHtml("programme-coverage", '<p class="empty-state portfolio-unavailable">No published programme aggregate is available right now.</p>');
-    setHtml("programme-observations", '<p class="empty-state portfolio-unavailable">Observation context is unavailable; absence is not evidence of absence.</p>');
-    setHtml("programme-inputs", '<p class="empty-state portfolio-unavailable">Input review cues are unavailable.</p>');
-    setHtml("programme-freshness", '<p class="empty-state portfolio-unavailable">Source state could not be checked.</p>');
+    element("farmer-source-state").textContent = "unavailable";
+    element("farmer-boundary").textContent = "Farmer coverage is unavailable. Review the source state before taking action from this gap.";
+    setHtml("farmer-coverage", '<p class="empty-state portfolio-unavailable">No published farmer coverage aggregate is available right now.</p>');
+    setHtml("farmer-observations", '<p class="empty-state portfolio-unavailable">Observation context is unavailable; absence is not evidence of absence.</p>');
+    setHtml("farmer-inputs", '<p class="empty-state portfolio-unavailable">Input review cues are unavailable.</p>');
+    setHtml("farmer-freshness", '<p class="empty-state portfolio-unavailable">Source state could not be checked.</p>');
+    renderWorkerActivity();
     renderDailyDirection();
     if (currentRuntime) {
       renderOperationsBoard(currentRuntime);
@@ -284,9 +324,9 @@
 
     currentProgramme = { metrics: metrics || {}, health: health || {} };
     renderDailyDirection();
-    element("programme-source-state").textContent = sourceLabel;
-    element("programme-boundary").textContent = "Published programme context. Verified farm and field records remain separate until reviewed.";
-    setHtml("programme-coverage",
+    element("farmer-source-state").textContent = sourceLabel;
+    element("farmer-boundary").textContent = "Published coverage is a source aggregate. It does not prove a named farmer, farm, field, or input decision.";
+    setHtml("farmer-coverage",
       programmeFact("Taken kit", coverage.taken_kit) +
       programmeFact("Visited", coverage.visited) +
       programmeFact("Recent · 14 days", coverage.recent) +
@@ -305,20 +345,21 @@
     var warningRows = warningCodes.length ? '<ul class="programme-warnings">' + warningCodes.map(function (warning) {
       return '<li>' + escapeHtml(programmeWarningCopy(warning)) + '</li>';
     }).join("") + '</ul>' : '';
-    setHtml("programme-observations", observationSummary + observationRows + warningRows);
+    setHtml("farmer-observations", observationSummary + observationRows + warningRows);
 
-    setHtml("programme-inputs", '<p class="programme-number">' + escapeHtml(formatCount(pesticides.event_count)) +
+    setHtml("farmer-inputs", '<p class="programme-number">' + escapeHtml(formatCount(pesticides.event_count)) +
       '<span>recorded input events</span></p><dl class="programme-mini-facts">' +
       '<div><dt>Off-kit cues</dt><dd>' + escapeHtml(formatCount(pesticides.off_kit_review_cues)) + '</dd></div>' +
       '<div><dt>Timing context</dt><dd>' + escapeHtml(formatCount(pesticides.events_with_timing_context)) + '</dd></div>' +
       '</dl><p class="programme-note">' + escapeHtml(policy) + '.</p>');
 
     var received = freshness.latest_source_updated_at ? formatTime(freshness.latest_source_updated_at) : "No published timestamp";
-    setHtml("programme-freshness", '<dl class="programme-mini-facts">' +
+    setHtml("farmer-freshness", '<dl class="programme-mini-facts">' +
       '<div><dt>Latest received</dt><dd>' + escapeHtml(received) + '</dd></div>' +
       '<div><dt>Age</dt><dd>' + escapeHtml(formatAgeHours(freshness.age_hours)) + '</dd></div>' +
       '<div><dt>Source state</dt><dd>' + escapeHtml(sourceState) + '</dd></div>' +
       '</dl><p class="programme-note">Only published source records contribute here.</p>');
+    renderWorkerActivity();
     if (currentRuntime) {
       renderOperationsBoard(currentRuntime);
     }
@@ -383,7 +424,26 @@
     return String(new FormData(form).get(name) || "").trim();
   }
 
+  function pageMeta(viewName) {
+    var labels = {
+      home: { title: "Today.", detail: currentOperatingUnitName || "What needs to move today." },
+      farms: { title: "Farms.", detail: "Ground truth from reviewed farm and field records." },
+      farmers: { title: "Farmers.", detail: "Coverage context and reviewed farmer relationships." },
+      workers: { title: "Field workers.", detail: "Daily activity and reviewed ownership." },
+      inbox: { title: "Inbox.", detail: "Decisions, work, and follow-through." },
+      settings: { title: "Settings.", detail: "Access and source boundaries." }
+    };
+    return labels[viewName] || labels.home;
+  }
+
+  function renderPageIntro() {
+    var meta = pageMeta(currentView);
+    element("page-title").textContent = meta.title;
+    element("operating-unit").textContent = meta.detail;
+  }
+
   function showView(viewName) {
+    currentView = viewName;
     var tabs = document.querySelectorAll(".command-tab");
     var views = document.querySelectorAll(".command-view");
     Array.prototype.forEach.call(tabs, function (tab) {
@@ -397,10 +457,12 @@
       view.hidden = !selected;
       view.classList.toggle("is-active", selected);
     });
+    renderPageIntro();
   }
 
   function activateView(event) {
     showView(event.currentTarget.getAttribute("data-view"));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function moveTab(event) {
@@ -414,6 +476,7 @@
       (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
     tabs[nextIndex].focus();
     showView(tabs[nextIndex].getAttribute("data-view"));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function renderPortfolioUnavailable() {
@@ -575,8 +638,6 @@
       setHtml("profile-facts", "");
       setProfileLink("profile-website", null, "");
       setProfileLink("profile-source", null, "");
-      element("home-coverage-note").textContent = "No public operating map is configured. Individual farm locations are never shown by default.";
-      setHtml("home-coverage-map", '<p class="map-empty">Add a reviewed public hub or network area to show a map here.</p>');
       renderMapExplorer(profile);
       return;
     }
@@ -595,16 +656,9 @@
     setProfileLink("profile-website", profile.website_url, "Open company site");
     setProfileLink("profile-source", profile.source_url, "View public source");
     if (!profile.map_embed_url) {
-      element("home-coverage-note").textContent = "Public coverage is noted above. No map has been approved yet.";
-      setHtml("home-coverage-map", '<p class="map-empty">No public map configured. Partner farms and field boundaries are not displayed here.</p>');
       renderMapExplorer(profile);
       return;
     }
-    element("home-coverage-note").textContent = profile.network_summary
-      ? "Public coverage, stated network scale, and hub only — no partner farms or field boundaries."
-      : "Public network coverage and hub only — no partner farms or field boundaries.";
-    setHtml("home-coverage-map", '<iframe title="Approved public operating coverage" loading="lazy" referrerpolicy="no-referrer" src="' +
-      escapeHtml(profile.map_embed_url) + '"></iframe>');
     renderMapExplorer(profile);
   }
 
@@ -851,9 +905,7 @@
     var fieldEvidenceGaps = snapshots.filter(function (snapshot) { return snapshot.fieldRecordMissing; }).length;
     var cropPlanGaps = snapshots.filter(function (snapshot) { return snapshot.stageMissing || snapshot.workMissing; }).length;
     var unownedWork = workItems.filter(function (item) { return isOpenWork(item) && !item.owner_id; }).length;
-    var fieldTeam = people.filter(function (person) {
-      return ["field_operator", "agronomist", "farm_manager"].indexOf(person.role) !== -1;
-    });
+    var fieldTeam = people.filter(isFieldWorker);
     var fieldStatus = !fieldNames.length ? "missing" : (exceptions.length ? "attention" :
       (fieldEvidenceGaps ? "missing" : "ready"));
     var fieldDetail = !fieldNames.length ? "No reviewed operating block yet." : exceptions.length ?
@@ -868,6 +920,10 @@
     var teamDetail = !fieldTeam.length ? "No canonical field team yet." : unownedWork ?
       unownedWork + (unownedWork === 1 ? " open item has no owner." : " open items have no owner.") : !relationships.length ?
       "Reviewed team scope is still needed." : "Roles and scopes are recorded.";
+    var inboxItems = exceptions.length + workItems.filter(isOpenWork).length;
+    var inboxStatus = !inboxItems ? "ready" : (exceptions.length || unownedWork || workItems.some(isOverdue) ? "attention" : "ready");
+    var inboxDetail = !inboxItems ? "No open issues or work items." :
+      inboxItems + (inboxItems === 1 ? " item needs a decision or next step." : " items need a decision or next step.");
     var farmerStatus = "private";
     var farmerCount = "Private programme";
     var farmerDetail = "Unlock manager actions to read source coverage.";
@@ -883,10 +939,10 @@
         "No published TrackOlap programme context.";
     }
     setHtml("operations-board",
-      boardPiece("fields", "landscape", "Fields", fieldStatus, fieldNames.length + (fieldNames.length === 1 ? " operating block" : " operating blocks"), fieldDetail, "Open crop work") +
-      boardPiece("fields", "agriculture", "Crop", cropStatus, allocations.length + (allocations.length === 1 ? " active allocation" : " active allocations"), cropDetail, "Open crop work") +
-      boardPiece("programme", "groups", "Field team", teamStatus, fieldTeam.length + (fieldTeam.length === 1 ? " field role" : " field roles"), teamDetail, "Open programme") +
-      boardPiece("programme", "diversity_3", "Farmer programme", farmerStatus, farmerCount, farmerDetail + " Source programme context, not a canonical farmer record.", "Open programme")
+      boardPiece("farms", "landscape", "Farms", fieldStatus, fieldNames.length + (fieldNames.length === 1 ? " operating block" : " operating blocks"), fieldDetail + " " + cropDetail, "Open farms") +
+      boardPiece("farmers", "diversity_3", "Farmers", farmerStatus, farmerCount, farmerDetail + " Source coverage is not a named farmer record.", "Open farmers") +
+      boardPiece("workers", "groups", "Field workers", teamStatus, fieldTeam.length + (fieldTeam.length === 1 ? " field worker" : " field workers"), teamDetail, "Open field workers") +
+      boardPiece("inbox", "inbox", "Inbox", inboxStatus, inboxItems + (inboxItems === 1 ? " open item" : " open items"), inboxDetail, "Open inbox")
     );
   }
 
@@ -978,34 +1034,71 @@
     element("focus-action-label").textContent = label;
   }
 
+  function isFarmer(person) {
+    return person && ["grower", "landholder", "lessee"].indexOf(person.role) !== -1;
+  }
+
+  function isFieldWorker(person) {
+    return person && ["field_operator", "agronomist"].indexOf(person.role) !== -1;
+  }
+
+  function personCardMarkup(person, runtime, relationships, relationshipAvailability, showInboxAction) {
+    var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    var assignedItems = workItems.filter(function (item) {
+      return item.owner_id === person.id && isOpenWork(item);
+    });
+    var fields = assignedItems.map(function (item) { return fieldNameFor(item.allocation_id); })
+      .filter(function (value, index, values) { return values.indexOf(value) === index; });
+    var assignments = relationships.filter(function (relationship) {
+      return relationship.person_id === person.id;
+    });
+    var assignmentCopy = assignments.length ? assignments.map(function (relationship) {
+      return readable(relationship.role) + (relationship.scope_name ? " · " + relationship.scope_name : "");
+    }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
+      (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
+    var action = showInboxAction && assignedItems.length ? '<button class="detail-button person-inbox-link" type="button" data-inbox-owner="' +
+      escapeHtml(person.id) + '">Open work in Inbox</button>' : "";
+    return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
+      '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
+      '<p class="person-assignment">' + escapeHtml(assignmentCopy) + '</p>' +
+      '<p class="person-work">' + assignedItems.length + (assignedItems.length === 1 ? ' open item' : ' open items') +
+      (fields.length ? ' · ' + escapeHtml(fields.join(", ")) : '') + '</p>' + action + '</article>';
+  }
+
   function renderPeople(runtime) {
     var people = Array.isArray(runtime.people) ? runtime.people : [];
-    var workItems = Array.isArray(runtime.work_items) ? runtime.work_items : [];
     var relationshipSummary = runtime.person_operating_relationships || {};
     var relationships = Array.isArray(relationshipSummary.items) ? relationshipSummary.items : [];
     var relationshipAvailability = relationshipSummary.availability || "not_configured";
-    if (!people.length) {
-      setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
+    var farmers = people.filter(isFarmer);
+    var workers = people.filter(isFieldWorker);
+    setHtml("farmer-list", farmers.length ? farmers.map(function (person) {
+      return personCardMarkup(person, runtime, relationships, relationshipAvailability, false);
+    }).join("") : '<p class="empty-state">No reviewed farmer record is available yet. Coverage context above is not a named farmer list.</p>');
+    setHtml("worker-list", workers.length ? workers.map(function (person) {
+      return personCardMarkup(person, runtime, relationships, relationshipAvailability, true);
+    }).join("") : '<p class="empty-state">No reviewed field worker record is available yet. Daily source activity above stays aggregate until reviewed.</p>');
+  }
+
+  function renderInboxWork(runtime) {
+    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
+    var openItems = workItems.filter(isOpenWork);
+    var selectedOwner = inboxOwnerId ? personFor(inboxOwnerId) : null;
+    if (inboxOwnerId) {
+      openItems = openItems.filter(function (item) { return item.owner_id === inboxOwnerId; });
+    }
+    element("inbox-clear-filter").hidden = !inboxOwnerId;
+    element("inbox-clear-filter").textContent = selectedOwner ? "Show all work" : "Clear worker filter";
+    if (!openItems.length) {
+      setHtml("inbox-work-list", '<p class="empty-state">' + (selectedOwner ?
+        escapeHtml(selectedOwner.name) + ' has no open reviewed work.' : "No open reviewed work is recorded.") + "</p>");
       return;
     }
-    setHtml("people-list", people.map(function (person) {
-      var assignedItems = workItems.filter(function (item) {
-        return item.owner_id === person.id && isOpenWork(item);
-      });
-      var fields = assignedItems.map(function (item) { return fieldNameFor(item.allocation_id); })
-        .filter(function (value, index, values) { return values.indexOf(value) === index; });
-      var assignments = relationships.filter(function (relationship) {
-        return relationship.person_id === person.id;
-      });
-      var assignmentCopy = assignments.length ? assignments.map(function (relationship) {
-        return readable(relationship.role) + (relationship.scope_name ? " · " + relationship.scope_name : "");
-      }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
-        (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
-      return '<article class="command-card person-card"><h3>' + escapeHtml(person.name) + '</h3>' +
-        '<p class="person-role">' + escapeHtml(readable(person.role)) + '</p>' +
-        '<p class="person-assignment">' + escapeHtml(assignmentCopy) + '</p>' +
-        '<p class="person-work">' + assignedItems.length + (assignedItems.length === 1 ? ' open item' : ' open items') +
-        (fields.length ? ' · ' + escapeHtml(fields.join(", ")) : '') + '</p></article>';
+    setHtml("inbox-work-list", openItems.slice(0, 8).map(function (item) {
+      var owner = item.owner_id ? personName(item.owner_id) : "No owner";
+      return '<article class="inbox-work-item"><div class="item-title"><h4>' + escapeHtml(item.title) + '</h4><span class="status">' +
+        escapeHtml(readable(item.status)) + '</span></div><p class="work-field">' + escapeHtml(fieldNameFor(item.allocation_id)) +
+        '</p><p class="today-item-detail">Owner · ' + escapeHtml(owner) + ' · due ' + escapeHtml(formatTime(item.due_at)) + '</p></article>';
     }).join(""));
   }
 
@@ -1015,7 +1108,7 @@
   }
 
   function setDailyDirection(status, title, note, officerActivity, visitGap, nextMove, confidence, targetView) {
-    element("field-crop").textContent = "Fortune paddy programme";
+    element("field-crop").textContent = "Fortune paddy network";
     element("field-title").textContent = title;
     element("field-note").textContent = note;
     element("field-stage").textContent = officerActivity;
@@ -1024,7 +1117,14 @@
     element("field-update").textContent = confidence;
     element("field-status").textContent = status;
     element("field-status").className = status === "attention" ? "severity severity-high" : "status";
-    setFocusAction(targetView === "settings" ? "Open system" : "Open programme", targetView, null);
+    var labels = {
+      farms: "Open farms",
+      farmers: "Open farmers",
+      workers: "Open field workers",
+      inbox: "Open inbox",
+      settings: "Open settings"
+    };
+    setFocusAction(labels[targetView] || "Open today", targetView, null);
   }
 
   function renderDailyDirection() {
@@ -1032,16 +1132,16 @@
     if (!programme) {
       if (!managerSessionAuthenticated) {
         setDailyDirection(
-          "private", "Unlock today’s programme.",
+          "private", "Unlock today’s coverage.",
           "Officer activity, visit gaps, and spreading issues become visible after manager access is unlocked.",
           "Private manager context", "Coverage not yet visible", "Unlock manager actions", "No source aggregate loaded", "settings"
         );
         return;
       }
       setDailyDirection(
-        "unavailable", "Programme source is not ready.",
-        "There is no published Fortune programme aggregate to steer from yet.",
-        "No reporting-day activity", "No coverage denominator", "Review source state", "Published source unavailable", "programme"
+        "unavailable", "Today’s source is not ready.",
+        "There is no published Fortune aggregate to steer from yet.",
+        "No reporting-day activity", "No coverage denominator", "Review source state", "Published source unavailable", "settings"
       );
       return;
     }
@@ -1065,9 +1165,9 @@
     if (officersWithoutVisit > 0) {
       setDailyDirection(
         "attention", formatCount(officersWithoutVisit) + " officers filed no visit today.",
-        formatCount(filedToday) + " visits were filed by " + formatCount(filingOfficers) + " of " + formatCount(activeOfficers) + " active officers. Start with the coverage gap, then follow up by territory.",
-        formatCount(filingOfficers) + " / " + formatCount(activeOfficers) + " officers filed", formatCount(overdue) + " programme members overdue",
-        "Review territory follow-up", confidence, "programme"
+        formatCount(filedToday) + " visits were filed by " + formatCount(filingOfficers) + " of " + formatCount(activeOfficers) + " active officers. Start with the coverage gap, then follow up with the field team.",
+        formatCount(filingOfficers) + " / " + formatCount(activeOfficers) + " officers filed", formatCount(overdue) + " farmers overdue",
+        "Review worker follow-up", confidence, "workers"
       );
       return;
     }
@@ -1075,17 +1175,17 @@
       setDailyDirection(
         "attention", readable(urgentIssue.issue_code) + " is the lead field signal.",
         formatCount(urgentIssue.count) + " dated observations in the last " + formatCount(issues.window_days || 7) + " days. Detection shows where to look, not a diagnosis or prevalence rate.",
-        formatCount(filedToday) + " visits filed today", formatCount(overdue) + " programme members overdue",
-        "Review affected territories", confidence, "programme"
+        formatCount(filedToday) + " visits filed today", formatCount(overdue) + " farmers overdue",
+        "Review the decision queue", confidence, "inbox"
       );
       return;
     }
     setDailyDirection(
-      overdue ? "attention" : "recorded", overdue ? formatCount(overdue) + " programme members are overdue for a visit." : "Programme coverage is current.",
-      overdue ? "Start with the territories carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap." :
-        "No overdue visit gap is reported in the published programme aggregate.",
+      overdue ? "attention" : "recorded", overdue ? formatCount(overdue) + " farmers are overdue for a visit." : "Farmer coverage is current.",
+      overdue ? "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap." :
+        "No overdue visit gap is reported in the published farmer aggregate.",
       formatCount(filedToday) + " visits filed today", formatCount(neverVisited) + " never visited",
-      overdue ? "Review territory follow-up" : "Review programme", confidence, "programme"
+      overdue ? "Review farmer coverage" : "Review farmer coverage", confidence, "farmers"
     );
   }
 
@@ -1292,13 +1392,15 @@
   function renderRuntime(runtime) {
     currentRuntime = runtime;
     element("today-heading").textContent = t("today");
-    element("operating-unit").textContent = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
+    currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
+    renderPageIntro();
     renderCards(runtime);
     renderPeople(runtime);
     renderDailyDirection();
     renderOperationsBoard(runtime);
     renderWork(runtime);
     renderActionAllocationContext(runtime);
+    renderInboxWork(runtime);
     renderTodayFallback(runtime);
     loadMorningBrief(runtime);
     loadAllocationCalendars(runtime);
@@ -1306,9 +1408,10 @@
 
   function renderRuntimeUnavailable() {
     currentRuntime = null;
+    currentOperatingUnitName = "No verified farm is set up yet.";
     focusedAllocationId = null;
     allocationCalendars = {};
-    element("operating-unit").textContent = "No farm has been set up yet.";
+    renderPageIntro();
     element("field-crop").textContent = "Farm setup";
     element("field-title").textContent = "First field";
     element("field-note").textContent = "Add one farm, one live field, and the people who run it.";
@@ -1323,10 +1426,13 @@
     element("today-summary").textContent = "Reading the first-farm checklist…";
     element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
     setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
-    setHtml("people-list", '<p class="empty-state">No farm team is recorded yet.</p>');
+    setHtml("farmer-list", '<p class="empty-state">No reviewed farmer record is available yet.</p>');
+    setHtml("worker-list", '<p class="empty-state">No reviewed field worker record is available yet.</p>');
     setHtml("work-list", '<p class="empty-state">No farm work is shown until an active allocation exists.</p>');
     element("work-context").textContent = "No active crop allocation";
     element("actions-allocation-context").hidden = true;
+    setHtml("inbox-work-list", '<p class="empty-state">No open reviewed work is recorded.</p>');
+    element("inbox-clear-filter").hidden = true;
     setHtml("today-list", '<p class="empty-state">Reading the first-farm checklist…</p>');
     renderOperationsBoard(null);
     loadPilotReadiness();
@@ -1361,15 +1467,15 @@
   function actionDestination(item) {
     var entity = item && item.entity ? item.entity : {};
     if (entity.type === "exception_record") {
-      return { view: "fields", exceptionId: entity.id, label: "Open issue" };
+      return { view: "farms", exceptionId: entity.id, label: "Open farm issue" };
     }
     if (entity.type === "regional_signal" || entity.type === "source_registry") {
       return { view: "settings", exceptionId: null, label: "Open data connections" };
     }
     if (entity.type === "field_information_request") {
-      return { view: "actions", exceptionId: null, label: t("openFieldAsks") };
+      return { view: "inbox", exceptionId: null, label: t("openFieldAsks") };
     }
-    return { view: "fields", exceptionId: null, label: "Open field work" };
+    return { view: "farms", exceptionId: null, label: "Open farm work" };
   }
 
   function openActionDetail(item) {
@@ -1401,7 +1507,7 @@
       return;
     }
     var target = action.view === "settings" ? element("context-heading") :
-      (action.view === "actions" ? element("ledger-heading") : element("work-heading"));
+      (action.view === "inbox" ? element("inbox-work-heading") : element("work-heading"));
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -1656,7 +1762,9 @@
     }
     var view = piece.getAttribute("data-board-view");
     showView(view);
-    var target = view === "programme" ? element("programme-coverage-heading") : element("allocations-heading");
+    var target = view === "farmers" ? element("farmer-coverage-heading") :
+      (view === "workers" ? element("worker-activity-heading") :
+        (view === "inbox" ? element("inbox-work-heading") : element("allocations-heading")));
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -1667,8 +1775,26 @@
       selectAllocation(allocationCard.getAttribute("data-allocation-id"));
     }
   });
+  element("worker-list").addEventListener("click", function (event) {
+    var workerAction = event.target.closest("[data-inbox-owner]");
+    if (!workerAction) {
+      return;
+    }
+    inboxOwnerId = workerAction.getAttribute("data-inbox-owner");
+    showView("inbox");
+    if (currentRuntime) {
+      renderInboxWork(currentRuntime);
+    }
+    element("inbox-work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  element("inbox-clear-filter").addEventListener("click", function () {
+    inboxOwnerId = null;
+    if (currentRuntime) {
+      renderInboxWork(currentRuntime);
+    }
+  });
   element("open-focused-field").addEventListener("click", function () {
-    showView("fields");
+    showView("farms");
     element("allocations-heading").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   element("close-setup").addEventListener("click", function () {
@@ -1685,20 +1811,6 @@
   });
   element("setup-file").addEventListener("change", function (event) {
     recognizeCsvFile(event.target.files && event.target.files[0]);
-  });
-  element("open-map").addEventListener("click", function () {
-    showView("map");
-    element("map-stage-heading").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-  element("open-system").addEventListener("click", function () {
-    showView("settings");
-    element("settings-heading").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-  Array.prototype.forEach.call(document.querySelectorAll("[data-return-view]"), function (button) {
-    button.addEventListener("click", function () {
-      showView(button.getAttribute("data-return-view"));
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
   });
   element("close-action").addEventListener("click", function () {
     element("action-dialog").close();
@@ -1738,12 +1850,20 @@
       element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    if (focusTargetView === "fields") {
+    if (focusTargetView === "farms") {
       element("work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    if (focusTargetView === "programme") {
-      element("programme-coverage-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (focusTargetView === "farmers") {
+      element("farmer-coverage-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (focusTargetView === "workers") {
+      element("worker-activity-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (focusTargetView === "inbox") {
+      element("inbox-work-heading").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (focusTargetView === "settings") {
