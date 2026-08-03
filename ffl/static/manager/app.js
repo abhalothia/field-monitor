@@ -994,8 +994,12 @@
 
   function buildQuickSetup(form) {
     var area = Number(formValue(form, "area_hectares"));
+    var locationHint = formValue(form, "location_hint").trim();
     if (!isFinite(area) || area <= 0) {
       throw new Error("Area must be a positive number.");
+    }
+    if (!locationHint) {
+      throw new Error("Add a village or six-digit PIN.");
     }
     return {
       farm_name: formValue(form, "farm_name"),
@@ -1005,8 +1009,8 @@
       area_hectares: area,
       state_name: formValue(form, "state_name"),
       district_name: formValue(form, "district_name"),
-      village_name: formValue(form, "village_name") || null,
-      pincode: formValue(form, "pincode") || null
+      village_name: /^[0-9]{6}$/.test(locationHint) ? null : locationHint,
+      pincode: /^[0-9]{6}$/.test(locationHint) ? locationHint : null
     };
   }
 

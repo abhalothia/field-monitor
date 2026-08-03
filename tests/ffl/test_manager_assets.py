@@ -52,11 +52,18 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "Start with one field." in index_html
     assert "Six facts now." in index_html
     assert "Just the first field." in index_html
+    assert "Village or PIN" in index_html
+    assert 'name="location_hint"' in index_html
+    assert 'name="village_name"' not in index_html
+    assert 'name="pincode"' not in index_html
     assert "Use a CSV" in index_html
     assert 'id="setup-file"' in index_html
+    assert "/assets/first-field-manifest.csv" in index_html
     assert "Check this field" in index_html
     assert "renderPilotReadiness" in app_js
     assert "buildQuickSetup" in app_js
+    assert "locationHint" in app_js
+    assert "Add a village or six-digit PIN." in app_js
     assert "renderQuickSetup" in app_js
     assert "recognizeCsvFile" in app_js
     assert "Nothing from this file has left this device." in app_js

@@ -12,6 +12,21 @@ def test_health_endpoint_reports_ffl_service():
     assert response.json() == {"service": "ffl-operating-kernel", "status": "ok"}
 
 
+def test_blank_field_manifest_template_is_an_explicitly_allowed_csv_asset():
+    client = TestClient(create_app())
+
+    response = client.get("/assets/first-field-manifest.csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text.splitlines() == [
+        "source_farm_id,source_plot_id,plot_label,area_hectares,record_status,state_name,"
+        "district_name,subdistrict_name,village_name,village_lgd_code,pincode,source_recorded_at,"
+        "source_record_ref,crop_name,cultivar,season_name,latitude,longitude,boundary_geojson,"
+        "location_precision,boundary_evidence_ref"
+    ]
+
+
 def test_v1_operating_routes_are_mounted_on_the_app():
     client = TestClient(create_app())
 

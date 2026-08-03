@@ -226,6 +226,8 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .file-result.is-warning { border-left-color: #af6a37; background: rgba(245, 226, 205, .72); color: #754a32; }
 .file-result h3 { margin: 0 0 4px; color: inherit; font: 800 .8rem Manrope, Arial, sans-serif; }
 .file-result p { margin: 0; font-size: .73rem; line-height: 1.46; }
+.template-download { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; color: #27513d; font-size: .72rem; font-weight: 800; text-decoration: none; }
+.template-download:hover { color: #a1711f; text-decoration: underline; }
 .setup-step { display: grid; grid-template-columns: 52px minmax(180px, .55fr) minmax(0, 1.45fr); gap: 22px; padding: 26px 0; border-bottom: 1px solid rgba(24, 57, 46, .22); }
 .step-number { margin: 2px 0 0; color: #b18428; font-family: "DM Mono", monospace; font-size: .68rem; letter-spacing: .08em; }
 .setup-step h3 { margin-bottom: 7px; color: #143a2d; font-size: 1.55rem; }

@@ -54,6 +54,7 @@ WEB_ASSETS = {
     "launch.js": STATIC_DIR / "launch" / "app.js",
     "manager.css": STATIC_DIR / "manager" / "styles.css",
     "manager.js": STATIC_DIR / "manager" / "app.js",
+    "first-field-manifest.csv": STATIC_DIR / "manager" / "first-field-manifest.csv",
     "field.css": STATIC_DIR / "field" / "styles.css",
     "field.js": STATIC_DIR / "field" / "app.js",
     "field-ledger-paddies.png": STATIC_DIR / "art" / "field-ledger-paddies.png",
@@ -280,6 +281,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         media_type = (
             "text/css" if asset_name.endswith(".css") else
             "application/javascript" if asset_name.endswith(".js") else
+            "text/csv; charset=utf-8" if asset_name.endswith(".csv") else
             "image/png"
         )
         return FileResponse(asset_path, media_type=media_type)

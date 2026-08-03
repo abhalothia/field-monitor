@@ -4,6 +4,24 @@ AGRO CEO is live as a private Vercel pilot, but no fictional farm facts are
 seeded into production. The first setup is a short evidence-led handoff, not a
 database import exercise.
 
+## The shortest honest handoff
+
+There are only two ways to begin:
+
+1. **Check one field in the app:** farm name, accountable manager, field/block,
+   crop, hectares, district, and one village-or-PIN value. The check writes
+   nothing; it simply makes the next missing facts explicit.
+2. **Send a real field/plot export:** use the blank
+   [`first-field-manifest.csv`](../../ffl/static/manager/first-field-manifest.csv)
+   header as the handoff format. Stable source IDs, administrative place, and
+   source-recorded time are enough to review location context. Add a point or
+   boundary only when its evidence reference is real.
+
+The browser’s CSV check is local only. A manager uses the separate,
+server-authorised manifest intake when the export is ready for private
+retention and review. Do not put a person name, phone, payment detail, Aadhaar,
+or an inferred field location into this handoff.
+
 ## Bring these six facts, in this order
 
 1. **Farm and people** — the operating-unit name plus the named farm manager,

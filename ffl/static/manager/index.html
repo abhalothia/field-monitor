@@ -281,7 +281,7 @@
                 <p class="step-number">01</p>
                 <div>
                   <h3 id="setup-field-heading">Just the first field.</h3>
-                  <p>We need a name, crop, place, and the person accountable. Nothing is saved yet.</p>
+                  <p>Farm and manager, then field, crop, area, and place. Nothing is saved yet.</p>
                 </div>
               </div>
               <div class="quick-setup-fields">
@@ -291,8 +291,7 @@
                 <label>Crop<input name="crop_name" maxlength="200" placeholder="e.g. Pusa basmati" required></label>
                 <label>Area in hectares<input name="area_hectares" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
                 <label>District<input name="district_name" maxlength="200" required></label>
-                <label>Village <span class="optional">or PIN below</span><input name="village_name" maxlength="200"></label>
-                <label>PIN <span class="optional">or village above</span><input name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"></label>
+                <label>Village or PIN<input name="location_hint" maxlength="200" placeholder="e.g. Nangla Chamru or 201314" required></label>
               </div>
               <input name="state_name" value="Uttar Pradesh" type="hidden">
             </section>
@@ -313,6 +312,7 @@
               <div id="setup-file-result" class="file-result" aria-live="polite">
                 <p>A farm/plot list helps map verified fields. A purchase ledger helps show village and variety history. They stay separate.</p>
               </div>
+              <a class="template-download" href="/assets/first-field-manifest.csv" download>Download blank field-manifest template <span aria-hidden="true">↓</span></a>
             </section>
 
             <div id="setup-error" class="setup-message" role="alert" aria-live="assertive" hidden></div>
