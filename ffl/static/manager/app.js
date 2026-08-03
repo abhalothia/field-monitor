@@ -41,7 +41,12 @@
       navHome: "Home", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
       refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
       sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
-      localContext: "Today’s local context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
+      localContext: "Local operating context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
+      supplyAtRisk: "Supply at risk", complianceGaps: "Compliance gaps", cropInterventions: "Crop interventions",
+      purchaseDataUnavailable: "Purchase data not connected", pesticideProofUnavailable: "Pesticide and proof data not connected",
+      farmersAtRisk: "farmers at risk",
+      pesticideReviewCue: "{count} pesticide review cue", pesticideReviewCues: "{count} pesticide review cues", pesticideReviewOnly: "Review cues, not a compliance verdict",
+      activeIntervention: "active intervention", activeInterventions: "active interventions",
       verifiedFarms: "Where verified farms are.", reviewedRecord: "Reviewed operating record", verifiedFields: "Verified fields",
       map: "Map", cards: "Cards", table: "Table", all: "All", field: "Field", crop: "Crop", variety: "Variety", status: "Status",
       reviewedPeople: "Reviewed people", farmer: "Farmer", farmerPlural: "Farmers", fieldWorker: "Field worker", fieldWorkerPlural: "Field workers",
@@ -59,7 +64,10 @@
       todayTitle: "Home.", farmsTitle: "Farms.", farmersTitle: "Farmers.", workersTitle: "Field workers.", inboxTitle: "Inbox.",
       openFarms: "Open farms", openFarmers: "Open farmers", openInbox: "Open inbox", openSettings: "Open settings", ready: "Ready.",
       managerUnlocked: "Manager actions are unlocked briefly on this browser.", managerLocked: "Manager actions are locked on this browser.", lockActions: "Lock manager actions", unlockActions: "Unlock manager actions", unlocking: "Unlocking…", unlockPrivateActions: "Unlock private actions", managerSecret: "Manager secret", managerSecretHelp: "Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.", managerExpiry: "Manager access expires automatically.",
-      directionLoadingTitle: "Reading today’s operation.", directionLoadingNote: "The field picture is loading.", dailyActivityLoading: "Daily activity loading", coverageLoadingShort: "Coverage loading", openWorkers: "Open field workers", awaitingSignal: "Awaiting today’s signal",
+      directionLoadingTitle: "Reading the operation.", directionLoadingNote: "The field picture is loading.", dailyActivityLoading: "Daily activity loading", coverageLoadingShort: "Coverage loading", openWorkers: "Open field workers", awaitingSignal: "Awaiting field signal",
+      coverageRiskTitle: "Field coverage is the supply risk.", coverageRiskNote: "{filed} visits were filed by {filing} of {active} field workers. Missing visits leave crop, purchase, and proof uncertain.",
+      cropInterventionTitle: "{issue} needs a verified field intervention.", cropInterventionNote: "{count} dated observations in the last {days} days. Send a response, then verify the field outcome.",
+      coverageRepairTitle: "Farm coverage needs repair.",
       officersNoVisitTitle: "{count} officers filed no visit today.", officersNoVisitNote: "{filed} visits were filed by {filing} of {active} active officers. Start with the coverage gap, then follow up with the field team.", officersFiled: "{filing} / {active} officers filed", farmersOverdueMetric: "{count} farmers overdue", reviewWorkerFollowUp: "Review worker follow-up",
       urgentIssueTitle: "{issue} is the lead field signal.", urgentIssueNote: "{count} dated observations in the last {days} days. Detection shows where to look, not a diagnosis or prevalence rate.", reviewDecisionQueue: "Review the decision queue", visitsFiledMetric: "{count} visits filed today", neverVisitedMetric: "{count} never visited",
       farmerOverdueTitle: "{count} farmers are overdue for a visit.", farmerCoverageCurrent: "Farmer coverage is current.", farmerOverdueNote: "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap.", noOverdueNote: "No overdue visit gap is reported in the published farmer aggregate.", reviewFarmerCoverage: "Review farmer coverage",
@@ -83,7 +91,12 @@
       navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
       refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
       sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
-      localContext: "आज का स्थानीय संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
+      localContext: "स्थानीय परिचालन संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
+      supplyAtRisk: "जोखिम में आपूर्ति", complianceGaps: "अनुपालन की कमी", cropInterventions: "फसल हस्तक्षेप",
+      purchaseDataUnavailable: "खरीद डेटा नहीं जुड़ा है", pesticideProofUnavailable: "कीटनाशक और प्रमाण डेटा नहीं जुड़ा है",
+      farmersAtRisk: "किसान जोखिम में हैं",
+      pesticideReviewCue: "{count} कीटनाशक समीक्षा संकेत", pesticideReviewCues: "{count} कीटनाशक समीक्षा संकेत", pesticideReviewOnly: "समीक्षा संकेत हैं, अनुपालन का निर्णय नहीं",
+      activeIntervention: "सक्रिय हस्तक्षेप", activeInterventions: "सक्रिय हस्तक्षेप",
       verifiedFarms: "सत्यापित खेत कहाँ हैं", reviewedRecord: "समीक्षित परिचालन रिकॉर्ड", verifiedFields: "सत्यापित खेत",
       map: "नक्शा", cards: "कार्ड", table: "तालिका", all: "सभी", field: "खेत", crop: "फसल", variety: "किस्म", status: "स्थिति",
       reviewedPeople: "समीक्षित लोग", farmer: "किसान", farmerPlural: "किसान", fieldWorker: "फील्ड कर्मी", fieldWorkerPlural: "फील्ड कर्मी",
@@ -101,7 +114,10 @@
       todayTitle: "मुख्य।", farmsTitle: "खेत।", farmersTitle: "किसान।", workersTitle: "फील्ड कर्मी।", inboxTitle: "इनबॉक्स।",
       openFarms: "खेत खोलें", openFarmers: "किसान खोलें", openInbox: "इनबॉक्स खोलें", openSettings: "सेटिंग्स खोलें", ready: "तैयार।",
       managerUnlocked: "इस ब्राउज़र में प्रबंधक कार्रवाई कुछ समय के लिए खुली है।", managerLocked: "इस ब्राउज़र में प्रबंधक कार्रवाई बंद है।", lockActions: "प्रबंधक कार्रवाई बंद करें", unlockActions: "प्रबंधक कार्रवाई खोलें", unlocking: "खोला जा रहा है…", unlockPrivateActions: "निजी कार्रवाई खोलें", managerSecret: "प्रबंधक पासवर्ड", managerSecretHelp: "अलग से तय प्रबंधक पासवर्ड इस्तेमाल करें। यह केवल इस सर्वर को भेजा जाता है और ब्राउज़र में सहेजा नहीं जाता।", managerExpiry: "प्रबंधक पहुँच अपने-आप समाप्त हो जाती है।",
-      directionLoadingTitle: "आज की स्थिति पढ़ी जा रही है।", directionLoadingNote: "खेतों की स्थिति लोड हो रही है।", dailyActivityLoading: "दैनिक गतिविधि लोड हो रही है", coverageLoadingShort: "कवरेज लोड हो रहा है", openWorkers: "फील्ड कर्मी खोलें", awaitingSignal: "आज के संकेत की प्रतीक्षा",
+      directionLoadingTitle: "परिचालन स्थिति पढ़ी जा रही है।", directionLoadingNote: "खेतों की स्थिति लोड हो रही है।", dailyActivityLoading: "दैनिक गतिविधि लोड हो रही है", coverageLoadingShort: "कवरेज लोड हो रहा है", openWorkers: "फील्ड कर्मी खोलें", awaitingSignal: "फील्ड संकेत की प्रतीक्षा",
+      coverageRiskTitle: "फील्ड कवरेज ही आपूर्ति जोखिम है।", coverageRiskNote: "{active} फील्ड कर्मियों में से {filing} ने {filed} मुलाक़ातें दर्ज कीं। अधूरी मुलाक़ात से फसल, खरीद और प्रमाण अनिश्चित रहते हैं।",
+      cropInterventionTitle: "{issue} के लिए सत्यापित फील्ड हस्तक्षेप चाहिए।", cropInterventionNote: "पिछले {days} दिनों में {count} दर्ज अवलोकन। प्रतिक्रिया भेजें, फिर फील्ड परिणाम सत्यापित करें।",
+      coverageRepairTitle: "फार्म कवरेज ठीक करना है।",
       officersNoVisitTitle: "{count} कर्मियों ने आज कोई मुलाक़ात दर्ज नहीं की।", officersNoVisitNote: "{active} सक्रिय कर्मियों में से {filing} ने {filed} मुलाक़ातें दर्ज कीं। पहले कवरेज की कमी देखें, फिर फील्ड टीम से संपर्क करें।", officersFiled: "{filing} / {active} कर्मियों ने दर्ज किया", farmersOverdueMetric: "{count} किसानों की मुलाक़ात बाकी", reviewWorkerFollowUp: "कर्मियों की फॉलो-अप सूची देखें",
       urgentIssueTitle: "{issue} मुख्य फील्ड संकेत है।", urgentIssueNote: "पिछले {days} दिनों में {count} दर्ज अवलोकन। यह बताता है कि कहाँ देखना है, निदान या प्रसार दर नहीं।", reviewDecisionQueue: "निर्णय सूची देखें", visitsFiledMetric: "आज {count} मुलाक़ातें दर्ज", neverVisitedMetric: "{count} से कभी मुलाक़ात नहीं हुई",
       farmerOverdueTitle: "{count} किसानों की मुलाक़ात बाकी है।", farmerCoverageCurrent: "किसान कवरेज वर्तमान है।", farmerOverdueNote: "सबसे अधिक बाकी मुलाक़ात वाले किसान समूहों से शुरुआत करें। कभी न मिले किसान अलग कवरेज और रिकॉर्ड गुणवत्ता की कमी हैं।", noOverdueNote: "प्रकाशित किसान आँकड़ों में कोई बाकी मुलाक़ात नहीं है।", reviewFarmerCoverage: "किसान कवरेज देखें",
@@ -431,27 +447,61 @@
 
   function renderHomeMetrics() {
     var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
-    var visits = metrics && metrics.visits ? metrics.visits : null;
-    var coverage = metrics && metrics.coverage ? metrics.coverage : null;
+    var runtime = currentRuntime || {};
+    var procurement = (metrics && metrics.procurement) || runtime.procurement || null;
+    var supplyAtRisk = procurement && firstKnownNumber([
+      procurement.farmers_at_risk, procurement.at_risk_farmers, procurement.at_risk_count
+    ]);
     setHomeMetric(
-      "home-visits-value", "home-visits-note",
-      visits ? formatCount(visits.filed_on_reporting_day) : "—",
-      visits ? t("filedToday") : t("loading")
+      "home-supply-value", "home-supply-note",
+      supplyAtRisk === null ? "—" : formatCount(supplyAtRisk),
+      supplyAtRisk === null ? t("purchaseDataUnavailable") : t("farmersAtRisk")
     );
+    var sourceFreshness = metrics && metrics.freshness ? metrics.freshness.status : "unavailable";
+    var pesticides = sourceFreshness === "available" && metrics && metrics.pesticides ? metrics.pesticides : null;
+    var pesticideEventCount = pesticides ? firstKnownNumber([pesticides.event_count]) : null;
+    var complianceGaps = pesticides ? firstKnownNumber([pesticides.off_kit_review_cues]) : null;
     setHomeMetric(
-      "home-overdue-value", "home-overdue-note",
-      coverage ? formatCount(coverage.overdue) : "—",
-      coverage ? t("farmersNeedVisit") : t("loading")
+      "home-compliance-value", "home-compliance-note",
+      pesticideEventCount === null || complianceGaps === null ? "—" : formatCount(complianceGaps),
+      pesticideEventCount === null || complianceGaps === null ? t("pesticideProofUnavailable") :
+        (complianceGaps === 1 ? message("pesticideReviewCue", { count: formatCount(complianceGaps) }) :
+          message("pesticideReviewCues", { count: formatCount(complianceGaps) })) + " · " + t("pesticideReviewOnly")
     );
-    var issues = metrics && metrics.issues ? metrics.issues : null;
-    var highRiskIssues = issues && Array.isArray(issues.by_issue) ? issues.by_issue.reduce(function (total, issue) {
-      return ["critical", "high"].indexOf(issue.highest_severity) !== -1 ? total + (Number(issue.count) || 0) : total;
-    }, 0) : null;
+    var interventions = openInterventionCount();
     setHomeMetric(
-      "home-issues-value", "home-issues-note",
-      highRiskIssues === null ? "—" : formatCount(highRiskIssues),
-      highRiskIssues === null ? t("loading") : t("highCriticalSevenDays")
+      "home-interventions-value", "home-interventions-note",
+      interventions === null ? "—" : formatCount(interventions),
+      interventions === null ? t("loading") : (interventions === 1 ? t("activeIntervention") : t("activeInterventions"))
     );
+  }
+
+  function firstKnownNumber(values) {
+    for (var index = 0; index < values.length; index += 1) {
+      if (values[index] === null || values[index] === undefined || values[index] === "") {
+        continue;
+      }
+      var value = Number(values[index]);
+      if (isFinite(value) && value >= 0) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  function openInterventionCount() {
+    var ledger = currentPortfolio && currentPortfolio.risk_action_ledger;
+    var items = listedItems(ledger);
+    if (items.length) {
+      return items.filter(function (item) {
+        return ["resolved", "accepted", "completed", "cancelled", "closed"].indexOf(item.status) === -1;
+      }).length;
+    }
+    if (!currentRuntime) {
+      return null;
+    }
+    return (currentRuntime.work_items || []).filter(isOpenWork).length +
+      (currentRuntime.exceptions || []).filter(isOpenException).length;
   }
 
   function renderWorkerActivity() {
@@ -1704,8 +1754,8 @@
 
     if (officersWithoutVisit > 0) {
       setDailyDirection(
-        "attention", message("officersNoVisitTitle", { count: formatCount(officersWithoutVisit) }),
-        message("officersNoVisitNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
+        "attention", t("coverageRiskTitle"),
+        message("coverageRiskNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
         message("officersFiled", { filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
         t("reviewWorkerFollowUp"), confidence, "workers"
       );
@@ -1713,15 +1763,15 @@
     }
     if (urgentIssue) {
       setDailyDirection(
-        "attention", message("urgentIssueTitle", { issue: readable(urgentIssue.issue_code) }),
-        message("urgentIssueNote", { count: formatCount(urgentIssue.count), days: formatCount(issues.window_days || 7) }),
+        "attention", message("cropInterventionTitle", { issue: readable(urgentIssue.issue_code) }),
+        message("cropInterventionNote", { count: formatCount(urgentIssue.count), days: formatCount(issues.window_days || 7) }),
         message("visitsFiledMetric", { count: formatCount(filedToday) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
         t("reviewDecisionQueue"), confidence, "inbox"
       );
       return;
     }
     setDailyDirection(
-      overdue ? "attention" : "reported", overdue ? message("farmerOverdueTitle", { count: formatCount(overdue) }) : t("farmerCoverageCurrent"),
+      overdue ? "attention" : "reported", overdue ? t("coverageRepairTitle") : t("farmerCoverageCurrent"),
       overdue ? t("farmerOverdueNote") : t("noOverdueNote"),
       message("visitsFiledMetric", { count: formatCount(filedToday) }), message("neverVisitedMetric", { count: formatCount(neverVisited) }),
       t("reviewFarmerCoverage"), confidence, "farmers"

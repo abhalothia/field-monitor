@@ -18,9 +18,9 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'id="today-time"' in index_html
     assert 'id="weather-state"' in index_html
     assert 'id="sample-state"' not in index_html
-    assert 'id="home-visits-value"' in index_html
-    assert 'id="home-overdue-value"' in index_html
-    assert 'id="home-issues-value"' in index_html
+    assert 'id="home-supply-value"' in index_html
+    assert 'id="home-compliance-value"' in index_html
+    assert 'id="home-interventions-value"' in index_html
     assert 'id="home-map-canvas"' in index_html
     assert "Where verified farms are." in index_html
 
@@ -55,6 +55,9 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "renderTodayClock" in app_js
     assert "renderWeatherContext" in app_js
     assert "renderHomeMetrics" in app_js
+    assert "openInterventionCount" in app_js
+    assert "purchaseDataUnavailable" in app_js
+    assert "pesticideProofUnavailable" in app_js
     assert "renderFortuneMap" in app_js
     assert "renderMapCanvas" in app_js
     assert "setDirectoryView" in app_js
