@@ -14,6 +14,8 @@ from ffl.domain.models import (
     EvidenceArtifact,
     ExceptionRecord,
     FieldSignal,
+    FieldInformationRequest,
+    FieldInformationRequestEvent,
     HarvestRecord,
     ImportBatch,
     ImportRow,
@@ -50,6 +52,23 @@ PERSON_OPERATING_RELATIONSHIP_ROLES = {
     "grower", "landholder", "lessee", "field_operator", "manager",
     "agronomist", "reviewer", "buyer_contact",
 }
+FIELD_INFORMATION_REQUEST_KINDS = {
+    "field_check", "evidence_photo", "irrigation_status", "input_application",
+    "pest_or_deviation", "harvest_update",
+}
+FIELD_INFORMATION_REQUEST_STATUSES = {
+    "draft", "ready", "dispatched", "responded", "expired", "cancelled",
+}
+FIELD_INFORMATION_REQUEST_TRANSITIONS = {
+    "draft": {"ready", "expired", "cancelled"},
+    "ready": {"dispatched", "expired", "cancelled"},
+    "dispatched": {"responded", "expired", "cancelled"},
+    "responded": set(),
+    "expired": set(),
+    "cancelled": set(),
+}
+_FIELD_INFORMATION_REQUEST_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
+_FIELD_INFORMATION_REQUEST_SYSTEM_ACTOR = re.compile(r"system:[a-z][a-z0-9._-]{2,80}")
 
 
 def _new_identity() -> Tuple[str, str]:
@@ -169,6 +188,22 @@ def _work_item(row: sqlite3.Row) -> WorkItem:
     return WorkItem(
         row["id"], row["allocation_id"], row["title"], row["owner_id"],
         row["due_at"], row["status"], row["created_at"],
+    )
+
+
+def _field_information_request(row: sqlite3.Row) -> FieldInformationRequest:
+    return FieldInformationRequest(
+        row["id"], row["allocation_id"], row["target_person_id"], row["work_item_id"],
+        row["request_kind"], bool(row["evidence_required"]), row["due_at"],
+        row["request_copy_en"], row["request_copy_hi"], row["initiated_by_person_id"],
+        row["initiated_by_system_key"], row["idempotency_key"], row["status"], row["created_at"],
+    )
+
+
+def _field_information_request_event(row: sqlite3.Row) -> FieldInformationRequestEvent:
+    return FieldInformationRequestEvent(
+        row["id"], row["field_information_request_id"], row["from_status"], row["to_status"],
+        row["actor_person_id"], row["actor_system_key"], row["reason"], row["created_at"],
     )
 
 
@@ -595,6 +630,11 @@ def create_crop_allocation(
     )
 
 
+def get_crop_allocation(conn: sqlite3.Connection, allocation_id: str) -> Optional[CropAllocation]:
+    row = conn.execute("SELECT * FROM crop_allocations WHERE id = ?", (allocation_id,)).fetchone()
+    return _crop_allocation(row) if row is not None else None
+
+
 def create_person(conn: sqlite3.Connection, name: str, role: str) -> Person:
     identifier, created_at = _new_identity()
     conn.execute("INSERT INTO people VALUES (?, ?, ?, ?)", (identifier, name, role, created_at))
@@ -844,6 +884,222 @@ def list_work_items(conn: sqlite3.Connection, allocation_id: str) -> List[WorkIt
         "SELECT * FROM work_items WHERE allocation_id = ? ORDER BY created_at", (allocation_id,)
     ).fetchall()
     return [_work_item(row) for row in rows]
+
+
+def _validate_field_information_request_actor(
+    conn: sqlite3.Connection, initiated_by_person_id: Optional[object], initiated_by_system_key: Optional[object],
+) -> tuple[Optional[str], Optional[str]]:
+    """Require one durable actor without treating a provider endpoint as one.
+
+    Managers are represented by existing people.  Deterministic internal jobs
+    use a restricted ``system:`` key, which makes their intent auditable while
+    keeping this foundation independent from a communications provider.
+    """
+    if initiated_by_person_id is not None and initiated_by_system_key is not None:
+        raise ValueError("provide either initiated_by_person_id or initiated_by_system_key, not both")
+    if initiated_by_person_id is not None:
+        person_id = _required_text(initiated_by_person_id, "initiated_by_person_id", 128)
+        if get_person(conn, person_id) is None:
+            raise ValueError("initiating person does not exist")
+        return person_id, None
+    if not isinstance(initiated_by_system_key, str) or (
+        _FIELD_INFORMATION_REQUEST_SYSTEM_ACTOR.fullmatch(initiated_by_system_key) is None
+    ):
+        raise ValueError("initiated_by_system_key must be a safe system:<name> identifier")
+    return None, initiated_by_system_key
+
+
+def _validate_field_information_request_values(
+    conn: sqlite3.Connection, allocation_id: object, target_person_id: object,
+    work_item_id: Optional[object], request_kind: object, evidence_required: object,
+    due_at: object, request_copy_en: object, request_copy_hi: object, idempotency_key: object,
+) -> tuple[str, str, Optional[str], str, int, str, str, str, str]:
+    normalized_allocation_id = _required_text(allocation_id, "allocation_id", 128)
+    if get_crop_allocation(conn, normalized_allocation_id) is None:
+        raise ValueError("crop allocation does not exist")
+    normalized_target_person_id = _required_text(target_person_id, "target_person_id", 128)
+    if get_person(conn, normalized_target_person_id) is None:
+        raise ValueError("target person does not exist")
+    normalized_work_item_id = None
+    if work_item_id is not None:
+        normalized_work_item_id = _required_text(work_item_id, "work_item_id", 128)
+        work_item = get_work_item(conn, normalized_work_item_id)
+        if work_item is None:
+            raise ValueError("linked work item does not exist")
+        if work_item.allocation_id != normalized_allocation_id:
+            raise ValueError("linked work item must belong to the same crop allocation")
+    if not isinstance(request_kind, str) or request_kind not in FIELD_INFORMATION_REQUEST_KINDS:
+        raise ValueError(
+            "request_kind must be field_check, evidence_photo, irrigation_status, input_application, "
+            "pest_or_deviation, or harvest_update"
+        )
+    if not isinstance(evidence_required, bool):
+        raise ValueError("evidence_required must be a boolean")
+    normalized_due_at = _require_iso_timestamp(due_at, "due_at")
+    normalized_copy_en = _required_text(request_copy_en, "request_copy_en", 1600)
+    normalized_copy_hi = _required_text(request_copy_hi, "request_copy_hi", 1600)
+    if not isinstance(idempotency_key, str) or (
+        _FIELD_INFORMATION_REQUEST_IDEMPOTENCY_KEY.fullmatch(idempotency_key) is None
+    ):
+        raise ValueError("idempotency_key must be 8-128 safe characters")
+    return (
+        normalized_allocation_id, normalized_target_person_id, normalized_work_item_id,
+        request_kind, int(evidence_required), normalized_due_at, normalized_copy_en,
+        normalized_copy_hi, idempotency_key,
+    )
+
+
+def get_field_information_request(
+    conn: sqlite3.Connection, field_information_request_id: str
+) -> Optional[FieldInformationRequest]:
+    row = conn.execute(
+        "SELECT * FROM field_information_requests WHERE id = ?", (field_information_request_id,)
+    ).fetchone()
+    return _field_information_request(row) if row is not None else None
+
+
+def get_field_information_request_by_idempotency_key(
+    conn: sqlite3.Connection, idempotency_key: str
+) -> Optional[FieldInformationRequest]:
+    row = conn.execute(
+        "SELECT * FROM field_information_requests WHERE idempotency_key = ?", (idempotency_key,)
+    ).fetchone()
+    return _field_information_request(row) if row is not None else None
+
+
+def create_field_information_request(
+    conn: sqlite3.Connection, allocation_id: str, target_person_id: str, request_kind: str,
+    evidence_required: bool, due_at: str, request_copy_en: str, request_copy_hi: str,
+    idempotency_key: str, *, work_item_id: Optional[str] = None,
+    initiated_by_person_id: Optional[str] = None, initiated_by_system_key: Optional[str] = None,
+) -> FieldInformationRequest:
+    """Create one draft request and its append-only creation event.
+
+    The idempotency key identifies this logical request, not a message attempt.
+    A provider adapter must never create a second request merely because a
+    delivery operation is retried.
+    """
+    (
+        allocation_id, target_person_id, work_item_id, request_kind, evidence_required,
+        due_at, request_copy_en, request_copy_hi, idempotency_key,
+    ) = _validate_field_information_request_values(
+        conn, allocation_id, target_person_id, work_item_id, request_kind, evidence_required,
+        due_at, request_copy_en, request_copy_hi, idempotency_key,
+    )
+    initiated_by_person_id, initiated_by_system_key = _validate_field_information_request_actor(
+        conn, initiated_by_person_id, initiated_by_system_key
+    )
+    existing = get_field_information_request_by_idempotency_key(conn, idempotency_key)
+    if existing is not None:
+        return existing
+    identifier, created_at = _new_identity()
+    event_id, event_created_at = _new_identity()
+    try:
+        with conn:
+            conn.execute(
+                """INSERT INTO field_information_requests (
+                    id, allocation_id, target_person_id, work_item_id, request_kind, evidence_required,
+                    due_at, request_copy_en, request_copy_hi, initiated_by_person_id,
+                    initiated_by_system_key, idempotency_key, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)""",
+                (
+                    identifier, allocation_id, target_person_id, work_item_id, request_kind,
+                    evidence_required, due_at, request_copy_en, request_copy_hi,
+                    initiated_by_person_id, initiated_by_system_key, idempotency_key, created_at,
+                ),
+            )
+            conn.execute(
+                """INSERT INTO field_information_request_events (
+                    id, field_information_request_id, from_status, to_status, actor_person_id,
+                    actor_system_key, reason, created_at
+                ) VALUES (?, ?, 'created', 'draft', ?, ?, 'created', ?)""",
+                (
+                    event_id, identifier, initiated_by_person_id, initiated_by_system_key,
+                    event_created_at,
+                ),
+            )
+    except sqlite3.IntegrityError:
+        # The unique key is the durable concurrency guard.  Re-read rather
+        # than sending or creating another logical request after a retry race.
+        existing = get_field_information_request_by_idempotency_key(conn, idempotency_key)
+        if existing is not None:
+            return existing
+        raise
+    return get_field_information_request(conn, identifier)  # type: ignore[return-value]
+
+
+def list_field_information_requests(
+    conn: sqlite3.Connection, *, allocation_id: Optional[str] = None,
+    target_person_id: Optional[str] = None, status: Optional[str] = None,
+) -> List[FieldInformationRequest]:
+    where: List[str] = []
+    params: List[object] = []
+    if allocation_id is not None:
+        where.append("allocation_id = ?")
+        params.append(_required_text(allocation_id, "allocation_id", 128))
+    if target_person_id is not None:
+        where.append("target_person_id = ?")
+        params.append(_required_text(target_person_id, "target_person_id", 128))
+    if status is not None:
+        if status not in FIELD_INFORMATION_REQUEST_STATUSES:
+            raise ValueError("invalid field information request status")
+        where.append("status = ?")
+        params.append(status)
+    query = "SELECT * FROM field_information_requests"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY due_at, created_at, id"
+    return [_field_information_request(row) for row in conn.execute(query, tuple(params)).fetchall()]
+
+
+def list_field_information_request_events(
+    conn: sqlite3.Connection, field_information_request_id: str
+) -> List[FieldInformationRequestEvent]:
+    field_information_request_id = _required_text(
+        field_information_request_id, "field_information_request_id", 128
+    )
+    rows = conn.execute(
+        """SELECT * FROM field_information_request_events
+           WHERE field_information_request_id = ? ORDER BY created_at, id""",
+        (field_information_request_id,),
+    ).fetchall()
+    return [_field_information_request_event(row) for row in rows]
+
+
+def transition_field_information_request(
+    conn: sqlite3.Connection, field_information_request_id: str, target_status: str,
+    *, actor_person_id: Optional[str] = None, actor_system_key: Optional[str] = None,
+    reason: str,
+) -> FieldInformationRequest:
+    request = get_field_information_request(conn, field_information_request_id)
+    if request is None:
+        raise ValueError("field information request does not exist")
+    if target_status not in FIELD_INFORMATION_REQUEST_TRANSITIONS.get(request.status, set()):
+        raise ValueError("invalid field information request transition")
+    actor_person_id, actor_system_key = _validate_field_information_request_actor(
+        conn, actor_person_id, actor_system_key
+    )
+    reason = _required_text(reason, "reason", 500)
+    event_id, event_created_at = _new_identity()
+    with conn:
+        updated = conn.execute(
+            """UPDATE field_information_requests SET status = ?
+               WHERE id = ? AND status = ?""",
+            (target_status, request.id, request.status),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("invalid field information request transition")
+        conn.execute(
+            """INSERT INTO field_information_request_events (
+                id, field_information_request_id, from_status, to_status, actor_person_id,
+                actor_system_key, reason, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id, request.id, request.status, target_status, actor_person_id,
+                actor_system_key, reason, event_created_at,
+            ),
+        )
+    return get_field_information_request(conn, request.id)  # type: ignore[return-value]
 
 
 def transition_work_item_with_audit(

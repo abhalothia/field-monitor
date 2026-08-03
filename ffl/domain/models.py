@@ -140,6 +140,47 @@ class WorkItem:
 
 
 @dataclass(frozen=True)
+class FieldInformationRequest:
+    """A bounded, immutable request for a field fact or proof.
+
+    This is intentionally provider-neutral.  It identifies the crop allocation
+    and accountable person, preserves the approved English/Hindi copy, and
+    records lifecycle only.  A future delivery adapter may dispatch a ``ready``
+    request after its own endpoint, consent, and template checks; it must not
+    treat delivery or a reply as a field-record update by itself.
+    """
+
+    id: str
+    allocation_id: str
+    target_person_id: str
+    work_item_id: Optional[str]
+    request_kind: str
+    evidence_required: bool
+    due_at: str
+    request_copy_en: str
+    request_copy_hi: str
+    initiated_by_person_id: Optional[str]
+    initiated_by_system_key: Optional[str]
+    idempotency_key: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class FieldInformationRequestEvent:
+    """Append-only lifecycle evidence for an information request."""
+
+    id: str
+    field_information_request_id: str
+    from_status: str
+    to_status: str
+    actor_person_id: Optional[str]
+    actor_system_key: Optional[str]
+    reason: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class ExceptionRecord:
     id: str
     allocation_id: str

@@ -135,6 +135,101 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        -- The request ledger is an intent to collect a bounded fact or proof,
+        -- never a provider message or a field update.  Its approved bilingual
+        -- copy is immutable: change the intent by cancelling and creating a
+        -- fresh request, so a later delivery adapter cannot silently alter the
+        -- instruction shown to the field team.
+        CREATE TABLE IF NOT EXISTS field_information_requests (
+            id TEXT PRIMARY KEY,
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            target_person_id TEXT NOT NULL REFERENCES people(id),
+            work_item_id TEXT REFERENCES work_items(id),
+            request_kind TEXT NOT NULL CHECK (request_kind IN (
+                'field_check', 'evidence_photo', 'irrigation_status',
+                'input_application', 'pest_or_deviation', 'harvest_update'
+            )),
+            evidence_required INTEGER NOT NULL CHECK (evidence_required IN (0, 1)),
+            due_at TEXT NOT NULL,
+            request_copy_en TEXT NOT NULL CHECK (length(trim(request_copy_en)) BETWEEN 1 AND 1600),
+            request_copy_hi TEXT NOT NULL CHECK (length(trim(request_copy_hi)) BETWEEN 1 AND 1600),
+            initiated_by_person_id TEXT REFERENCES people(id),
+            initiated_by_system_key TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL CHECK (status IN (
+                'draft', 'ready', 'dispatched', 'responded', 'expired', 'cancelled'
+            )),
+            created_at TEXT NOT NULL,
+            CHECK (
+                (initiated_by_person_id IS NOT NULL AND initiated_by_system_key IS NULL)
+                OR (initiated_by_person_id IS NULL AND initiated_by_system_key IS NOT NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS field_information_request_events (
+            id TEXT PRIMARY KEY,
+            field_information_request_id TEXT NOT NULL REFERENCES field_information_requests(id),
+            from_status TEXT NOT NULL,
+            to_status TEXT NOT NULL,
+            actor_person_id TEXT REFERENCES people(id),
+            actor_system_key TEXT,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            CHECK (
+                (actor_person_id IS NOT NULL AND actor_system_key IS NULL)
+                OR (actor_person_id IS NULL AND actor_system_key IS NOT NULL)
+            )
+        );
+
+        CREATE TRIGGER IF NOT EXISTS field_information_requests_copy_immutable
+        BEFORE UPDATE OF allocation_id, target_person_id, work_item_id, request_kind,
+                         evidence_required, due_at, request_copy_en, request_copy_hi,
+                         initiated_by_person_id, initiated_by_system_key, idempotency_key,
+                         created_at
+        ON field_information_requests
+        BEGIN
+            SELECT RAISE(ABORT, 'field information request copy is immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_information_requests_linked_work_matches_allocation
+        BEFORE INSERT ON field_information_requests
+        WHEN NEW.work_item_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM work_items
+            WHERE id = NEW.work_item_id AND allocation_id = NEW.allocation_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'linked work item must belong to the same crop allocation');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_information_requests_no_delete
+        BEFORE DELETE ON field_information_requests
+        BEGIN
+            SELECT RAISE(ABORT, 'field information requests are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_information_requests_valid_transition
+        BEFORE UPDATE OF status ON field_information_requests
+        WHEN NOT (
+            (OLD.status = 'draft' AND NEW.status IN ('ready', 'expired', 'cancelled'))
+            OR (OLD.status = 'ready' AND NEW.status IN ('dispatched', 'expired', 'cancelled'))
+            OR (OLD.status = 'dispatched' AND NEW.status IN ('responded', 'expired', 'cancelled'))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid field information request transition');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_information_request_events_no_update
+        BEFORE UPDATE ON field_information_request_events
+        BEGIN
+            SELECT RAISE(ABORT, 'field information request events are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_information_request_events_no_delete
+        BEFORE DELETE ON field_information_request_events
+        BEGIN
+            SELECT RAISE(ABORT, 'field information request events are append-only');
+        END;
+
         CREATE TABLE IF NOT EXISTS exception_records (
             id TEXT PRIMARY KEY,
             allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
@@ -485,6 +580,18 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON soil_baselines (operating_unit_id, sampled_on, created_at);
         CREATE INDEX IF NOT EXISTS idx_crop_stage_checkpoints_allocation_planned
             ON crop_stage_checkpoints (allocation_id, planned_for);
+        CREATE INDEX IF NOT EXISTS idx_field_information_requests_allocation_status_due
+            ON field_information_requests (allocation_id, status, due_at, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_information_requests_target_status_due
+            ON field_information_requests (target_person_id, status, due_at, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_information_requests_work_item
+            ON field_information_requests (work_item_id);
+        CREATE INDEX IF NOT EXISTS idx_field_information_requests_initiated_by_person
+            ON field_information_requests (initiated_by_person_id);
+        CREATE INDEX IF NOT EXISTS idx_field_information_request_events_request_created
+            ON field_information_request_events (field_information_request_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_information_request_events_actor_person
+            ON field_information_request_events (actor_person_id);
         CREATE INDEX IF NOT EXISTS idx_harvest_records_allocation_created
             ON harvest_records (allocation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_season_reviews_allocation_created
