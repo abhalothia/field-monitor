@@ -4,7 +4,7 @@ import re
 import sqlite3
 import uuid
 from datetime import date, datetime, timezone
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from ffl.domain.models import (
     AuditEvent,
@@ -1820,29 +1820,63 @@ def create_trackolap_record(
 ) -> TrackolapStoredRecord:
     """Store an immutable source revision, returning an existing replay safely."""
     identifier, created_at = _new_identity()
-    try:
-        conn.execute(
-            """INSERT INTO trackolap_records
-               (id, source_id, source_run_id, import_batch_id, feed, source_identifier,
-                source_updated_at, tenant_id, values_json, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                identifier, source_id, source_run_id, import_batch_id, feed, source_identifier,
-                source_updated_at, tenant_id, _json_value(values), status, created_at,
-            ),
-        )
-        if commit:
-            conn.commit()
-    except sqlite3.IntegrityError:
-        if commit:
-            conn.rollback()
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO trackolap_records
+           (id, source_id, source_run_id, import_batch_id, feed, source_identifier,
+            source_updated_at, tenant_id, values_json, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            identifier, source_id, source_run_id, import_batch_id, feed, source_identifier,
+            source_updated_at, tenant_id, _json_value(values), status, created_at,
+        ),
+    )
+    if cursor.rowcount == 0:
         existing = get_trackolap_record_by_revision(
             conn, source_id, feed, source_identifier, source_updated_at
         )
         if existing is None:
-            raise
+            raise RuntimeError("immutable TrackWick replay could not be resolved")
         return existing
+    if commit:
+        conn.commit()
     return get_trackolap_record(conn, identifier)  # type: ignore[return-value]
+
+
+def create_trackolap_records(
+    conn: sqlite3.Connection,
+    source_id: str,
+    source_run_id: Optional[str],
+    import_batch_id: Optional[str],
+    records: Sequence[Tuple[str, str, str, str, Any]],
+    status: str = "valid",
+    commit: bool = True,
+) -> int:
+    """Append provider revisions in one idempotent batch without rereading them.
+
+    Each tuple is ``feed, source_identifier, source_updated_at, tenant_id,
+    values``. Existing immutable revisions are intentionally ignored; a later
+    provider revision must have a distinct source update time.
+    """
+    if not records:
+        return 0
+    rows = []
+    for feed, source_identifier, source_updated_at, tenant_id, values in records:
+        identifier, created_at = _new_identity()
+        rows.append((
+            identifier, source_id, source_run_id, import_batch_id, feed,
+            source_identifier, source_updated_at, tenant_id, _json_value(values),
+            status, created_at,
+        ))
+    cursor = conn.executemany(
+        """INSERT OR IGNORE INTO trackolap_records
+           (id, source_id, source_run_id, import_batch_id, feed, source_identifier,
+            source_updated_at, tenant_id, values_json, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows,
+    )
+    if commit:
+        conn.commit()
+    return cursor.rowcount
 
 
 def get_trackolap_record(conn: sqlite3.Connection, record_id: str) -> Optional[TrackolapStoredRecord]:

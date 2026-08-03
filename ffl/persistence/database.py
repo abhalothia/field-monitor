@@ -151,6 +151,13 @@ class PostgresCursor:
         return row
 
 
+@dataclass(frozen=True)
+class PostgresWriteResult:
+    """The only batch-write fact repository callers need."""
+
+    rowcount: int
+
+
 class PostgresRow(dict):
     """Mapping row with SQLite's small positional-access compatibility."""
 
@@ -183,6 +190,29 @@ class PostgresConnection:
                 raise sqlite3.IntegrityError(str(error)) from error
             raise
         return PostgresCursor(cursor)
+
+    def executemany(self, sql: str, params_seq: Sequence[Sequence[Any]]) -> PostgresWriteResult:
+        """Execute one reviewed statement for many private records.
+
+        This keeps a large provider baseline to one database round trip pattern
+        and relies on the statement's explicit conflict policy.  It does not
+        expose the raw Psycopg connection to the application services.
+        """
+        try:
+            cursor = self._connection.cursor()
+            try:
+                cursor.executemany(translate_sqlite_sql(sql), params_seq)
+                return PostgresWriteResult(cursor.rowcount)
+            finally:
+                cursor.close()
+        except Exception as error:
+            try:
+                from psycopg import IntegrityError as PostgresIntegrityError
+            except ImportError:  # pragma: no cover - guarded at connect time
+                PostgresIntegrityError = ()  # type: ignore[assignment]
+            if isinstance(error, PostgresIntegrityError):
+                raise sqlite3.IntegrityError(str(error)) from error
+            raise
 
     def commit(self) -> None:
         self._connection.commit()
@@ -260,11 +290,16 @@ def database_target(
 ) -> DatabaseTarget:
     """Resolve the explicit target without opening a network connection.
 
-    ``FFL_DATABASE_URL`` wins over the legacy ``FFL_DATABASE_PATH``. A
-    PostgreSQL target is always explicit and is opened only through the
-    private-relation adapter below; it is never a browser-facing data API.
+    ``FFL_DATABASE_URL`` is the canonical runtime setting.  The narrowly
+    named ``FFL_POSTGRES_DATABASE_URL`` is accepted as a compatibility alias
+    for the existing private deployment secret, so a configured Supabase
+    worker can never silently start a local SQLite database.  A PostgreSQL
+    target is always explicit and is opened only through the private-relation
+    adapter below; it is never a browser-facing data API.
     """
-    url = database_url if database_url is not None else os.environ.get("FFL_DATABASE_URL")
+    url = database_url if database_url is not None else (
+        os.environ.get("FFL_DATABASE_URL") or os.environ.get("FFL_POSTGRES_DATABASE_URL")
+    )
     schema = _private_schema(
         postgres_schema if postgres_schema is not None else os.environ.get("FFL_POSTGRES_SCHEMA")
     )

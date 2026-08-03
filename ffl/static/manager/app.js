@@ -11,8 +11,9 @@
   var managerSessionStatusUrl = "/api/v1/manager-session/status";
   var managerSessionLoginUrl = "/api/v1/manager-session/login";
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
-  var trackolapMetricsUrl = "/api/v1/trackolap/metrics";
-  var trackolapHealthUrl = "/api/v1/trackolap/health";
+  var trackwickMetricsUrl = "/api/v1/trackwick/metrics";
+  var trackwickHealthUrl = "/api/v1/trackwick/health";
+  var trackwickRefreshUrl = "/api/v1/trackwick/refresh";
   var currentRuntime = null;
   var currentPortfolio = null;
   var currentProgramme = null;
@@ -577,8 +578,8 @@
       return Promise.resolve();
     }
     return Promise.all([
-      fetch(trackolapMetricsUrl, { credentials: "same-origin" }),
-      fetch(trackolapHealthUrl, { credentials: "same-origin" })
+      fetch(trackwickMetricsUrl, { credentials: "same-origin" }),
+      fetch(trackwickHealthUrl, { credentials: "same-origin" })
     ])
       .then(function (responses) {
         if (!responses[0].ok || !responses[1].ok) {
@@ -1329,7 +1330,7 @@
       farmerStatus = !takenKit ? "unavailable" : (recentShare >= 0.75 ? "ready" : "attention");
       farmerCount = takenKit ? formatCount(takenKit) + " programme members" : "No published members";
       farmerDetail = takenKit ? formatCount(recent) + " reached in 14 days · " + formatCount(neverVisited) + " never visited." :
-        "No published TrackOlap programme context.";
+        "No published TrackWick programme context.";
     }
     setHtml("operations-board",
       boardPiece("farms", "landscape", "Farms", fieldStatus, fieldNames.length + (fieldNames.length === 1 ? " operating block" : " operating blocks"), fieldDetail + " " + cropDetail, "Open farms") +
@@ -2127,6 +2128,32 @@
 
   }
 
+  function refreshActionCentre() {
+    if (!managerSessionAuthenticated) {
+      loadActionCentre();
+      return;
+    }
+    var button = element("refresh");
+    button.disabled = true;
+    element("load-status").textContent = "Refreshing field context…";
+    fetch(trackwickRefreshUrl, { method: "POST", credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Field context refresh is unavailable.");
+        }
+        return response.json();
+      })
+      .then(function () {
+        loadActionCentre();
+      })
+      .catch(function () {
+        loadActionCentre();
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
+  }
+
   Array.prototype.forEach.call(document.querySelectorAll(".command-tab"), function (tab) {
     tab.addEventListener("click", activateView);
     tab.addEventListener("keydown", moveTab);
@@ -2151,7 +2178,7 @@
       setLocale(button.getAttribute("data-locale"));
     });
   });
-  element("refresh").addEventListener("click", loadActionCentre);
+  element("refresh").addEventListener("click", refreshActionCentre);
   element("manager-session-action").addEventListener("click", toggleManagerSession);
   element("close-manager-session").addEventListener("click", function () {
     element("manager-session-dialog").close();

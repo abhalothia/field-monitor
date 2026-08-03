@@ -41,8 +41,32 @@ class _FakeRawConnection:
         pass
 
 
+class _BulkCursor:
+    rowcount = 2
+
+    def __init__(self):
+        self.calls = []
+        self.closed = False
+
+    def executemany(self, sql, params):
+        self.calls.append((sql, list(params)))
+
+    def close(self):
+        self.closed = True
+
+
+class _BulkRawConnection(_FakeRawConnection):
+    def __init__(self):
+        super().__init__()
+        self.bulk_cursor = _BulkCursor()
+
+    def cursor(self):
+        return self.bulk_cursor
+
+
 def test_legacy_sqlite_paths_remain_the_default_target(monkeypatch):
     monkeypatch.delenv("FFL_DATABASE_URL", raising=False)
+    monkeypatch.delenv("FFL_POSTGRES_DATABASE_URL", raising=False)
 
     target = database_target(sqlite_path=":memory:")
 
@@ -53,6 +77,28 @@ def test_legacy_sqlite_paths_remain_the_default_target(monkeypatch):
         assert connection.execute("SELECT 1").fetchone()[0] == 1
     finally:
         connection.close()
+
+
+def test_private_postgres_compatibility_alias_never_silently_falls_back_to_sqlite(monkeypatch):
+    monkeypatch.delenv("FFL_DATABASE_URL", raising=False)
+    monkeypatch.setenv(
+        "FFL_POSTGRES_DATABASE_URL", "postgresql://ffl_runtime:secret-never-logged@pooler.example.test:6543/postgres?sslmode=require"
+    )
+
+    target = database_target(sqlite_path=":memory:")
+
+    assert target.dialect == "postgres"
+    assert target.schema == "agro"
+
+
+def test_canonical_database_url_wins_over_private_postgres_compatibility_alias(monkeypatch):
+    monkeypatch.setenv("FFL_DATABASE_URL", "postgresql://runtime@canonical.example.test/ffl")
+    monkeypatch.setenv("FFL_POSTGRES_DATABASE_URL", "postgresql://runtime@legacy.example.test/ffl")
+
+    target = database_target(sqlite_path=":memory:")
+
+    assert target.dialect == "postgres"
+    assert target.dsn == "postgresql://runtime@canonical.example.test/ffl"
 
 
 def test_postgres_target_is_explicit_without_echoing_dsn():
@@ -105,6 +151,23 @@ def test_postgres_connection_preserves_repository_row_contract_without_a_network
     assert raw.calls == [("SELECT * FROM agro_source_registry WHERE id = %s", ("source-1",))]
     assert row["payload"] == '{"stable":true}'
     assert row[1] == "2026-08-01"
+
+
+def test_postgres_batch_writes_translate_conflict_safe_repository_sql_without_a_network_call():
+    from ffl.persistence.database import PostgresConnection
+
+    raw = _BulkRawConnection()
+    result = PostgresConnection(raw).executemany(
+        "INSERT OR IGNORE INTO trackolap_records VALUES (?, ?)",
+        [("record-1", "source-1"), ("record-2", "source-1")],
+    )
+
+    assert result.rowcount == 2
+    assert raw.bulk_cursor.calls == [(
+        "INSERT INTO agro_trackolap_records VALUES (%s, %s) ON CONFLICT DO NOTHING",
+        [("record-1", "source-1"), ("record-2", "source-1")],
+    )]
+    assert raw.bulk_cursor.closed is True
 
 
 def test_postgres_private_table_probe_uses_to_regclass_without_public_catalog_access():
