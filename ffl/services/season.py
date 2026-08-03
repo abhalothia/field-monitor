@@ -191,7 +191,7 @@ def schedule_crop_stage_checkpoint(
 def record_field_signal(
     conn: sqlite3.Connection, allocation_id: str, template_id: str, template_version: int,
     observed_at: str, actor_id: str, values: Dict[str, Any], evidence_artifact_id: Optional[str] = None,
-    status: str = "submitted",
+    status: str = "submitted", *, commit: bool = True,
 ):
     """Record a structured field observation against an immutable published template."""
     _get_allocation(conn, allocation_id)
@@ -206,7 +206,7 @@ def record_field_signal(
     validated_values = templates.validate_signal_payload(template, values)
     return repository.create_field_signal(
         conn, allocation_id, template_id, template_version, observed_at, actor_id, validated_values,
-        evidence_artifact_id=evidence_artifact_id, status=status,
+        evidence_artifact_id=evidence_artifact_id, status=status, commit=commit,
     )
 
 

@@ -15,3 +15,8 @@ rows. SQLite remains the disposable test/preview target. Configure
 `FFL_DATABASE_URL` only in the private Hetzner runtime after the schema is
 present; Vercel previews must not receive a production DSN. The application
 never applies this migration itself.
+
+`0007_agro_field_capture.sql` follows the TrackOlap source-record migration
+(`0006`) and adds the private native field-capture pass/candidate ledger. It
+does not enable a browser identity, upload endpoint, public Data API, or
+provider integration by itself.

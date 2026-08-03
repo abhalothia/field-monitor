@@ -63,7 +63,7 @@ def test_golden_exception_resolution_loop(seeded_client):
 
 def test_field_and_manager_surfaces_are_served(client):
     assert client.get("/field").status_code == 200
-    assert "अपवाद दर्ज करें" in client.get("/field").text
+    assert "अवलोकन दर्ज करें" in client.get("/field").text
     assert client.get("/manager").status_code == 200
     assert "Today." in client.get("/manager").text
     assert client.get("/assets/field.css").status_code == 200

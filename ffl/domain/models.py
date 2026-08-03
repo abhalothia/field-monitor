@@ -181,6 +181,49 @@ class FieldInformationRequestEvent:
 
 
 @dataclass(frozen=True)
+class FieldCapturePass:
+    """A manager-issued, short-lived opaque browser capability.
+
+    The raw bearer value is deliberately never persisted.  The pass binds one
+    reviewed field request to one published signal template; the server uses
+    that binding to derive the person and crop allocation during submission.
+    """
+
+    id: str
+    field_information_request_id: str
+    signal_template_id: str
+    signal_template_version: int
+    token_hash: str
+    issued_by_person_id: str
+    expires_at: str
+    status: str
+    created_at: str
+    revoked_at: Optional[str]
+
+
+@dataclass(frozen=True)
+class FieldCaptureCandidate:
+    """A field submission awaiting an explicit manager decision."""
+
+    id: str
+    field_information_request_id: str
+    field_capture_pass_id: str
+    allocation_id: str
+    actor_person_id: str
+    signal_template_id: str
+    signal_template_version: int
+    observed_at: str
+    values: Dict[str, Any]
+    evidence_artifact_id: Optional[str]
+    idempotency_key: str
+    status: str
+    reviewed_by_person_id: Optional[str]
+    reviewed_at: Optional[str]
+    accepted_signal_id: Optional[str]
+    created_at: str
+
+
+@dataclass(frozen=True)
 class ExceptionRecord:
     id: str
     allocation_id: str

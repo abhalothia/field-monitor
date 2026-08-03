@@ -13,6 +13,8 @@ from ffl.domain.models import (
     Decision,
     EvidenceArtifact,
     ExceptionRecord,
+    FieldCaptureCandidate,
+    FieldCapturePass,
     FieldSignal,
     FieldInformationRequest,
     FieldInformationRequestEvent,
@@ -70,6 +72,8 @@ FIELD_INFORMATION_REQUEST_TRANSITIONS = {
 }
 _FIELD_INFORMATION_REQUEST_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
 _FIELD_INFORMATION_REQUEST_SYSTEM_ACTOR = re.compile(r"system:[a-z][a-z0-9._-]{2,80}")
+_FIELD_CAPTURE_TOKEN_HASH = re.compile(r"[0-9a-f]{64}")
+_FIELD_CAPTURE_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
 
 
 def _new_identity() -> Tuple[str, str]:
@@ -205,6 +209,25 @@ def _field_information_request_event(row: sqlite3.Row) -> FieldInformationReques
     return FieldInformationRequestEvent(
         row["id"], row["field_information_request_id"], row["from_status"], row["to_status"],
         row["actor_person_id"], row["actor_system_key"], row["reason"], row["created_at"],
+    )
+
+
+def _field_capture_pass(row: sqlite3.Row) -> FieldCapturePass:
+    return FieldCapturePass(
+        row["id"], row["field_information_request_id"], row["signal_template_id"],
+        row["signal_template_version"], row["token_hash"], row["issued_by_person_id"],
+        row["expires_at"], row["status"], row["created_at"], row["revoked_at"],
+    )
+
+
+def _field_capture_candidate(row: sqlite3.Row) -> FieldCaptureCandidate:
+    return FieldCaptureCandidate(
+        row["id"], row["field_information_request_id"], row["field_capture_pass_id"],
+        row["allocation_id"], row["actor_person_id"], row["signal_template_id"],
+        row["signal_template_version"], row["observed_at"], json.loads(row["values_json"]),
+        row["evidence_artifact_id"], row["idempotency_key"], row["status"],
+        row["reviewed_by_person_id"], row["reviewed_at"], row["accepted_signal_id"],
+        row["created_at"],
     )
 
 
@@ -1111,6 +1134,172 @@ def transition_field_information_request(
     return get_field_information_request(conn, request.id)  # type: ignore[return-value]
 
 
+def _require_field_capture_pass_values(
+    conn: sqlite3.Connection, field_information_request_id: object, signal_template_id: object,
+    signal_template_version: object, token_hash: object, issued_by_person_id: object, expires_at: object,
+) -> tuple[str, str, int, str, str, str]:
+    request_id = _required_text(field_information_request_id, "field_information_request_id", 128)
+    if get_field_information_request(conn, request_id) is None:
+        raise ValueError("field information request does not exist")
+    template_id = _required_text(signal_template_id, "signal_template_id", 128)
+    if not isinstance(signal_template_version, int) or isinstance(signal_template_version, bool) or signal_template_version < 1:
+        raise ValueError("signal_template_version must be a positive integer")
+    _require_published_template(conn, template_id, signal_template_version)
+    if not isinstance(token_hash, str) or _FIELD_CAPTURE_TOKEN_HASH.fullmatch(token_hash) is None:
+        raise ValueError("field capture token hash is invalid")
+    issuer_id = _required_text(issued_by_person_id, "issued_by_person_id", 128)
+    if get_person(conn, issuer_id) is None:
+        raise ValueError("field capture issuer does not exist")
+    return (
+        request_id, template_id, signal_template_version, token_hash, issuer_id,
+        _require_iso_timestamp(expires_at, "expires_at"),
+    )
+
+
+def get_field_capture_pass_by_token_hash(conn: sqlite3.Connection, token_hash: str) -> Optional[FieldCapturePass]:
+    if not isinstance(token_hash, str) or _FIELD_CAPTURE_TOKEN_HASH.fullmatch(token_hash) is None:
+        return None
+    row = conn.execute(
+        "SELECT * FROM field_capture_passes WHERE token_hash = ?", (token_hash,)
+    ).fetchone()
+    return _field_capture_pass(row) if row is not None else None
+
+
+def get_field_capture_pass(conn: sqlite3.Connection, field_capture_pass_id: str) -> Optional[FieldCapturePass]:
+    row = conn.execute(
+        "SELECT * FROM field_capture_passes WHERE id = ?", (field_capture_pass_id,)
+    ).fetchone()
+    return _field_capture_pass(row) if row is not None else None
+
+
+def create_field_capture_pass(
+    conn: sqlite3.Connection, field_information_request_id: str, signal_template_id: str,
+    signal_template_version: int, token_hash: str, issued_by_person_id: str, expires_at: str,
+) -> FieldCapturePass:
+    (
+        request_id, template_id, template_version, token_hash, issuer_id, expires_at,
+    ) = _require_field_capture_pass_values(
+        conn, field_information_request_id, signal_template_id, signal_template_version,
+        token_hash, issued_by_person_id, expires_at,
+    )
+    identifier, created_at = _new_identity()
+    try:
+        conn.execute(
+            """INSERT INTO field_capture_passes (
+                id, field_information_request_id, signal_template_id, signal_template_version,
+                token_hash, issued_by_person_id, expires_at, status, created_at, revoked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)""",
+            (identifier, request_id, template_id, template_version, token_hash, issuer_id, expires_at, created_at),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise
+    return get_field_capture_pass(conn, identifier)  # type: ignore[return-value]
+
+
+def get_field_capture_candidate(conn: sqlite3.Connection, candidate_id: str) -> Optional[FieldCaptureCandidate]:
+    row = conn.execute(
+        "SELECT * FROM field_capture_candidates WHERE id = ?", (candidate_id,)
+    ).fetchone()
+    return _field_capture_candidate(row) if row is not None else None
+
+
+def get_field_capture_candidate_by_pass_and_idempotency(
+    conn: sqlite3.Connection, field_capture_pass_id: str, idempotency_key: str,
+) -> Optional[FieldCaptureCandidate]:
+    row = conn.execute(
+        """SELECT * FROM field_capture_candidates
+           WHERE field_capture_pass_id = ? AND idempotency_key = ?""",
+        (field_capture_pass_id, idempotency_key),
+    ).fetchone()
+    return _field_capture_candidate(row) if row is not None else None
+
+
+def create_field_capture_candidate(
+    conn: sqlite3.Connection, field_information_request_id: str, field_capture_pass_id: str,
+    allocation_id: str, actor_person_id: str, signal_template_id: str, signal_template_version: int,
+    observed_at: str, values: Any, evidence_artifact_id: Optional[str], idempotency_key: str,
+) -> FieldCaptureCandidate:
+    if not isinstance(idempotency_key, str) or _FIELD_CAPTURE_IDEMPOTENCY_KEY.fullmatch(idempotency_key) is None:
+        raise ValueError("idempotency_key must be 8-128 safe characters")
+    if not isinstance(values, dict):
+        raise ValueError("field capture values must be an object")
+    # Ensure JSON safety before we retain a candidate.  Template-level filtering
+    # is performed by the service before reaching this persistence boundary.
+    values_json = _json_value(values)
+    identifier, created_at = _new_identity()
+    try:
+        conn.execute(
+            """INSERT INTO field_capture_candidates (
+                id, field_information_request_id, field_capture_pass_id, allocation_id,
+                actor_person_id, signal_template_id, signal_template_version, observed_at,
+                values_json, evidence_artifact_id, idempotency_key, status,
+                reviewed_by_person_id, reviewed_at, accepted_signal_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'review', NULL, NULL, NULL, ?)""",
+            (
+                identifier, field_information_request_id, field_capture_pass_id, allocation_id,
+                actor_person_id, signal_template_id, signal_template_version, observed_at,
+                values_json, evidence_artifact_id, idempotency_key, created_at,
+            ),
+        )
+    except sqlite3.IntegrityError:
+        established = get_field_capture_candidate_by_pass_and_idempotency(
+            conn, field_capture_pass_id, idempotency_key
+        )
+        if established is not None:
+            return established
+        raise
+    return get_field_capture_candidate(conn, identifier)  # type: ignore[return-value]
+
+
+def claim_field_capture_candidate_for_acceptance(
+    conn: sqlite3.Connection, candidate_id: str,
+) -> Optional[FieldCaptureCandidate]:
+    """Claim one review candidate inside the caller's transaction.
+
+    The short-lived ``accepting`` state prevents two reviewers from creating
+    two canonical field signals.  A transaction rollback restores ``review``.
+    """
+    updated = conn.execute(
+        "UPDATE field_capture_candidates SET status = 'accepting' WHERE id = ? AND status = 'review'",
+        (candidate_id,),
+    )
+    if updated.rowcount != 1:
+        return None
+    return get_field_capture_candidate(conn, candidate_id)
+
+
+def accept_field_capture_candidate(
+    conn: sqlite3.Connection, candidate_id: str, reviewer_id: str, accepted_signal_id: str,
+    reviewed_at: str,
+) -> FieldCaptureCandidate:
+    updated = conn.execute(
+        """UPDATE field_capture_candidates
+           SET status = 'accepted', reviewed_by_person_id = ?, reviewed_at = ?, accepted_signal_id = ?
+           WHERE id = ? AND status = 'accepting'""",
+        (reviewer_id, reviewed_at, accepted_signal_id, candidate_id),
+    )
+    if updated.rowcount != 1:
+        raise ValueError("field capture candidate cannot be accepted")
+    return get_field_capture_candidate(conn, candidate_id)  # type: ignore[return-value]
+
+
+def reject_field_capture_candidate(
+    conn: sqlite3.Connection, candidate_id: str, reviewer_id: str, reviewed_at: str,
+) -> FieldCaptureCandidate:
+    updated = conn.execute(
+        """UPDATE field_capture_candidates
+           SET status = 'rejected', reviewed_by_person_id = ?, reviewed_at = ?
+           WHERE id = ? AND status = 'review'""",
+        (reviewer_id, reviewed_at, candidate_id),
+    )
+    if updated.rowcount != 1:
+        raise ValueError("field capture candidate cannot be rejected")
+    conn.commit()
+    return get_field_capture_candidate(conn, candidate_id)  # type: ignore[return-value]
+
+
 def transition_work_item_with_audit(
     conn: sqlite3.Connection, work_item_id: str, from_status: str, to_status: str,
     actor_id: str, reason: str,
@@ -1281,7 +1470,7 @@ def create_field_signal(
     conn: sqlite3.Connection, allocation_id: str, template_id: str, template_version: int,
     observed_at: str, actor_id: str, values: Any, evidence_artifact_id: Optional[str] = None,
     status: str = "submitted", received_at: Optional[str] = None,
-    supersedes_signal_id: Optional[str] = None,
+    supersedes_signal_id: Optional[str] = None, *, commit: bool = True,
 ) -> FieldSignal:
     _require_published_template(conn, template_id, template_version)
     identifier, created_at = _new_identity()
@@ -1291,7 +1480,8 @@ def create_field_signal(
         (identifier, allocation_id, template_id, template_version, observed_at, received_at, actor_id,
          evidence_artifact_id, _json_value(values), status, supersedes_signal_id, created_at),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return get_field_signal(conn, identifier)  # type: ignore[return-value]
 
 

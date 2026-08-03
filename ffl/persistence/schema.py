@@ -230,6 +230,107 @@ def create_schema(conn: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'field information request events are append-only');
         END;
 
+        -- A field capture pass is an opaque bearer capability issued only by
+        -- the manager boundary.  The raw token is never in this table; a keyed
+        -- digest is enough to resolve it while preserving revocation and audit
+        -- context.  It binds one reviewed information request to one immutable
+        -- signal template and never decides or completes farm work.
+        CREATE TABLE IF NOT EXISTS field_capture_passes (
+            id TEXT PRIMARY KEY,
+            field_information_request_id TEXT NOT NULL REFERENCES field_information_requests(id),
+            signal_template_id TEXT NOT NULL REFERENCES signal_templates(id),
+            signal_template_version INTEGER NOT NULL CHECK (signal_template_version > 0),
+            token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64 AND token_hash = lower(token_hash)),
+            issued_by_person_id TEXT NOT NULL REFERENCES people(id),
+            expires_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'used', 'revoked')),
+            created_at TEXT NOT NULL,
+            revoked_at TEXT,
+            CHECK ((status = 'revoked' AND revoked_at IS NOT NULL) OR (status != 'revoked' AND revoked_at IS NULL))
+        );
+
+        CREATE TABLE IF NOT EXISTS field_capture_candidates (
+            id TEXT PRIMARY KEY,
+            field_information_request_id TEXT NOT NULL REFERENCES field_information_requests(id),
+            field_capture_pass_id TEXT NOT NULL REFERENCES field_capture_passes(id),
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            actor_person_id TEXT NOT NULL REFERENCES people(id),
+            signal_template_id TEXT NOT NULL REFERENCES signal_templates(id),
+            signal_template_version INTEGER NOT NULL CHECK (signal_template_version > 0),
+            observed_at TEXT NOT NULL,
+            values_json TEXT NOT NULL,
+            evidence_artifact_id TEXT REFERENCES evidence_artifacts(id),
+            idempotency_key TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('review', 'accepting', 'accepted', 'rejected')),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            accepted_signal_id TEXT REFERENCES field_signals(id),
+            created_at TEXT NOT NULL,
+            UNIQUE (field_capture_pass_id, idempotency_key),
+            CHECK (
+                (status IN ('review', 'accepting') AND reviewed_by_person_id IS NULL
+                    AND reviewed_at IS NULL AND accepted_signal_id IS NULL)
+                OR (status = 'accepted' AND reviewed_by_person_id IS NOT NULL
+                    AND reviewed_at IS NOT NULL AND accepted_signal_id IS NOT NULL)
+                OR (status = 'rejected' AND reviewed_by_person_id IS NOT NULL
+                    AND reviewed_at IS NOT NULL AND accepted_signal_id IS NULL)
+            )
+        );
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_passes_immutable
+        BEFORE UPDATE OF field_information_request_id, signal_template_id, signal_template_version,
+                         token_hash, issued_by_person_id, expires_at, created_at
+        ON field_capture_passes
+        BEGIN
+            SELECT RAISE(ABORT, 'field capture pass scope is immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_passes_valid_transition
+        BEFORE UPDATE OF status, revoked_at ON field_capture_passes
+        WHEN NOT (
+            (OLD.status = 'active' AND NEW.status IN ('used', 'revoked'))
+            OR (OLD.status = NEW.status AND OLD.revoked_at IS NEW.revoked_at)
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid field capture pass transition');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_passes_no_delete
+        BEFORE DELETE ON field_capture_passes
+        BEGIN
+            SELECT RAISE(ABORT, 'field capture passes are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_candidates_immutable
+        BEFORE UPDATE OF field_information_request_id, field_capture_pass_id, allocation_id,
+                         actor_person_id, signal_template_id, signal_template_version, observed_at,
+                         values_json, evidence_artifact_id, idempotency_key, created_at
+        ON field_capture_candidates
+        BEGIN
+            SELECT RAISE(ABORT, 'field capture candidate is immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_candidates_valid_transition
+        BEFORE UPDATE OF status, reviewed_by_person_id, reviewed_at, accepted_signal_id
+        ON field_capture_candidates
+        WHEN NOT (
+            (OLD.status = 'review' AND NEW.status IN ('accepting', 'rejected'))
+            OR (OLD.status = 'accepting' AND NEW.status = 'accepted')
+            OR (OLD.status = NEW.status
+                AND OLD.reviewed_by_person_id IS NEW.reviewed_by_person_id
+                AND OLD.reviewed_at IS NEW.reviewed_at
+                AND OLD.accepted_signal_id IS NEW.accepted_signal_id)
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid field capture candidate transition');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS field_capture_candidates_no_delete
+        BEFORE DELETE ON field_capture_candidates
+        BEGIN
+            SELECT RAISE(ABORT, 'field capture candidates are append-only');
+        END;
+
         CREATE TABLE IF NOT EXISTS exception_records (
             id TEXT PRIMARY KEY,
             allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
@@ -612,6 +713,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON field_information_requests (initiated_by_person_id);
         CREATE INDEX IF NOT EXISTS idx_field_information_request_events_request_created
             ON field_information_request_events (field_information_request_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_capture_passes_request_status_expiry
+            ON field_capture_passes (field_information_request_id, status, expires_at, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_capture_candidates_request_status_created
+            ON field_capture_candidates (field_information_request_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_field_capture_candidates_allocation_created
+            ON field_capture_candidates (allocation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_field_information_request_events_actor_person
             ON field_information_request_events (actor_person_id);
         CREATE INDEX IF NOT EXISTS idx_harvest_records_allocation_created

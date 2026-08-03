@@ -1,145 +1,161 @@
-const PENDING_KEY = "ffl.pendingExceptions";
-const API_URL = "/api/v1/exceptions";
+const CONTEXT_URL = "/api/v1/field-capture/context";
+const SUBMISSION_URL = "/api/v1/field-capture/submissions";
 
-const form = document.querySelector("#exception-form");
-const syncButton = document.querySelector("#sync-now");
-const syncStatus = document.querySelector("#sync-status");
+const state = document.querySelector("#field-state");
+const assignmentSheet = document.querySelector("#assignment-sheet");
+const captureSheet = document.querySelector("#capture-sheet");
+const fieldContainer = document.querySelector("#template-fields");
+const evidenceField = document.querySelector("#evidence-field");
+const form = document.querySelector("#capture-form");
 const formStatus = document.querySelector("#form-status");
-const locationStatus = document.querySelector("#location-status");
-let location = null;
-let syncing = false;
+let accessToken = null;
+let assignment = null;
 
-function pendingSubmissions() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch (_) {
-    return [];
+function tokenFromFragment() {
+  const parameters = new URLSearchParams(window.location.hash.slice(1));
+  const token = parameters.get("capture");
+  // A fragment never reaches the server. Remove it after reading so it is not
+  // accidentally copied into browser history or a screen recording later.
+  if (token) window.history.replaceState({}, document.title, window.location.pathname);
+  return token;
+}
+
+function authorization() {
+  return { "Authorization": `Bearer ${accessToken}` };
+}
+
+function setState(hindi, english) {
+  state.innerHTML = "";
+  state.append(document.createTextNode(hindi));
+  const translation = document.createElement("span");
+  translation.textContent = english;
+  state.append(translation);
+}
+
+function labelFor(field) {
+  const label = document.createElement("label");
+  label.htmlFor = `value-${field.key}`;
+  label.textContent = field.label_hi || field.key;
+  const small = document.createElement("small");
+  small.textContent = field.label_en || field.key;
+  label.append(small);
+  return label;
+}
+
+function renderField(field) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "template-field";
+  wrapper.append(labelFor(field));
+  let input;
+  if (field.type === "choice") {
+    input = document.createElement("select");
+    (field.options || []).forEach((option) => {
+      const element = document.createElement("option");
+      element.value = option;
+      element.textContent = option;
+      input.append(element);
+    });
+  } else {
+    input = document.createElement(field.type === "text" ? "textarea" : "input");
+    if (input.tagName === "TEXTAREA") input.rows = 3;
+    input.placeholder = field.hint || "";
   }
+  input.id = `value-${field.key}`;
+  input.dataset.key = field.key;
+  input.required = Boolean(field.required);
+  wrapper.append(input);
+  fieldContainer.append(wrapper);
 }
 
-function savePending(pending) {
-  localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
-  updateSyncStatus();
+function renderAssignment(context) {
+  assignment = context.assignment;
+  const allocation = assignment.allocation;
+  document.querySelector("#assignment-title").textContent = allocation.block_name;
+  document.querySelector("#assignment-crop").textContent = [allocation.crop_name, allocation.cultivar].filter(Boolean).join(" · ");
+  document.querySelector("#assignment-copy-hi").textContent = assignment.request.copy_hi;
+  document.querySelector("#assignment-copy-en").textContent = assignment.request.copy_en;
+  document.querySelector("#assignment-due").textContent = `Due / समय: ${new Date(assignment.request.due_at).toLocaleString()}`;
+  fieldContainer.replaceChildren();
+  assignment.template.fields.forEach(renderField);
+  evidenceField.hidden = !assignment.request.evidence_required;
+  const photo = document.querySelector("#photo");
+  photo.required = assignment.request.evidence_required;
+  assignmentSheet.hidden = false;
+  captureSheet.hidden = false;
+  setState("असाइनमेंट तैयार है।", "Your assigned field note is ready.");
 }
 
-function queueSubmission(payload) {
-  const pending = JSON.parse(localStorage.getItem(PENDING_KEY) || "[]");
-  pending.push({
-    idempotency_key: payload.idempotency_key,
-    payload,
-    queued_at: new Date().toISOString(),
-  });
-  localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+async function readContext() {
+  const response = await fetch(CONTEXT_URL, { headers: authorization(), cache: "no-store" });
+  if (!response.ok) throw new Error("field link is not available");
+  return response.json();
 }
 
-function updateSyncStatus(message) {
-  const count = pendingSubmissions().length;
-  syncStatus.textContent = message || (count ? `${count} report${count === 1 ? "" : "s"} pending sync.` : "All reports are synced.");
-  syncButton.disabled = syncing || count === 0;
-}
-
-function removeSubmission(idempotencyKey) {
-  const pending = pendingSubmissions();
-  const index = pending.findIndex((entry) => entry.idempotency_key === idempotencyKey);
-  if (index >= 0) {
-    pending.splice(index, 1);
-    savePending(pending);
-  }
-}
-
-async function sendSubmission(entry) {
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": entry.idempotency_key,
-    },
-    body: JSON.stringify(entry.payload),
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed (${response.status})`);
-  }
-}
-
-async function syncPending() {
-  if (syncing) return;
-  const queued = pendingSubmissions();
-  if (!queued.length) return updateSyncStatus();
-
-  syncing = true;
-  updateSyncStatus("Syncing saved reports…");
-  for (const entry of queued) {
-    try {
-      await sendSubmission(entry);
-      removeSubmission(entry.idempotency_key);
-    } catch (_) {
-      // Keep this entry (and every unsent entry) for a later retry.
-    }
-  }
-  syncing = false;
-  const remaining = pendingSubmissions().length;
-  updateSyncStatus(remaining ? "Pending sync — retry when connected." : "All reports are synced.");
-}
-
-async function photoData(file) {
-  if (!file) return null;
+function fileAsEvidence(file) {
+  if (!file) return Promise.resolve(null);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, type: file.type, data: reader.result });
-    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      const separator = dataUrl.indexOf(",");
+      if (separator < 0) return reject(new Error("photo could not be read"));
+      resolve({ content_base64: dataUrl.slice(separator + 1), media_type: file.type, filename: file.name });
+    };
+    reader.onerror = () => reject(new Error("photo could not be read"));
     reader.readAsDataURL(file);
   });
 }
 
-document.querySelector("#get-location").addEventListener("click", () => {
-  if (!navigator.geolocation) {
-    locationStatus.textContent = "Location is unavailable on this device.";
-    return;
-  }
-  locationStatus.textContent = "Finding location…";
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      location = { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy };
-      locationStatus.textContent = "Location added.";
-    },
-    () => { locationStatus.textContent = "Location not added. You can still save the report."; },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-  );
-});
+function valuesFromForm() {
+  const values = {};
+  fieldContainer.querySelectorAll("[data-key]").forEach((input) => { values[input.dataset.key] = input.value.trim(); });
+  return values;
+}
+
+function observedAt() {
+  const value = document.querySelector("#observed-at").value;
+  if (!value) return null;
+  return new Date(value).toISOString();
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!form.reportValidity() || !accessToken) return;
   const submit = form.querySelector("button[type=submit]");
   submit.disabled = true;
+  formStatus.textContent = "Sending for review…";
   try {
-    const file = document.querySelector("#photo").files[0];
     const payload = {
       idempotency_key: crypto.randomUUID(),
-      details: document.querySelector("#details").value.trim(),
-      severity: document.querySelector("#severity").value,
-      photo: await photoData(file),
-      location,
+      observed_at: observedAt(),
+      values: valuesFromForm(),
+      evidence: await fileAsEvidence(document.querySelector("#photo").files[0]),
     };
-    queueSubmission(payload);
-    updateSyncStatus("Pending sync — saving report…");
+    const response = await fetch(SUBMISSION_URL, {
+      method: "POST",
+      headers: { ...authorization(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error("submission unavailable");
     form.reset();
-    location = null;
-    locationStatus.textContent = "Not added";
-    await syncPending();
-    formStatus.textContent = pendingSubmissions().length ? "Report saved. Pending sync." : "Report sent successfully.";
+    formStatus.textContent = "समीक्षा के लिए भेज दिया गया। / Sent for review.";
   } catch (_) {
-    formStatus.textContent = "Could not save the photo. Please try again.";
+    formStatus.textContent = "अभी भेजा नहीं जा सका। सुरक्षित फील्ड लिंक दोबारा खोलें। / Could not send. Reopen the secure field link.";
   } finally {
     submit.disabled = false;
   }
 });
 
-syncButton.addEventListener("click", syncPending);
-window.addEventListener("online", syncPending);
+accessToken = tokenFromFragment();
+if (!accessToken) {
+  setState("सुरक्षित फील्ड लिंक चाहिए।", "A manager must share a secure field link before you can submit a note.");
+} else {
+  setState("असाइनमेंट खोल रहे हैं…", "Opening your assignment…");
+  readContext().then(renderAssignment).catch(() => {
+    setState("यह फील्ड लिंक उपलब्ध नहीं है।", "This field link is unavailable. Ask your manager for a new one.");
+  });
+}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/field-service-worker.js"));
 }
-
-updateSyncStatus();

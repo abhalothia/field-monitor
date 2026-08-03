@@ -22,6 +22,13 @@ h2 { font-family: "Noto Sans Devanagari", Manrope, sans-serif; font-size: 1.74re
 .work-placeholder { margin: 20px 0 0; color: #526759; font-size: .82rem; line-height: 1.65; }
 .work-placeholder span { display: block; color: #738073; font-size: .72rem; }
 
+.assignment-sheet { margin: 0 0 24px; border-top: 1px solid rgba(24, 59, 45, .48); border-bottom: 1px solid rgba(24, 59, 45, .32); padding: 17px 0; }
+.assignment-sheet h2 { font-family: "DM Serif Display", "Noto Sans Devanagari", Georgia, serif; font-size: 2rem; }
+.assignment-crop { margin: 5px 0 14px; color: #6a651e; font-family: "DM Mono", monospace; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; }
+.assignment-copy { margin: 5px 0; color: #254534; font-size: .9rem; line-height: 1.55; }
+.english-copy { color: #697668; font-size: .78rem; }
+.assignment-due { margin: 14px 0 0; color: #5b6b5c; font-family: "DM Mono", monospace; font-size: .69rem; }
+
 .sync-strip { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid rgba(24, 59, 45, .48); border-bottom: 1px solid rgba(24, 59, 45, .48); padding: 15px 0; }
 .sync-strip .eyebrow { margin-bottom: 4px; }
 .sync-strip p:last-child { margin: 0; color: #405f4d; font-size: .82rem; }
@@ -40,7 +47,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 form { display: grid; gap: 9px; }
 label { color: #204533; font-size: .9rem; font-weight: 800; }
 label small { margin-left: 5px; color: #728073; font-size: .67rem; font-weight: 600; }
-textarea, select, input[type=file] { width: 100%; border: 1px solid rgba(27, 73, 51, .43); border-radius: 3px; background: rgba(255, 250, 239, .78); color: #183b2d; font-size: .9rem; padding: 12px; }
+textarea, select, input[type=file], input[type=datetime-local], input[type=text] { width: 100%; border: 1px solid rgba(27, 73, 51, .43); border-radius: 3px; background: rgba(255, 250, 239, .78); color: #183b2d; font-size: .9rem; padding: 12px; }
 textarea { resize: vertical; }
 textarea::placeholder { color: #839082; }
 textarea:focus, select:focus { border-color: #1b5438; }
@@ -52,6 +59,9 @@ input[type=file] { color: #486352; font-size: .74rem; }
 .primary { margin-top: 4px; border: 0; border-radius: 3px; background: #173f2c; color: #fff8e8; cursor: pointer; font-size: .9rem; font-weight: 800; padding: 14px 16px; }
 .primary small { display: block; color: #b9cba9; font-size: .64rem; font-weight: 600; }
 .primary:hover { background: #255a3d; }
+.template-field { display: grid; gap: 8px; }
+#evidence-field { display: grid; gap: 7px; margin-top: 7px; }
+#evidence-field .hint { margin: 0; }
 
 @media (max-width: 440px) {
   .shell { width: min(100% - 26px, 520px); }

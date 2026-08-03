@@ -12,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from ffl.api.import_routes import router as import_router
 from ffl.api.farm_manifest_routes import router as farm_manifest_router
 from ffl.api.field_information_request_routes import router as field_information_request_router
+from ffl.api.field_capture_routes import router as field_capture_router
 from ffl.api.context_routes import router as context_router
 from ffl.api.data_lanes_routes import router as data_lanes_router
 from ffl.api.launch_routes import router as launch_router
@@ -150,7 +151,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None, manager_session_secret=None, manager_session_max_age_seconds: Optional[int] = None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None, manager_session_secret=None, manager_session_max_age_seconds: Optional[int] = None, field_capture_signing_key: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
@@ -190,6 +191,14 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         else configured_pilot_setup_approval_token()
     )
     app.state.evidence_store = evidence_store if evidence_store is not None else evidence_store_from_environment()
+    # This is a separate server-only identity authority for native field
+    # capture passes.  It is never a browser-managed person id and is not a
+    # LoopMessage/Hermes credential or fallback.
+    app.state.field_capture_signing_key = (
+        field_capture_signing_key
+        if field_capture_signing_key is not None
+        else os.environ.get("FFL_FIELD_CAPTURE_SIGNING_KEY")
+    )
     app.state.operating_profile = (
         normalize_operating_profile(operating_profile)
         if operating_profile is not None
@@ -340,6 +349,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(import_router)
     app.include_router(farm_manifest_router)
     app.include_router(field_information_request_router)
+    app.include_router(field_capture_router)
     app.include_router(procurement_history_router)
     app.include_router(relationship_router)
     app.include_router(context_router)
