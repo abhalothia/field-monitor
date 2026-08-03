@@ -6,6 +6,8 @@ from typing import Optional
 
 from fastapi import HTTPException, Request, status
 
+from ffl.manager_session_auth import active_manager_session
+
 
 MANAGER_ROLES = {"farm_manager", "operations_lead", "agronomist"}
 
@@ -14,7 +16,12 @@ def require_manager(request: Request) -> str:
     expected = request.app.state.manager_api_token
     manager_id = request.app.state.manager_person_id
     presented = request.headers.get("x-ffl-manager-token")
-    if not expected or not manager_id or not presented or not hmac.compare_digest(expected, presented):
+    session = active_manager_session(request.app, request.session)
+    legacy_header_matches = bool(expected and presented and hmac.compare_digest(expected, presented))
+    # The legacy header is retained solely for existing server-to-server and
+    # test callers.  The manager browser never receives, stores, or sends it;
+    # its authority comes from the signed short-lived session above.
+    if not manager_id or (session is None and not legacy_header_matches):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="manager authorization is required")
     connection = getattr(request.state, "conn", request.app.state.conn)
     person = connection.execute("SELECT role FROM people WHERE id = ?", (manager_id,)).fetchone()

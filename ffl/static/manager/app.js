@@ -8,6 +8,9 @@
   var operatingProfileUrl = "/api/v1/operating-profile";
   var pilotReadinessUrl = "/api/v1/pilot/readiness";
   var quickStartValidationUrl = "/api/v1/pilot/quick-start/validate";
+  var managerSessionStatusUrl = "/api/v1/manager-session/status";
+  var managerSessionLoginUrl = "/api/v1/manager-session/login";
+  var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
   var currentRuntime = null;
   var currentPortfolio = null;
   var allocationCalendars = {};
@@ -17,6 +20,7 @@
   var pendingAction = null;
   var focusExceptionId = null;
   var focusTargetView = "fields";
+  var managerSessionAuthenticated = false;
   var localeStorageKey = "ffl.manager.interface-locale";
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
@@ -96,6 +100,102 @@
     if (currentAttention.length) {
       renderToday(currentAttention);
     }
+  }
+
+  function setManagerSessionFeedback(message) {
+    var feedback = element("manager-session-feedback");
+    feedback.textContent = message || "";
+    feedback.hidden = !message;
+  }
+
+  function renderManagerSessionStatus(session) {
+    managerSessionAuthenticated = Boolean(session && session.authenticated === true);
+    var status = element("manager-session-status");
+    var action = element("manager-session-action");
+    status.classList.toggle("is-unlocked", managerSessionAuthenticated);
+    status.textContent = managerSessionAuthenticated ?
+      "Manager actions are unlocked briefly on this browser." :
+      "Manager actions are locked on this browser.";
+    action.textContent = managerSessionAuthenticated ? "Lock manager actions" : "Unlock manager actions";
+  }
+
+  function loadManagerSessionStatus() {
+    return fetch(managerSessionStatusUrl, { credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("Manager status is unavailable.");
+        }
+        return response.json();
+      })
+      .then(renderManagerSessionStatus)
+      .catch(function () {
+        renderManagerSessionStatus({ authenticated: false });
+      });
+  }
+
+  function openManagerSessionDialog() {
+    setManagerSessionFeedback("");
+    var dialog = element("manager-session-dialog");
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    element("manager-session-secret").focus();
+  }
+
+  function submitManagerSession(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    if (!form.reportValidity()) {
+      return;
+    }
+    setManagerSessionFeedback("");
+    var submit = element("submit-manager-session");
+    submit.disabled = true;
+    submit.textContent = "Unlocking…";
+    // The secret exists only in the form/request body.  It is deliberately
+    // never written to localStorage, sessionStorage, a URL, or an API header.
+    fetch(managerSessionLoginUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: formValue(form, "secret") })
+    })
+      .then(function (response) {
+        return response.json().then(function (body) {
+          if (!response.ok) {
+            throw new Error(body.detail || "Manager access could not be unlocked.");
+          }
+          return body;
+        });
+      })
+      .then(function () {
+        form.reset();
+        element("manager-session-dialog").close();
+        return loadManagerSessionStatus();
+      })
+      .then(loadActionCentre)
+      .catch(function (error) {
+        form.reset();
+        setManagerSessionFeedback(error.message || "Manager access could not be unlocked.");
+      })
+      .finally(function () {
+        submit.disabled = false;
+        submit.textContent = "Unlock actions";
+      });
+  }
+
+  function toggleManagerSession() {
+    if (!managerSessionAuthenticated) {
+      openManagerSessionDialog();
+      return;
+    }
+    element("manager-session-action").disabled = true;
+    fetch(managerSessionLogoutUrl, { method: "POST", credentials: "same-origin" })
+      .then(function () { return loadManagerSessionStatus(); })
+      .then(loadActionCentre)
+      .finally(function () {
+        element("manager-session-action").disabled = false;
+      });
   }
 
   function formatTime(value) {
@@ -1328,6 +1428,17 @@
     });
   });
   element("refresh").addEventListener("click", loadActionCentre);
+  element("manager-session-action").addEventListener("click", toggleManagerSession);
+  element("close-manager-session").addEventListener("click", function () {
+    element("manager-session-dialog").close();
+    element("manager-session-form").reset();
+    setManagerSessionFeedback("");
+  });
+  element("manager-session-dialog").addEventListener("cancel", function () {
+    element("manager-session-form").reset();
+    setManagerSessionFeedback("");
+  });
+  element("manager-session-form").addEventListener("submit", submitManagerSession);
   element("review-focus").addEventListener("click", function () {
     if (focusTargetView === "setup") {
       openSetupDialog();
@@ -1355,5 +1466,6 @@
     }
   });
   applyLanguage();
+  loadManagerSessionStatus();
   loadActionCentre();
 }());

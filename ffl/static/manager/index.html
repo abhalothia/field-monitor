@@ -227,6 +227,15 @@
             </div>
           </section>
 
+          <section class="command-card manager-access-card" aria-labelledby="manager-access-heading">
+            <div class="card-heading">
+              <p class="eyebrow">Manager access</p>
+              <h2 id="manager-access-heading">Private actions</h2>
+            </div>
+            <p id="manager-session-status" class="manager-session-status" aria-live="polite">Manager actions are locked on this browser.</p>
+            <button id="manager-session-action" class="detail-button" type="button">Unlock manager actions</button>
+          </section>
+
           <section class="command-card data-connections-card" aria-labelledby="context-heading">
             <div class="card-heading">
               <p class="eyebrow" data-i18n="dataConnections">Data connections</p>
@@ -254,6 +263,30 @@
             <p id="action-dialog-next" class="action-next"></p>
             <button id="action-go" class="setup-submit" type="button">Open record <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
           </div>
+        </section>
+      </dialog>
+
+      <dialog id="manager-session-dialog" class="manager-session-dialog" aria-labelledby="manager-session-title">
+        <section class="manager-session-sheet">
+          <header class="action-header">
+            <div>
+              <p class="eyebrow">Manager access</p>
+              <h2 id="manager-session-title">Unlock private actions</h2>
+            </div>
+            <button id="close-manager-session" class="dialog-close" type="button" aria-label="Close manager unlock">
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </header>
+          <form id="manager-session-form" class="manager-session-form">
+            <p>Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.</p>
+            <label for="manager-session-secret">Manager secret</label>
+            <input id="manager-session-secret" name="secret" type="password" autocomplete="off" required maxlength="2048">
+            <p id="manager-session-feedback" class="manager-session-feedback" role="alert" aria-live="assertive" hidden></p>
+            <footer class="manager-session-footer">
+              <p>Manager access expires automatically.</p>
+              <button id="submit-manager-session" class="setup-submit" type="submit">Unlock actions</button>
+            </footer>
+          </form>
         </section>
       </dialog>
 

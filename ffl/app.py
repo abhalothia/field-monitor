@@ -15,6 +15,7 @@ from ffl.api.field_information_request_routes import router as field_information
 from ffl.api.context_routes import router as context_router
 from ffl.api.data_lanes_routes import router as data_lanes_router
 from ffl.api.launch_routes import router as launch_router
+from ffl.api.manager_session_routes import router as manager_session_router
 from ffl.api.portfolio_routes import router as portfolio_router
 from ffl.api.operating_profile_routes import router as operating_profile_router
 from ffl.api.procurement_history_routes import router as procurement_history_router
@@ -27,6 +28,7 @@ from ffl.api.trackolap_routes import router as trackolap_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
+from ffl.manager_session_auth import configured_manager_session_max_age_seconds, configured_manager_session_secret
 from ffl.pilot_setup_auth import configured_pilot_setup_approval_token
 from ffl.services.evidence_store import evidence_store_from_environment
 from ffl.services.operating_profile import normalize_operating_profile, operating_profile_from_environment
@@ -148,7 +150,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None, manager_session_secret=None, manager_session_max_age_seconds: Optional[int] = None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
@@ -161,6 +163,14 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.state.communication_provider = communication_provider or LoopMessageProvider.from_environment()
     app.state.manager_api_token = manager_api_token if manager_api_token is not None else configured_manager_token()
     app.state.manager_person_id = manager_person_id if manager_person_id is not None else configured_manager_person_id()
+    app.state.manager_session_secret = (
+        manager_session_secret if manager_session_secret is not None else configured_manager_session_secret()
+    )
+    app.state.manager_session_max_age_seconds = (
+        manager_session_max_age_seconds
+        if manager_session_max_age_seconds is not None
+        else configured_manager_session_max_age_seconds()
+    )
     app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
     # A browser, webhook, or Vercel preview can never attest a private recovery
     # worker.  Production composition may set this trusted fact only on the
@@ -240,10 +250,14 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
 
     app.add_middleware(
         SessionMiddleware,
-        secret_key=session_secret(app.state.launch_password or "ffl-local-development-only"),
+        secret_key=session_secret(
+            app.state.launch_password or "ffl-local-development-only", app.state.manager_session_secret
+        ),
         max_age=SESSION_MAX_AGE_SECONDS,
         same_site="lax",
-        https_only=os.environ.get("FFL_LAUNCH_COOKIE_SECURE") == "true",
+        # A hosted Vercel production/preview URL is HTTPS; a manager session
+        # must never silently downgrade to a non-Secure cookie there.
+        https_only=os.environ.get("FFL_LAUNCH_COOKIE_SECURE") == "true" or bool(os.environ.get("VERCEL")),
     )
 
     @app.get("/health")
@@ -321,6 +335,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
 
     app.include_router(router)
     app.include_router(launch_router)
+    app.include_router(manager_session_router)
     app.include_router(season_router)
     app.include_router(import_router)
     app.include_router(farm_manifest_router)

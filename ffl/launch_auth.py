@@ -20,9 +20,16 @@ def configured_launch_password() -> Optional[str]:
     return value if value else None
 
 
-def session_secret(password: str) -> str:
-    """Derive a cookie-signing secret without adding a second shared secret."""
-    return hashlib.sha256(("ffl-launch-session-v1:" + password).encode("utf-8")).hexdigest()
+def session_secret(password: str, manager_session_secret: Optional[str] = None) -> str:
+    """Derive the browser-cookie signing key from configured server secrets.
+
+    A configured manager unlock secret participates in the cookie key so its
+    rotation invalidates browser manager sessions.  The launch password still
+    participates separately; it is never itself manager authority.
+    """
+
+    material = "\x00".join(("ffl-browser-session-v2", password, manager_session_secret or ""))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def password_matches(expected: Optional[str], presented: str) -> bool:
