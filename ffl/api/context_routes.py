@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from ffl.persistence import repository
+from ffl.communications.auth import require_manager
 from ffl.pilot_setup_auth import require_pilot_setup_approval
-from ffl.services import morning_brief, pilot_readiness, pilot_setup
+from ffl.services import morning_brief, operating_export, pilot_readiness, pilot_setup
 
 
 router = APIRouter(prefix="/api/v1")
@@ -172,3 +173,19 @@ def get_morning_brief(operating_unit_id: str, request: Request, as_of: Optional[
         return morning_brief.morning_brief(_connection(request), operating_unit_id, parsed)
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+
+
+@router.get("/operating-units/{operating_unit_id}/operating-ledger.csv")
+def export_operating_ledger(
+    operating_unit_id: str, request: Request, _manager_id: str = Depends(require_manager),
+) -> Response:
+    """Download canonical operating records, never the communications archive."""
+    try:
+        output = operating_export.operating_ledger_csv(_connection(request), operating_unit_id)
+    except LookupError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    return Response(
+        content=output,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="agro-ceo-operating-ledger.csv"'},
+    )
