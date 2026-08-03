@@ -23,6 +23,7 @@
   var currentFarmerView = "cards";
   var currentWorkerView = "cards";
   var currentInboxMode = "priority";
+  var connectedAllocationId = null;
   var leafletMaps = {};
   var sampleMode = false;
   var inboxOwnerId = null;
@@ -63,6 +64,7 @@
       urgentIssueTitle: "{issue} is the lead field signal.", urgentIssueNote: "{count} dated observations in the last {days} days. Detection shows where to look, not a diagnosis or prevalence rate.", reviewDecisionQueue: "Review the decision queue", visitsFiledMetric: "{count} visits filed today", neverVisitedMetric: "{count} never visited",
       farmerOverdueTitle: "{count} farmers are overdue for a visit.", farmerCoverageCurrent: "Farmer coverage is current.", farmerOverdueNote: "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap.", noOverdueNote: "No overdue visit gap is reported in the published farmer aggregate.", reviewFarmerCoverage: "Review farmer coverage",
       priorityDecision: "{count} priority decision, most urgent first.", priorityDecisions: "{count} priority decisions, most urgent first.", allDecisions: "{count} reviewed decisions and open work items.", noDecision: "No decision needs attention right now.", nothingWaiting: "Nothing is waiting for a manager decision.", sampleReviewIssue: "Review stem borer cluster", sampleCheckIssue: "Check stem borer cluster",
+      viewRelatedDecisions: "View related decisions", showAllDecisions: "Show all decisions", decisionsForField: "Decisions for {field}",
       openFieldWork: "Open field workers", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
       priority: "Priority", riskAction: "Risk & action", learning: "Learning", trialsPlaybooks: "Trials & playbooks",
@@ -104,6 +106,7 @@
       urgentIssueTitle: "{issue} मुख्य फील्ड संकेत है।", urgentIssueNote: "पिछले {days} दिनों में {count} दर्ज अवलोकन। यह बताता है कि कहाँ देखना है, निदान या प्रसार दर नहीं।", reviewDecisionQueue: "निर्णय सूची देखें", visitsFiledMetric: "आज {count} मुलाक़ातें दर्ज", neverVisitedMetric: "{count} से कभी मुलाक़ात नहीं हुई",
       farmerOverdueTitle: "{count} किसानों की मुलाक़ात बाकी है।", farmerCoverageCurrent: "किसान कवरेज वर्तमान है।", farmerOverdueNote: "सबसे अधिक बाकी मुलाक़ात वाले किसान समूहों से शुरुआत करें। कभी न मिले किसान अलग कवरेज और रिकॉर्ड गुणवत्ता की कमी हैं।", noOverdueNote: "प्रकाशित किसान आँकड़ों में कोई बाकी मुलाक़ात नहीं है।", reviewFarmerCoverage: "किसान कवरेज देखें",
       priorityDecision: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", priorityDecisions: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", allDecisions: "{count} समीक्षित निर्णय और खुले काम।", noDecision: "अभी किसी निर्णय पर ध्यान नहीं चाहिए।", nothingWaiting: "प्रबंधक के निर्णय की कोई प्रतीक्षा नहीं है।", sampleReviewIssue: "तना छेदक समूह की समीक्षा", sampleCheckIssue: "तना छेदक समूह जाँचें",
+      viewRelatedDecisions: "संबंधित निर्णय देखें", showAllDecisions: "सभी निर्णय देखें", decisionsForField: "{field} के निर्णय",
       openFieldWork: "फील्ड टीम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
       priority: "प्राथमिकता", riskAction: "जोखिम और अगला काम", learning: "सीख", trialsPlaybooks: "परीक्षण और तरीके",
@@ -337,7 +340,8 @@
         geometry: { type: "Point", coordinates: [77.7853488, 28.1052221] },
         properties: {
           plot_label: "Jewar Model Farm · North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121",
-          area_hectares: 2.5, location_label: "Dargava, Gabhana, Aligarh", location_precision: "sample"
+          area_hectares: 2.5, location_label: "Dargava, Gabhana, Aligarh", location_precision: "sample",
+          record_kind: "farm", record_id: "sample-north-block"
         }
       }]
     };
@@ -661,6 +665,59 @@
     }, 0);
   }
 
+  function updateRecordRoute(kind, id) {
+    var url = new URL(window.location.href);
+    if (kind && id) {
+      url.searchParams.set("record", kind + ":" + id);
+    } else {
+      url.searchParams.delete("record");
+    }
+    if (connectedAllocationId) {
+      url.searchParams.set("field", connectedAllocationId);
+    } else {
+      url.searchParams.delete("field");
+    }
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }
+
+  function routeRecord() {
+    var url = new URL(window.location.href);
+    var raw = url.searchParams.get("record") || "";
+    var separator = raw.indexOf(":");
+    return separator > 0 ? { kind: raw.slice(0, separator), id: raw.slice(separator + 1) } : null;
+  }
+
+  function connectFarm(allocationId) {
+    if (!allocationFor(allocationId)) {
+      return;
+    }
+    connectedAllocationId = allocationId;
+    renderCards(currentRuntime);
+    renderRiskLedger();
+  }
+
+  function restoreConnectedRecord() {
+    var url = new URL(window.location.href);
+    var fieldId = url.searchParams.get("field");
+    connectedAllocationId = fieldId && allocationFor(fieldId) ? fieldId : null;
+    if (connectedAllocationId) {
+      renderCards(currentRuntime);
+      renderRiskLedger();
+    }
+    var record = routeRecord();
+    if (!record || ["farm", "farmer", "worker"].indexOf(record.kind) === -1) {
+      return;
+    }
+    if (record.kind === "farm") {
+      connectFarm(record.id);
+      updateRecordRoute(record.kind, record.id);
+      showView("farms");
+    } else {
+      showView(record.kind === "farmer" ? "farmers" : "workers");
+    }
+    openRecordDialog(record.kind, record.id, false);
+  }
+
   function setDirectoryView(kind, value) {
     var settings = {
       farm: { value: value, cards: "farm-cards-view", table: "farm-table-view", map: "farm-map-view", selector: "[data-farm-view]" },
@@ -746,41 +803,47 @@
         action: item.action
       };
     });
-    if (currentInboxMode !== "all" || !currentRuntime) {
-      return rows;
+    if (currentInboxMode === "all" && currentRuntime) {
+      var known = {};
+      rows.forEach(function (row) { known[row.key] = true; });
+      (currentRuntime.exceptions || []).filter(isOpenException).forEach(function (item) {
+        var exceptionKey = "exception_record:" + item.id;
+        if (!known[exceptionKey]) {
+          rows.push({ key: exceptionKey, severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
+            ownerId: item.owner_id, dueAt: item.observed_at, status: item.status, action: "review exception" });
+        }
+      });
+      (currentRuntime.work_items || []).filter(isOpenWork).forEach(function (item) {
+        var workKey = "work_item:" + item.id;
+        if (!known[workKey]) {
+          rows.push({ key: workKey, severity: item.status === "blocked" ? "high" : "medium", title: item.title,
+            allocationId: item.allocation_id, ownerId: item.owner_id, dueAt: item.due_at, status: item.status,
+            action: "complete or replan" });
+        }
+      });
     }
-    var known = {};
-    rows.forEach(function (row) { known[row.key] = true; });
-    (currentRuntime.exceptions || []).filter(isOpenException).forEach(function (item) {
-      var key = "exception_record:" + item.id;
-      if (!known[key]) {
-        rows.push({ key: key, severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
-          ownerId: item.owner_id, dueAt: item.observed_at, status: item.status, action: "review exception" });
-      }
-    });
-    (currentRuntime.work_items || []).filter(isOpenWork).forEach(function (item) {
-      var key = "work_item:" + item.id;
-      if (!known[key]) {
-        rows.push({ key: key, severity: item.status === "blocked" ? "high" : "medium", title: item.title,
-          allocationId: item.allocation_id, ownerId: item.owner_id, dueAt: item.due_at, status: item.status,
-          action: "complete or replan" });
-      }
-    });
-    return rows;
+    return connectedAllocationId ? rows.filter(function (row) { return row.allocationId === connectedAllocationId; }) : rows;
   }
 
   function renderRiskLedger() {
     var rows = inboxRows();
+    var selectedAllocation = connectedAllocationId ? allocationFor(connectedAllocationId) : null;
+    var filterClear = element("inbox-filter-clear");
+    filterClear.hidden = !selectedAllocation;
+    filterClear.textContent = t("showAllDecisions");
     if (!rows.length) {
-      element("inbox-summary").textContent = currentInboxMode === "all" ?
-        t("nothingWaiting") : t("noDecision");
+      element("inbox-summary").textContent = selectedAllocation ?
+        message("decisionsForField", { field: fieldLabel(selectedAllocation.operational_block_name) }) + " · " + t("noDecision") :
+        (currentInboxMode === "all" ? t("nothingWaiting") : t("noDecision"));
       setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">' + escapeHtml(t("nothingWaiting")) + '</td></tr>');
       renderHomeMetrics();
       return;
     }
-    element("inbox-summary").textContent = currentInboxMode === "all" ?
+    var summary = currentInboxMode === "all" ?
       message("allDecisions", { count: formatCount(rows.length) }) :
       message(rows.length === 1 ? "priorityDecision" : "priorityDecisions", { count: formatCount(rows.length) });
+    element("inbox-summary").textContent = selectedAllocation ?
+      message("decisionsForField", { field: fieldLabel(selectedAllocation.operational_block_name) }) + " · " + summary : summary;
     setHtml("portfolio-ledger", rows.map(function (item) {
       return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(readable(item.severity)) +
         '</span></td><th scope="row">' + escapeHtml(sampleText(item.title)) + '</th><td>' + escapeHtml(fieldNameFor(item.allocationId)) +
@@ -1256,7 +1319,7 @@
         allocation.cultivar ? t("variety") + " · " + allocation.cultivar : "",
         assignedWork ? t("risk") + " · " + formatCount(assignedWork) + " " + (assignedWork === 1 ? t("openAction") : t("openActions")) : ""
       ].filter(Boolean);
-      return '<button class="directory-card allocation-card" type="button" data-record-kind="farm" data-record-id="' + escapeHtml(allocation.id) + '">' +
+      return '<button class="directory-card allocation-card' + (connectedAllocationId === allocation.id ? " is-connected" : "") + '" type="button" data-record-kind="farm" data-record-id="' + escapeHtml(allocation.id) + '">' +
         '<div class="allocation-card-heading"><h3>' + escapeHtml(farmName + fieldName) + '</h3>' +
         '<span class="status">' + escapeHtml(t("verified")) + '</span></div>' +
         '<p class="allocation-crop">' + escapeHtml(cropLabel(allocation.crop_name)) + '</p>' +
@@ -1329,6 +1392,13 @@
       },
       onEachFeature: function (feature, featureLayer) {
         featureLayer.bindTooltip(mapPopup(feature), { sticky: true });
+        var properties = feature && feature.properties ? feature.properties : {};
+        if (properties.record_kind === "farm" && properties.record_id) {
+          featureLayer.on("click", function () {
+            connectFarm(properties.record_id);
+            openRecordDialog("farm", properties.record_id);
+          });
+        }
       }
     }).addTo(map);
     var bounds = layer.getBounds();
@@ -1504,7 +1574,7 @@
     }).join("");
   }
 
-  function openRecordDialog(kind, id) {
+  function openRecordDialog(kind, id, syncRoute) {
     var title = "";
     var metric = "—";
     var metricLabel = "";
@@ -1515,6 +1585,7 @@
       if (!allocation) {
         return;
       }
+      connectFarm(id);
       var work = (currentRuntime.work_items || []).filter(function (item) {
         return item.allocation_id === allocation.id && isOpenWork(item);
       }).length;
@@ -1550,6 +1621,12 @@
     element("record-dialog-metric-label").textContent = metricLabel;
     element("record-dialog-context").textContent = context;
     recordTraits(traits);
+    var action = element("record-dialog-action");
+    action.hidden = kind !== "farm";
+    action.textContent = kind === "farm" ? t("viewRelatedDecisions") : "";
+    if (syncRoute !== false) {
+      updateRecordRoute(kind, id);
+    }
     var dialog = element("record-dialog");
     if (!dialog.open) {
       dialog.showModal();
@@ -1861,6 +1938,7 @@
     renderRiskLedger();
     renderDailyDirection();
     renderHomeMetrics();
+    restoreConnectedRecord();
   }
 
   function renderRuntimeUnavailable() {
@@ -1878,6 +1956,7 @@
     renderSampleWeather();
     renderFortuneMap(sampleMap());
     renderHomeMetrics();
+    restoreConnectedRecord();
   }
 
   function renderAudit(detail) {
@@ -2036,6 +2115,36 @@
   element("manager-session-form").addEventListener("submit", submitManagerSession);
   element("close-record-dialog").addEventListener("click", function () {
     element("record-dialog").close();
+    updateRecordRoute(null, null);
+  });
+  element("record-dialog").addEventListener("cancel", function () {
+    updateRecordRoute(null, null);
+  });
+  element("record-dialog-action").addEventListener("click", function () {
+    element("record-dialog").close();
+    updateRecordRoute(null, null);
+    showView("inbox");
+    element("ledger-heading").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  element("inbox-filter-clear").addEventListener("click", function () {
+    connectedAllocationId = null;
+    updateRecordRoute(null, null);
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+    }
+    renderRiskLedger();
+  });
+  window.addEventListener("popstate", function () {
+    if (!currentRuntime) {
+      return;
+    }
+    var dialog = element("record-dialog");
+    if (dialog.open) {
+      dialog.close();
+    }
+    restoreConnectedRecord();
+    renderCards(currentRuntime);
+    renderRiskLedger();
   });
   document.addEventListener("click", function (event) {
     var card = event.target.closest("[data-record-kind]");

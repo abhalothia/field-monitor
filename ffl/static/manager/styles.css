@@ -366,6 +366,8 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .map-empty-state { max-width: 42ch; margin: 0; color: #5d6e60; font-family: "DM Serif Display", Georgia, serif; font-size: 1.08rem; line-height: 1.35; text-align: center; }
 .map-note, .directory-summary, .directory-boundary { max-width: 74ch; margin: 12px 0 0; color: #5a6c5d; font-size: .76rem; line-height: 1.48; }
 .directory-boundary { margin-top: 18px; color: #6c735e; font-size: .71rem; }
+.filter-clear { margin: 12px 0 0; border: 0; border-bottom: 1px solid currentColor; background: transparent; color: #315844; cursor: pointer; font: 800 .7rem Manrope, Arial, sans-serif; padding: 0 0 2px; }
+.filter-clear:hover { color: #a1711f; }
 .view-switcher { display: inline-flex; flex: 0 0 auto; border: 1px solid rgba(24, 57, 46, .27); background: rgba(255, 251, 241, .54); padding: 3px; }
 .view-toggle { border: 0; background: transparent; color: #59705c; cursor: pointer; font: 800 .67rem Manrope, Arial, sans-serif; padding: 8px 10px; }
 .view-toggle:hover, .view-toggle:focus-visible { background: rgba(226, 230, 205, .75); color: #173f2c; outline: 0; }
@@ -375,6 +377,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
 .directory-card { min-width: 0; border: 1px solid rgba(24, 57, 46, .22); background: rgba(255, 251, 241, .55); padding: 15px; }
 button.directory-card { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 button.directory-card:hover { border-color: rgba(24, 57, 46, .54); background: rgba(255, 251, 241, .82); transform: translateY(-2px); }
+button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3px 0 0 #d1af35; }
 .directory-card h3 { margin: 0; color: #173b2e; font-family: Manrope, Arial, sans-serif; font-size: .94rem; font-weight: 800; line-height: 1.3; }
 .directory-detail { margin: 0; color: #647462; font-size: .72rem; line-height: 1.4; }
 .directory-card-metric { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 11px; }
@@ -393,6 +396,7 @@ button.directory-card:hover { border-color: rgba(24, 57, 46, .54); background: r
 .record-dialog-body { padding: 22px 26px 26px; }
 .record-dialog-body .directory-card-metric { margin-top: 0; }
 .record-dialog-context { margin: 18px 0 0; color: #536a5a; font-size: .78rem; line-height: 1.5; }
+.record-dialog-action { margin-top: 20px; }
 .person-card .person-work { margin-top: 17px; }
 .directory-table-wrap { overflow-x: auto; border: 1px solid rgba(24, 57, 46, .22); }
 .directory-table { width: 100%; min-width: 660px; border-collapse: collapse; text-align: left; }

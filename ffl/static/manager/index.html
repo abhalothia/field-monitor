@@ -154,6 +154,7 @@
             </div>
           </div>
           <p id="inbox-summary" class="directory-summary">Decisions that need human attention, ordered by urgency.</p>
+          <button id="inbox-filter-clear" class="filter-clear" type="button" hidden>Show all decisions</button>
           <div class="directory-table-wrap"><table class="directory-table inbox-table"><thead><tr><th data-i18n="priority">Priority</th><th data-i18n="decision">Decision</th><th data-i18n="field">Field</th><th data-i18n="owner">Owner</th><th data-i18n="dueLabel">Due</th><th data-i18n="status">Status</th></tr></thead><tbody id="portfolio-ledger" aria-live="polite"></tbody></table></div>
         </section>
       </section>
@@ -210,6 +211,7 @@
             <div class="directory-card-metric"><strong id="record-dialog-metric"></strong><span id="record-dialog-metric-label"></span></div>
             <ul id="record-dialog-characteristics" class="directory-characteristics"></ul>
             <p id="record-dialog-context" class="record-dialog-context"></p>
+            <button id="record-dialog-action" class="pulse-action record-dialog-action" type="button" hidden></button>
           </div>
         </section>
       </dialog>

@@ -73,7 +73,15 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "Asha Devi" in app_js
     assert "Ravi Kumar" in app_js
     assert 'id="record-dialog"' in index_html
+    assert 'id="record-dialog-action"' in index_html
+    assert 'id="inbox-filter-clear"' in index_html
     assert "openRecordDialog" in app_js
+    assert "updateRecordRoute" in app_js
+    assert "restoreConnectedRecord" in app_js
+    assert "connectFarm" in app_js
+    assert "popstate" in app_js
+    assert "record_id" in app_js
+    assert "viewRelatedDecisions" in app_js
     assert "data-record-kind" in app_js
     assert "directory-card-metric" in app_js
     assert "sampleWeather" in app_js
