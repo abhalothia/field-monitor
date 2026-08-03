@@ -16,13 +16,13 @@
           <img src="/assets/rice-sheaf-icon.png" alt="">
           <span id="wordmark-name">AGRO CEO</span>
         </a>
-        <nav class="command-tabs" aria-label="Farm command views" role="tablist">
-          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Home</button>
-          <button id="tab-fields" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-fields" data-view="fields" tabindex="-1" data-i18n="navFields">Fields</button>
-          <button id="tab-farmers" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-farmers" data-view="farmers" tabindex="-1" data-i18n="navFarmers">Farmers</button>
-          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Map</button>
-          <button id="tab-actions" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-actions" data-view="actions" tabindex="-1" data-i18n="navActions">Actions</button>
-          <button id="tab-settings" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1" data-i18n="navSettings">Settings</button>
+        <nav class="command-tabs" aria-label="Operating command views" role="tablist">
+          <button id="tab-home" class="command-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-home" data-view="home" data-i18n="navHome">Briefing</button>
+          <button id="tab-programme" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-programme" data-view="programme" tabindex="-1" data-i18n="navProgramme">Programme</button>
+          <button id="tab-fields" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-fields" data-view="fields" tabindex="-1" data-i18n="navFields">Crop work</button>
+          <button id="tab-map" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-map" data-view="map" tabindex="-1" data-i18n="navMap">Places</button>
+          <button id="tab-actions" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-actions" data-view="actions" tabindex="-1" data-i18n="navActions">Decisions</button>
+          <button id="tab-settings" class="command-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-view="settings" tabindex="-1" data-i18n="navSettings">System</button>
         </nav>
         <div class="header-actions">
           <p id="load-status" class="load-status" aria-live="polite"></p>
@@ -125,8 +125,71 @@
         </div>
       </section>
 
-      <section id="panel-farmers" class="command-view" role="tabpanel" aria-labelledby="tab-farmers" hidden>
-        <section aria-label="Farmers">
+      <section id="panel-programme" class="command-view programme-view" role="tabpanel" aria-labelledby="tab-programme" hidden>
+        <header class="programme-intro">
+          <p class="eyebrow">Fortune paddy programme</p>
+          <h1>Read coverage.<br><em>Keep the boundary.</em></h1>
+          <p>TrackOlap shows programme activity. It helps a COO decide where to look next; it does not replace the reviewed operating record.</p>
+        </header>
+
+        <section class="command-card programme-coverage-card" aria-labelledby="programme-coverage-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">Coverage</p>
+              <h2 id="programme-coverage-heading">Coverage, not assumptions.</h2>
+            </div>
+            <span id="programme-source-state" class="status">loading</span>
+          </div>
+          <p id="programme-boundary" class="programme-boundary">Source programme context does not prove a farm, field, work completion, or input compliance.</p>
+          <dl id="programme-coverage" class="programme-facts" aria-live="polite">
+            <div><dt>Taken kit</dt><dd>—</dd></div>
+            <div><dt>Visited</dt><dd>—</dd></div>
+            <div><dt>Recent</dt><dd>—</dd></div>
+            <div><dt>Overdue</dt><dd>—</dd></div>
+            <div><dt>Never visited</dt><dd>—</dd></div>
+          </dl>
+        </section>
+
+        <div class="command-grid programme-grid">
+          <section class="command-card programme-card" aria-labelledby="programme-observations-heading">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Last 7 days</p>
+                <h2 id="programme-observations-heading">Field observations</h2>
+              </div>
+            </div>
+            <div id="programme-observations" aria-live="polite"><p class="empty-state">Loading observations…</p></div>
+          </section>
+
+          <section class="command-card programme-card" aria-labelledby="programme-inputs-heading">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Review queue</p>
+                <h2 id="programme-inputs-heading">Input signals</h2>
+              </div>
+            </div>
+            <div id="programme-inputs" aria-live="polite"><p class="empty-state">Loading input signals…</p></div>
+          </section>
+
+          <section class="command-card programme-card" aria-labelledby="programme-freshness-heading">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">Source state</p>
+                <h2 id="programme-freshness-heading">Freshness</h2>
+              </div>
+            </div>
+            <div id="programme-freshness" aria-live="polite"><p class="empty-state">Checking the published source…</p></div>
+          </section>
+        </div>
+
+        <section id="programme-people" class="programme-people" aria-labelledby="programme-people-heading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Canonical operation</p>
+              <h2 id="programme-people-heading">People &amp; assignments</h2>
+            </div>
+            <p>Named people appear only from the reviewed operating record, never from a source task alone.</p>
+          </div>
           <div id="people-list" class="people-list" aria-live="polite"></div>
         </section>
       </section>

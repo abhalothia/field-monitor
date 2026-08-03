@@ -32,6 +32,32 @@ h3 { margin-bottom: 0; font-size: 1.38rem; letter-spacing: -.027em; line-height:
 .subtle { margin-bottom: 0; color: #596759; font-size: .9rem; line-height: 1.55; }
 .command-view[hidden] { display: none; }
 
+.programme-view { padding-bottom: 32px; }
+.programme-intro { max-width: 780px; padding: 58px 0 34px; }
+.programme-intro h1 { margin-bottom: 16px; font-size: clamp(3rem, 7vw, 6.2rem); }
+.programme-intro h1 em { color: #b07a22; }
+.programme-intro > p:last-child { max-width: 58ch; margin-bottom: 0; color: #536a5a; font-size: .95rem; line-height: 1.62; }
+.programme-boundary { max-width: 72ch; margin: -2px 0 18px; color: #5a6958; font-size: .78rem; line-height: 1.5; }
+.programme-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 18px; margin: 0; padding-top: 15px; border-top: 1px solid rgba(24, 57, 46, .19); }
+.programme-facts dd { color: #173b2e; font-family: "DM Serif Display", Georgia, serif; font-size: 1.65rem; }
+.programme-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+.programme-card { min-height: 260px; }
+.programme-number { display: flex; align-items: baseline; gap: 8px; margin: 0 0 13px; color: #173b2e; font-family: "DM Serif Display", Georgia, serif; font-size: 2.1rem; line-height: 1; }
+.programme-number span { color: #667468; font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
+.programme-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.programme-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border-top: 1px solid rgba(24, 57, 46, .16); padding: 10px 0; }
+.programme-list strong { display: block; color: #244b3b; font-size: .78rem; line-height: 1.35; }
+.programme-list span:not(.severity) { display: block; margin-top: 3px; color: #687568; font-size: .68rem; line-height: 1.35; }
+.programme-warnings { display: grid; gap: 7px; margin: 14px 0 0; padding: 0; list-style: none; }
+.programme-warnings li { border-left: 3px solid #af6a37; background: rgba(245, 226, 205, .64); color: #754a32; font-size: .7rem; line-height: 1.42; padding: 8px 10px; }
+.programme-mini-facts { display: grid; gap: 10px; margin: 0; }
+.programme-mini-facts div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-top: 1px solid rgba(24, 57, 46, .16); padding-top: 9px; }
+.programme-mini-facts dd { max-width: 68%; color: #315544; font-size: .73rem; text-align: right; }
+.programme-note { margin: 15px 0 0; color: #687568; font-size: .68rem; line-height: 1.45; }
+.programme-people { margin-top: 28px; }
+.section-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid rgba(24, 57, 46, .28); }
+.section-heading p:last-child { max-width: 48ch; margin: 0; color: #5f6f60; font-size: .74rem; line-height: 1.45; }
+
 .command-card { min-width: 0; border: 1px solid rgba(24, 57, 46, .3); background: rgba(249, 243, 229, .78); box-shadow: 0 10px 28px rgba(70, 65, 42, .045); padding: 24px; }
 .card-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; border-bottom: 1px solid rgba(24, 57, 46, .22); margin-bottom: 14px; padding-bottom: 14px; }
 .card-heading .eyebrow { margin-bottom: 5px; }
@@ -278,7 +304,8 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .field-pulse, .today-card { min-height: 400px; }
   .today-card { min-height: 400px; }
   .today-list { max-height: 290px; }
-  .three-column, .people-list, .settings-grid { grid-template-columns: 1fr; }
+  .three-column, .programme-grid, .people-list, .settings-grid { grid-template-columns: 1fr; }
+  .programme-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .data-connections-card { grid-column: auto; }
   .setup-step { grid-template-columns: 44px minmax(170px, .68fr) minmax(0, 1.32fr); gap: 16px; }
   .setup-fields, .setup-fields-wide, .quick-setup-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -300,6 +327,7 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   h1 { font-size: clamp(3.2rem, 17vw, 4.7rem); }
   .field-pulse { min-height: 360px; }
   .map-intro { padding: 42px 0 25px; }
+  .programme-intro { padding: 42px 0 25px; }
   .map-canvas { padding: 18px; }
   .map-explorer, .map-explorer iframe { min-height: 330px; }
   .map-context { padding: 21px 18px; }
@@ -307,12 +335,13 @@ dd { margin: 4px 0 0; color: #315544; font-size: .73rem; line-height: 1.32; over
   .map-steps { grid-template-columns: 1fr; gap: 18px; }
   .map-steps li, .map-steps li:nth-child(3) { border-top: 1px solid rgba(24, 57, 46, .2); border-left: 0; padding: 16px 0 0; }
   .map-steps li:first-child { border-top: 0; padding-top: 0; }
-  .pulse-facts, .allocation-facts { grid-template-columns: 1fr; gap: 10px; }
+  .pulse-facts, .allocation-facts, .programme-facts { grid-template-columns: 1fr; gap: 10px; }
   .pulse-action { width: 100%; justify-content: center; }
   .today-card { min-height: 370px; padding: 20px 16px; }
   .command-card { padding: 20px; }
   .facts { grid-template-columns: 1fr; }
   .profile-facts { grid-template-columns: 1fr; }
+  .section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
   .action-dialog { width: min(100% - 18px, 500px); }
   .action-header, .action-body { padding-right: 20px; padding-left: 20px; }
   .setup-dialog { width: min(100% - 18px, 560px); max-height: calc(100dvh - 18px); }

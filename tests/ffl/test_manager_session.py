@@ -51,6 +51,7 @@ def test_valid_manager_session_unlocks_existing_manager_routes_without_a_browser
         # This route depends on require_manager.  It succeeds solely with the
         # signed HttpOnly session cookie: the browser sends no manager header.
         assert client.get("/api/v1/communications/readiness").status_code == 200
+        assert client.get("/api/v1/trackolap/metrics").status_code == 200
 
 
 def test_tampered_browser_session_never_becomes_manager_authority(tmp_path):

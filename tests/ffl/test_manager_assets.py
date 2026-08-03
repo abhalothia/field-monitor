@@ -1,12 +1,18 @@
 from pathlib import Path
 
 
-def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
+def test_manager_assets_define_a_fortune_coo_operating_loop_and_first_farm_check():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
 
     assert "Today." in index_html
+    assert "Briefing" in index_html
+    assert "Programme" in index_html
+    assert "Crop work" in index_html
+    assert "Places" in index_html
+    assert "Decisions" in index_html
+    assert "System" in index_html
     assert "Open field work" in index_html
     assert "Field pulse" in index_html
     assert "Crop allocations" in index_html
@@ -20,11 +26,18 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "Awaiting review" in index_html
     assert index_html.count('<button id="tab-') == 6
     assert 'data-view="home"' in index_html
+    assert 'data-view="programme"' in index_html
     assert 'data-view="fields"' in index_html
-    assert 'data-view="farmers"' in index_html
+    assert 'data-view="farmers"' not in index_html
     assert 'data-view="map"' in index_html
     assert 'data-view="actions"' in index_html
     assert 'data-view="settings"' in index_html
+    assert 'id="programme-coverage"' in index_html
+    assert 'id="programme-observations"' in index_html
+    assert 'id="programme-inputs"' in index_html
+    assert 'id="programme-freshness"' in index_html
+    assert 'id="programme-people"' in index_html
+    assert "Source programme context does not prove a farm, field, work completion, or input compliance." in index_html
     assert "Tools" not in index_html
     assert "Actions" in index_html
     assert "Data connections" in index_html
@@ -45,6 +58,11 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "/api/v1/portfolio" in app_js
     assert "/api/v1/data-lanes" in app_js
     assert "/api/v1/operating-profile" in app_js
+    assert "/api/v1/trackolap/metrics" in app_js
+    assert "/api/v1/trackolap/health" in app_js
+    assert "Unlock manager actions in System to view Fortune programme data." in app_js
+    assert "review cue only; not an application recommendation or compliance verdict" in app_js
+    assert "Observation confidence is low. Fewer detections do not mean risk has fallen." in app_js
     assert "/api/v1/pilot/readiness" in app_js
     assert "/api/v1/pilot/quick-start/validate" in app_js
     assert "/api/v1/pilot/setup/accept" not in app_js

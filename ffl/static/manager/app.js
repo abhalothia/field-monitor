@@ -11,8 +11,11 @@
   var managerSessionStatusUrl = "/api/v1/manager-session/status";
   var managerSessionLoginUrl = "/api/v1/manager-session/login";
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
+  var trackolapMetricsUrl = "/api/v1/trackolap/metrics";
+  var trackolapHealthUrl = "/api/v1/trackolap/health";
   var currentRuntime = null;
   var currentPortfolio = null;
+  var currentProgramme = null;
   var allocationCalendars = {};
   var focusedAllocationId = null;
   var allocationCalendarRequest = 0;
@@ -25,7 +28,7 @@
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
     en: {
-      navHome: "Home", navFields: "Fields", navFarmers: "Farmers", navMap: "Map", navActions: "Actions", navSettings: "Settings",
+      navHome: "Briefing", navProgramme: "Programme", navFields: "Crop work", navMap: "Places", navActions: "Decisions", navSettings: "System",
       refresh: "Refresh", openMap: "Open map", pageTitle: "Today.", fieldPulse: "Field pulse", lastUpdate: "Last update", from: "From",
       openFieldWork: "Open field work", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
@@ -42,7 +45,7 @@
       openFieldAsks: "Open field asks"
     },
     hi: {
-      navHome: "होम", navFields: "खेत", navFarmers: "किसान", navMap: "नक्शा", navActions: "काम", navSettings: "सेटिंग्स",
+      navHome: "ब्रीफिंग", navProgramme: "कार्यक्रम", navFields: "फसल कार्य", navMap: "स्थान", navActions: "निर्णय", navSettings: "सिस्टम",
       refresh: "ताज़ा करें", openMap: "नक्शा खोलें", pageTitle: "आज।", fieldPulse: "खेत की स्थिति", lastUpdate: "आख़िरी अपडेट", from: "किससे",
       openFieldWork: "खेत का काम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
@@ -99,6 +102,9 @@
     }
     if (currentAttention.length) {
       renderToday(currentAttention);
+    }
+    if (currentProgramme) {
+      renderProgramme(currentProgramme.metrics, currentProgramme.health);
     }
   }
 
@@ -204,6 +210,127 @@
     }
     var date = new Date(value);
     return isNaN(date.getTime()) ? value : date.toLocaleString(interfaceLocale === "hi" ? "hi-IN" : "en-IN");
+  }
+
+  function formatCount(value) {
+    var count = Number(value);
+    if (!isFinite(count) || count < 0) {
+      return "—";
+    }
+    return Math.round(count).toLocaleString(interfaceLocale === "hi" ? "hi-IN" : "en-IN");
+  }
+
+  function formatAgeHours(value) {
+    var hours = Number(value);
+    if (!isFinite(hours) || hours < 0) {
+      return "No published timestamp";
+    }
+    if (hours < 1) {
+      return "Under 1 hour";
+    }
+    return Math.round(hours) + (Math.round(hours) === 1 ? " hour" : " hours");
+  }
+
+  function programmeFact(label, value) {
+    return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(formatCount(value)) + "</dd></div>";
+  }
+
+  function programmeWarningCopy(code) {
+    if (code === "low_observation_confidence") {
+      return "Observation confidence is low. Fewer detections do not mean risk has fallen.";
+    }
+    return "Review source limitation: " + readable(code) + ".";
+  }
+
+  function renderProgrammeLocked() {
+    currentProgramme = null;
+    element("programme-source-state").textContent = "locked";
+    element("programme-boundary").textContent = "Unlock manager actions in System to view Fortune programme data.";
+    setHtml("programme-coverage", '<p class="empty-state">Programme aggregates stay private until manager access is unlocked.</p>');
+    setHtml("programme-observations", '<p class="empty-state">No source observations are shown while manager access is locked.</p>');
+    setHtml("programme-inputs", '<p class="empty-state">No source input signals are shown while manager access is locked.</p>');
+    setHtml("programme-freshness", '<p class="empty-state">Source freshness is private manager context.</p>');
+  }
+
+  function renderProgrammeUnavailable() {
+    currentProgramme = null;
+    element("programme-source-state").textContent = "unavailable";
+    element("programme-boundary").textContent = "Programme metrics are unavailable. Do not infer a farm, field, work state, or input compliance from this gap.";
+    setHtml("programme-coverage", '<p class="empty-state portfolio-unavailable">No published programme aggregate is available right now.</p>');
+    setHtml("programme-observations", '<p class="empty-state portfolio-unavailable">Observation context is unavailable; absence is not evidence of absence.</p>');
+    setHtml("programme-inputs", '<p class="empty-state portfolio-unavailable">Input review cues are unavailable.</p>');
+    setHtml("programme-freshness", '<p class="empty-state portfolio-unavailable">Source state could not be checked.</p>');
+  }
+
+  function renderProgramme(metrics, health) {
+    var coverage = metrics && metrics.coverage ? metrics.coverage : {};
+    var issues = metrics && metrics.issues ? metrics.issues : {};
+    var pesticides = metrics && metrics.pesticides ? metrics.pesticides : {};
+    var freshness = metrics && metrics.freshness ? metrics.freshness : {};
+    var warningCodes = metrics && Array.isArray(metrics.warnings) ? metrics.warnings : [];
+    var sourceState = health && health.state ? readable(health.state) : "published context";
+    var issueWindow = Number(issues.window_days) || 7;
+    var issueRows = Array.isArray(issues.by_issue) ? issues.by_issue : [];
+    var sourceLabel = freshness.status === "available" ? sourceState : "no published data";
+    var policy = pesticides.policy || "review cue only; not an application recommendation or compliance verdict";
+
+    currentProgramme = { metrics: metrics || {}, health: health || {} };
+    element("programme-source-state").textContent = sourceLabel;
+    element("programme-boundary").textContent = "Source programme context does not prove a farm, field, work completion, or input compliance.";
+    setHtml("programme-coverage",
+      programmeFact("Taken kit", coverage.taken_kit) +
+      programmeFact("Visited", coverage.visited) +
+      programmeFact("Recent · 14 days", coverage.recent) +
+      programmeFact("Overdue", coverage.overdue) +
+      programmeFact("Never visited", coverage.never_visited)
+    );
+
+    var observationSummary = '<p class="programme-number">' + escapeHtml(formatCount(issues.observation_count)) +
+      '<span>dated observations · ' + escapeHtml(String(issueWindow)) + ' days</span></p>';
+    var observationRows = issueRows.length ? '<ol class="programme-list">' + issueRows.slice(0, 5).map(function (issue) {
+      return '<li><div><strong>' + escapeHtml(readable(issue.issue_code)) + '</strong><span>' +
+        escapeHtml(formatCount(issue.count)) + ' observations</span></div><span class="severity severity-' +
+        escapeHtml(safeSeverity(issue.highest_severity)) + '">' +
+        escapeHtml(readable(issue.highest_severity)) + '</span></li>';
+    }).join("") + '</ol>' : '<p class="empty-state">No dated observations in this window. This is not proof that no issue exists.</p>';
+    var warningRows = warningCodes.length ? '<ul class="programme-warnings">' + warningCodes.map(function (warning) {
+      return '<li>' + escapeHtml(programmeWarningCopy(warning)) + '</li>';
+    }).join("") + '</ul>' : '';
+    setHtml("programme-observations", observationSummary + observationRows + warningRows);
+
+    setHtml("programme-inputs", '<p class="programme-number">' + escapeHtml(formatCount(pesticides.event_count)) +
+      '<span>recorded input events</span></p><dl class="programme-mini-facts">' +
+      '<div><dt>Off-kit cues</dt><dd>' + escapeHtml(formatCount(pesticides.off_kit_review_cues)) + '</dd></div>' +
+      '<div><dt>Timing context</dt><dd>' + escapeHtml(formatCount(pesticides.events_with_timing_context)) + '</dd></div>' +
+      '</dl><p class="programme-note">' + escapeHtml(policy) + '.</p>');
+
+    var received = freshness.latest_source_updated_at ? formatTime(freshness.latest_source_updated_at) : "No published timestamp";
+    setHtml("programme-freshness", '<dl class="programme-mini-facts">' +
+      '<div><dt>Latest received</dt><dd>' + escapeHtml(received) + '</dd></div>' +
+      '<div><dt>Age</dt><dd>' + escapeHtml(formatAgeHours(freshness.age_hours)) + '</dd></div>' +
+      '<div><dt>Source state</dt><dd>' + escapeHtml(sourceState) + '</dd></div>' +
+      '</dl><p class="programme-note">Only published source records contribute here.</p>');
+  }
+
+  function loadProgramme() {
+    if (!managerSessionAuthenticated) {
+      renderProgrammeLocked();
+      return Promise.resolve();
+    }
+    return Promise.all([
+      fetch(trackolapMetricsUrl, { credentials: "same-origin" }),
+      fetch(trackolapHealthUrl, { credentials: "same-origin" })
+    ])
+      .then(function (responses) {
+        if (!responses[0].ok || !responses[1].ok) {
+          throw new Error("Programme context is unavailable.");
+        }
+        return Promise.all([responses[0].json(), responses[1].json()]);
+      })
+      .then(function (payloads) {
+        renderProgramme(payloads[0], payloads[1]);
+      })
+      .catch(renderProgrammeUnavailable);
   }
 
   function isOpenException(exceptionRecord) {
@@ -1332,6 +1459,7 @@
   function loadActionCentre() {
     element("load-status").textContent = "Loading…";
     element("portfolio-status").textContent = "Loading actions…";
+    loadProgramme();
     fetch(runtimeUrl)
       .then(function (response) {
         if (!response.ok) {
@@ -1466,6 +1594,5 @@
     }
   });
   applyLanguage();
-  loadManagerSessionStatus();
-  loadActionCentre();
+  loadManagerSessionStatus().then(loadActionCentre);
 }());
