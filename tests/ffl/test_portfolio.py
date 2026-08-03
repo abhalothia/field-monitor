@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from ffl.api.portfolio_routes import router as portfolio_router
 from ffl.persistence import repository
-from ffl.services import imports, operations, portfolio, season, sources, templates, trials
+from ffl.services import field_information_requests, imports, operations, portfolio, season, sources, templates, trials
 
 
 NOW = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -170,6 +170,53 @@ def test_portfolio_uses_explicit_not_configured_context_for_empty_or_missing_opt
     ffl_db.commit()
     resilient = portfolio.portfolio_snapshot(ffl_db, as_of=NOW)
     assert resilient["sources"]["attention"]["items"][0]["health"] == "unavailable"
+
+
+def test_portfolio_surfaces_request_state_without_message_copy_or_false_completion(ffl_db, crop_allocation, users):
+    work = operations.create_work_item(
+        ffl_db, crop_allocation.id, "Revisit coverage gap", users.manager.id,
+        "2026-08-02T09:00:00+00:00", initial_status="in_progress",
+    )
+    field_request = field_information_requests.create_information_request(
+        ffl_db,
+        crop_allocation.id,
+        users.operator.id,
+        "evidence_photo",
+        True,
+        "2026-08-01T09:00:00+00:00",
+        "Please photograph the north boundary.",
+        "कृपया उत्तर सीमा की तस्वीर भेजें।",
+        "portfolio-field-ask:001",
+        work_item_id=work.id,
+        initiated_by_person_id=users.manager.id,
+    )
+    ready = field_information_requests.ready_information_request(
+        ffl_db, field_request.id, actor_person_id=users.manager.id
+    )
+    field_information_requests.mark_information_request_dispatched(
+        ffl_db, ready.id, actor_system_key="system:future-delivery"
+    )
+
+    result = portfolio.portfolio_snapshot(ffl_db, as_of=NOW)
+
+    assert result["field_information_requests"]["availability"] == "available"
+    assert result["field_information_requests"]["open"]["items"] == [{
+        "id": field_request.id,
+        "allocation_id": crop_allocation.id,
+        "target_person_id": users.operator.id,
+        "request_kind": "evidence_photo",
+        "evidence_required": True,
+        "due_at": "2026-08-01T09:00:00+00:00",
+        "status": "dispatched",
+    }]
+    ledger = next(item for item in result["risk_action_ledger"]["items"] if item["entity"]["id"] == field_request.id)
+    assert ledger["action"] == "review_field_response_or_recover"
+    assert ledger["proof_required"] is True
+    assert ledger["owner_id"] == users.operator.id
+    assert repository.get_work_item(ffl_db, work.id).status == "in_progress"
+    rendered = repr(result)
+    assert "photograph the north boundary" not in rendered
+    assert "उत्तर सीमा" not in rendered
 
 
 def test_unmounted_portfolio_route_validates_as_of_and_keeps_service_read_only(ffl_db, crop_allocation, users):

@@ -121,6 +121,7 @@ def _ledger_item(
     severity: str, action: str, entity_type: str, entity_id: str, status: str,
     title: str, owner_id: Optional[str] = None, allocation_id: Optional[str] = None,
     due_at: Optional[str] = None, observed_at: Optional[str] = None, reason_code: Optional[str] = None,
+    proof_required: Optional[bool] = None,
 ) -> Dict[str, Any]:
     result = {
         "severity": severity,
@@ -139,6 +140,8 @@ def _ledger_item(
         result["observed_at"] = observed_at
     if reason_code:
         result["reason_code"] = reason_code
+    if proof_required is not None:
+        result["proof_required"] = proof_required
     return result
 
 
@@ -434,6 +437,76 @@ def _field_signal_summary(conn: sqlite3.Connection) -> Tuple[Dict[str, Any], Lis
     }, ledger
 
 
+def _field_information_request_summary(
+    conn: sqlite3.Connection, now: datetime
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Summarise field asks without exposing their message copy or reply content.
+
+    The ledger makes the request's operational state legible: a draft still
+    needs manager review, a ready request still needs an independently gated
+    delivery decision, and a dispatched request still needs a reviewed field
+    response.  None of these states completes linked work or proves a field
+    condition.
+    """
+
+    state, rows = _safe_rows(
+        conn,
+        "field_information_requests",
+        """SELECT id, allocation_id, target_person_id, request_kind, evidence_required, due_at, status
+           FROM field_information_requests ORDER BY due_at, created_at, id""",
+    )
+    open_items = []
+    ledger = []
+    for row in rows:
+        request_status = str(row.get("status", ""))
+        if request_status not in {"draft", "ready", "dispatched"}:
+            continue
+        due_at = _parse_schedule_time(row.get("due_at"))
+        overdue = due_at is not None and due_at <= now
+        request_kind = str(row.get("request_kind", "field_check"))
+        item = {
+            "id": row["id"],
+            "allocation_id": row["allocation_id"],
+            "target_person_id": row["target_person_id"],
+            "request_kind": request_kind,
+            "evidence_required": bool(row["evidence_required"]),
+            "due_at": row["due_at"],
+            "status": request_status,
+        }
+        open_items.append(item)
+
+        if request_status == "draft":
+            severity, action, title, reason_code = (
+                "medium", "review_field_request", "Field ask needs review", "field_request_draft",
+            )
+        elif request_status == "ready":
+            severity, action, title, reason_code = (
+                ("high" if overdue else "medium"),
+                "review_delivery_eligibility",
+                ("Field ask missed delivery window" if overdue else "Field ask awaits delivery decision"),
+                ("field_request_not_dispatched" if overdue else "field_request_ready"),
+            )
+        else:
+            severity, action, title, reason_code = (
+                ("high" if overdue else "medium"),
+                "review_field_response_or_recover",
+                ("Field answer is overdue" if overdue else "Awaiting field answer"),
+                ("field_request_response_overdue" if overdue else "field_request_dispatched"),
+            )
+        ledger.append(_ledger_item(
+            severity, action, "field_information_request", row["id"], request_status, title,
+            owner_id=row["target_person_id"], allocation_id=row["allocation_id"], due_at=row["due_at"],
+            reason_code=reason_code, proof_required=bool(row["evidence_required"]),
+        ))
+
+    return {
+        "availability": state,
+        "scope": "request_metadata_only",
+        "by_status": _counts(rows, "status"),
+        "open": _limited(open_items),
+    }, ledger
+
+
 def _learning_summary(conn: sqlite3.Connection) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     trial_state, trials = _safe_rows(
         conn,
@@ -482,10 +555,11 @@ def portfolio_snapshot(conn: sqlite3.Connection, as_of: Optional[datetime] = Non
     imports, import_ledger = _import_summary(conn)
     source_health, source_ledger = _source_summary(conn, now)
     field_signals, signal_ledger = _field_signal_summary(conn)
+    field_information_requests, field_request_ledger = _field_information_request_summary(conn, now)
     learning, learning_ledger = _learning_summary(conn)
     ledger = _sort_ledger(
         work_ledger + exception_ledger + checkpoint_ledger + import_ledger + source_ledger + signal_ledger
-        + learning_ledger
+        + field_request_ledger + learning_ledger
     )
     return {
         "as_of": now.isoformat(),
@@ -496,6 +570,7 @@ def portfolio_snapshot(conn: sqlite3.Connection, as_of: Optional[datetime] = Non
         "imports": imports,
         "sources": source_health,
         "field_signals": field_signals,
+        "field_information_requests": field_information_requests,
         "learning": learning,
         "risk_action_ledger": _limited(ledger, LEDGER_ITEM_LIMIT),
     }

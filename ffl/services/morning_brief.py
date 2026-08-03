@@ -42,6 +42,7 @@ def _parse_time(value: str) -> Optional[datetime]:
 def _item(
     priority: str, code: str, title: str, detail: str, entity_type: str,
     entity_id: str, action: str, provenance: Optional[List[Dict[str, Any]]] = None,
+    owner_id: Optional[str] = None, due_at: Optional[str] = None, proof_required: Optional[bool] = None,
 ) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "priority": priority,
@@ -53,6 +54,12 @@ def _item(
     }
     if provenance:
         result["provenance"] = provenance
+    if owner_id:
+        result["owner_id"] = owner_id
+    if due_at:
+        result["due_at"] = due_at
+    if proof_required is not None:
+        result["proof_required"] = proof_required
     return result
 
 
@@ -173,6 +180,19 @@ def morning_brief(conn, operating_unit_id: str, as_of: Optional[datetime] = None
     work_due = []
     open_exceptions = []
     checkpoints_due = []
+    field_requests_due = []
+    try:
+        field_requests = repository.list_field_information_requests(conn)
+        context["field_requests"] = {"status": "available"}
+    except Exception:
+        # This table is a migration-safe addition.  A temporarily un-migrated
+        # private database must not take down the entire brief or turn a
+        # missing request ledger into a false field conclusion.
+        field_requests = []
+        context["field_requests"] = {"status": "unavailable"}
+    requests_by_allocation: Dict[str, List[Any]] = {}
+    for field_request in field_requests:
+        requests_by_allocation.setdefault(field_request.allocation_id, []).append(field_request)
     for allocation in repository.list_active_crop_allocations(conn, operating_unit_id):
         for work in repository.list_work_items(conn, allocation.id):
             due = _parse_time(work.due_at)
@@ -201,6 +221,42 @@ def morning_brief(conn, operating_unit_id: str, as_of: Optional[datetime] = None
                 "critical" if row["severity"] == "critical" else "high", "exception_open", row["title"],
                 "A field exception remains open and owned.", "exception_record", row["id"], "review_exception",
             ))
+        for field_request in requests_by_allocation.get(allocation.id, []):
+            if field_request.status not in {"ready", "dispatched"}:
+                continue
+            due_at = _parse_time(field_request.due_at)
+            if due_at is None or due_at > now:
+                continue
+            field_requests_due.append({
+                "id": field_request.id,
+                "allocation_id": allocation.id,
+                "target_person_id": field_request.target_person_id,
+                "request_kind": field_request.request_kind,
+                "due_at": field_request.due_at,
+                "status": field_request.status,
+                "evidence_required": field_request.evidence_required,
+            })
+            if field_request.status == "dispatched":
+                title = "Field answer is overdue"
+                detail = (
+                    "A dispatched field ask is past due. A reply must remain reviewable evidence or a candidate; "
+                    "it does not complete linked work."
+                )
+                action = "review_field_response_or_recover"
+                code = "field_request_response_overdue"
+            else:
+                title = "Field ask missed delivery window"
+                detail = (
+                    "A reviewed field ask is past due without a recorded dispatch. Check delivery eligibility or "
+                    "cancel and reissue it; no field response is assumed."
+                )
+                action = "review_delivery_eligibility"
+                code = "field_request_not_dispatched"
+            attention.append(_item(
+                "high", code, title, detail, "field_information_request", field_request.id, action,
+                owner_id=field_request.target_person_id, due_at=field_request.due_at,
+                proof_required=field_request.evidence_required,
+            ))
 
     attention = _sort(attention)
     return {
@@ -215,6 +271,7 @@ def morning_brief(conn, operating_unit_id: str, as_of: Optional[datetime] = None
             "open_work_due": len(work_due),
             "open_exceptions": len(open_exceptions),
             "checkpoints_due": len(checkpoints_due),
+            "field_requests_due": len(field_requests_due),
         },
         "guardrails": [
             "External context is never field proof.",

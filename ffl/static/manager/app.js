@@ -29,7 +29,13 @@
       operatingProfile: "Operating profile", coverage: "Coverage", interface: "Interface", language: "Language",
       languageHelp: "Choose Hindi or English for the interface. Farm records remain exactly as entered.",
       dataConnections: "Data connections", fiveDataLanes: "Five data lanes",
-      lanesIntro: "What is usable now, what is missing, and the next safe move.", nextMove: "Next move"
+      lanesIntro: "What is usable now, what is missing, and the next safe move.", nextMove: "Next move",
+      fieldAsk: "Field ask", fieldProofRequired: "field proof required", fieldUpdateRequested: "field update requested",
+      noFieldPerson: "No field person assigned", due: "due", fieldAskNeedsReview: "needs manager review",
+      fieldAskReady: "is reviewed; delivery stays independently gated", awaitingFieldAnswer: "Awaiting a reviewable field answer from",
+      checkDelivery: "Check delivery eligibility or cancel and reissue it. Do not assume an answer.",
+      reviewFieldAnswer: "Review any response and retained proof. The linked work stays open until a human closes it.",
+      openFieldAsks: "Open field asks"
     },
     hi: {
       navHome: "होम", navFields: "खेत", navFarmers: "किसान", navMap: "नक्शा", navActions: "काम", navSettings: "सेटिंग्स",
@@ -40,7 +46,13 @@
       operatingProfile: "ऑपरेटिंग प्रोफ़ाइल", coverage: "कवरेज", interface: "इंटरफ़ेस", language: "भाषा",
       languageHelp: "इंटरफ़ेस के लिए हिंदी या अंग्रेज़ी चुनें। खेत के रिकॉर्ड जैसे दर्ज किए गए हैं वैसे ही रहेंगे।",
       dataConnections: "डेटा कनेक्शन", fiveDataLanes: "पांच डेटा लेन",
-      lanesIntro: "क्या उपयोगी है, क्या नहीं है, और अगला सुरक्षित कदम।", nextMove: "अगला कदम"
+      lanesIntro: "क्या उपयोगी है, क्या नहीं है, और अगला सुरक्षित कदम।", nextMove: "अगला कदम",
+      fieldAsk: "खेत की जानकारी", fieldProofRequired: "खेत का प्रमाण चाहिए", fieldUpdateRequested: "खेत का अपडेट चाहिए",
+      noFieldPerson: "कोई फील्ड व्यक्ति तय नहीं", due: "समय", fieldAskNeedsReview: "को प्रबंधक की समीक्षा चाहिए",
+      fieldAskReady: "की समीक्षा हो चुकी है; भेजना अलग से स्वीकृत होगा", awaitingFieldAnswer: "समीक्षा योग्य उत्तर की प्रतीक्षा",
+      checkDelivery: "भेजने की पात्रता जाँचें या इसे रद्द करके फिर से जारी करें। उत्तर मान कर न चलें।",
+      reviewFieldAnswer: "किसी भी उत्तर और सुरक्षित प्रमाण की समीक्षा करें। मानव बंद होने तक जुड़ा काम खुला रहता है।",
+      openFieldAsks: "खेत की जानकारी खोलें"
     }
   };
 
@@ -76,6 +88,14 @@
     interfaceLocale = locale === "hi" ? "hi" : "en";
     window.localStorage.setItem(localeStorageKey, interfaceLocale);
     applyLanguage();
+    // Repaint the manager-safe summaries that use localized status language;
+    // underlying farm records and reviewed request copy stay exactly as stored.
+    if (currentPortfolio) {
+      renderPortfolio(currentPortfolio);
+    }
+    if (currentAttention.length) {
+      renderToday(currentAttention);
+    }
   }
 
   function formatTime(value) {
@@ -184,11 +204,28 @@
       var severity = safeSeverity(item.severity);
       return '<article class="portfolio-item">' +
         '<h4>' + escapeHtml(item.title) + '</h4>' +
-        '<p>' + escapeHtml(readable(item.action)) + '</p>' +
+        '<p>' + escapeHtml(portfolioActionDetail(item)) + '</p>' +
         '<div class="portfolio-meta"><span class="severity severity-' + severity + '">' +
         escapeHtml(severity) + '</span><span class="status">' + escapeHtml(readable(item.status)) +
         '</span></div></article>';
     }).join(""));
+  }
+
+  function portfolioActionDetail(item) {
+    var entity = item && item.entity ? item.entity : {};
+    if (entity.type !== "field_information_request") {
+      return readable(item.action);
+    }
+    var owner = item.owner_id ? personName(item.owner_id) : t("noFieldPerson");
+    var due = item.due_at ? " · " + t("due") + " " + formatTime(item.due_at) : "";
+    var proof = item.proof_required ? " · " + t("fieldProofRequired") : " · " + t("fieldUpdateRequested");
+    if (item.status === "draft") {
+      return t("fieldAsk") + " · " + owner + " " + t("fieldAskNeedsReview") + proof + ".";
+    }
+    if (item.status === "ready") {
+      return t("fieldAsk") + " · " + owner + " " + t("fieldAskReady") + due + proof + ".";
+    }
+    return t("awaitingFieldAnswer") + " " + owner + due + proof + ".";
   }
 
   function laneStatusLabel(status) {
@@ -708,6 +745,12 @@
     if (entity.type === "crop_stage_checkpoint") {
       return "Field check due.";
     }
+    if (entity.type === "field_information_request") {
+      var requestOwner = item.owner_id ? personName(item.owner_id) : t("noFieldPerson");
+      var requestDue = item.due_at ? " · " + t("due") + " " + formatTime(item.due_at) : "";
+      var proof = item.proof_required ? " · " + t("fieldProofRequired") : " · " + t("fieldUpdateRequested");
+      return t("fieldAsk") + " · " + requestOwner + requestDue + proof;
+    }
     if (entity.type === "regional_signal" || entity.type === "source_registry") {
       return "District context only. Check it against the field.";
     }
@@ -724,6 +767,10 @@
     }
     if (entity.type === "crop_stage_checkpoint") {
       return "Confirm the stage in the field.";
+    }
+    if (entity.type === "field_information_request") {
+      return entity && item.action === "review_delivery_eligibility" ?
+        t("checkDelivery") : t("reviewFieldAnswer");
     }
     if (entity.type === "regional_signal" || entity.type === "source_registry") {
       return "Check the source before changing field work.";
@@ -954,6 +1001,9 @@
     if (entity.type === "regional_signal" || entity.type === "source_registry") {
       return { view: "settings", exceptionId: null, label: "Open data connections" };
     }
+    if (entity.type === "field_information_request") {
+      return { view: "actions", exceptionId: null, label: t("openFieldAsks") };
+    }
     return { view: "fields", exceptionId: null, label: "Open field work" };
   }
 
@@ -985,7 +1035,8 @@
       element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    var target = action.view === "settings" ? element("context-heading") : element("work-heading");
+    var target = action.view === "settings" ? element("context-heading") :
+      (action.view === "actions" ? element("ledger-heading") : element("work-heading"));
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
     }

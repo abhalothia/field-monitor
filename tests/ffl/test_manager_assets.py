@@ -104,6 +104,10 @@ def test_manager_assets_define_a_five_view_farm_command_and_first_farm_check():
     assert "renderTodayFallback" in app_js
     assert "renderToday(attention)" in app_js
     assert "Nothing needs a look right now." in app_js
+    assert "Field ask" in app_js
+    assert "field_information_request" in app_js
+    assert "field proof required" in app_js
+    assert "The linked work stays open until a human closes it." in app_js
     assert "District context only. Check it against the field." in app_js
     assert "operational_block_name" in app_js
     assert "renderRuntimeUnavailable" in app_js

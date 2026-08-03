@@ -6,7 +6,7 @@ import pytest
 
 from ffl.app import create_app
 from ffl.persistence import repository
-from ffl.services import morning_brief, sources
+from ffl.services import field_information_requests, morning_brief, operations, sources
 
 
 NOW = datetime(2026, 8, 1, 8, 0, tzinfo=timezone.utc)
@@ -156,3 +156,42 @@ def test_context_api_supports_setup_and_returns_the_safe_brief(tmp_path):
         assert brief.status_code == 200
         assert brief.json()["context"]["location"]["district_context_key"] == "IN-UP-MEERUT"
         assert brief.json()["context"]["soil"]["measurement_count"] == 1
+
+
+def test_brief_makes_an_overdue_field_ask_actionable_without_treating_it_as_completion(
+    ffl_db, crop_allocation, users
+):
+    work = operations.create_work_item(
+        ffl_db, crop_allocation.id, "Recover an unvisited field", users.manager.id,
+        "2026-08-01T07:00:00+00:00", initial_status="in_progress",
+    )
+    request = field_information_requests.create_information_request(
+        ffl_db,
+        crop_allocation.id,
+        users.operator.id,
+        "field_check",
+        True,
+        "2026-08-01T07:30:00+00:00",
+        "Please check the field before the morning review.",
+        "कृपया सुबह की समीक्षा से पहले खेत देखें।",
+        "brief-field-ask:001",
+        work_item_id=work.id,
+        initiated_by_person_id=users.manager.id,
+    )
+    ready = field_information_requests.ready_information_request(
+        ffl_db, request.id, actor_person_id=users.manager.id
+    )
+    field_information_requests.mark_information_request_dispatched(
+        ffl_db, ready.id, actor_system_key="system:future-delivery")
+
+    result = morning_brief.morning_brief(ffl_db, crop_allocation.operating_unit_id, NOW)
+
+    ask = next(item for item in result["attention"] if item["entity"]["id"] == request.id)
+    assert ask["code"] == "field_request_response_overdue"
+    assert ask["owner_id"] == users.operator.id
+    assert ask["proof_required"] is True
+    assert ask["action"] == "review_field_response_or_recover"
+    assert result["counts"]["field_requests_due"] == 1
+    assert repository.get_work_item(ffl_db, work.id).status == "in_progress"
+    assert "Please check" not in repr(result)
+    assert "खेत देखें" not in repr(result)
