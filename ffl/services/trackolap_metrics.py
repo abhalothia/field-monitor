@@ -46,14 +46,17 @@ def dashboard_metrics(
         for task in tasks
         if task.get("task_id") and task.get("task_status", "active").lower() not in {"cancelled", "inactive"}
     ]
-    taken_task_ids = {
-        task["task_id"]
+    task_farmers = {
+        task["task_id"]: task["farmer_code"]
         for task in active_tasks
-        if task.get("kit_status", "").lower() in {"taken", "received"}
+        if task.get("task_id") and task.get("farmer_code")
+        and task.get("kit_status", "").lower() in {"taken", "received"}
     }
+    taken_farmer_codes = set(task_farmers.values())
     valid_visits = [visit for visit in visits if _valid_visit(visit, now)]
-    coverage = _coverage(taken_task_ids, valid_visits, now, recent_days)
+    coverage = _coverage(taken_farmer_codes, task_farmers, valid_visits, now, recent_days)
     issue_summary = _issue_summary(issues, now, issue_window_days)
+    pesticide_summary = _pesticide_summary(pesticides)
     warning_codes = []
     if issue_summary["observation_count"] < 2:
         warning_codes.append("low_observation_confidence")
@@ -62,7 +65,8 @@ def dashboard_metrics(
         "coverage": coverage,
         "visits": _visit_summary(valid_visits, officers, now),
         "issues": issue_summary,
-        "pesticides": _pesticide_summary(pesticides),
+        "pesticides": pesticide_summary,
+        "outcomes": _operating_outcomes(coverage, pesticide_summary, issue_summary),
         "freshness": _freshness(current, now),
         "warnings": warning_codes,
     }
@@ -84,28 +88,39 @@ def dashboard_metrics_for_source(
 
 
 def _coverage(
-    task_ids: set[str], visits: Iterable[Mapping[str, str]], now: datetime, recent_days: int
+    farmer_codes: set[str], task_farmers: Mapping[str, str], visits: Iterable[Mapping[str, str]],
+    now: datetime, recent_days: int,
 ) -> dict[str, int]:
-    most_recent_by_task: dict[str, datetime] = {}
+    """Compute coverage over farmers, never over repeat visit tasks.
+
+    A TrackWick task is a visit event. A COO needs the coverage denominator to
+    be the distinct kit-taking farmer population, even when the same farmer has
+    several tasks over the season.
+    """
+    most_recent_by_farmer: dict[str, datetime] = {}
     for visit in visits:
         task_id = visit.get("task_id")
-        if task_id not in task_ids:
+        farmer_code = task_farmers.get(task_id or "")
+        if farmer_code not in farmer_codes:
             continue
         performed_at = _optional_timestamp(visit.get("performed_at"))
         if performed_at is None:
             continue
-        prior = most_recent_by_task.get(task_id)
+        prior = most_recent_by_farmer.get(farmer_code)
         if prior is None or performed_at > prior:
-            most_recent_by_task[task_id] = performed_at
-    visited_ids = set(most_recent_by_task)
+            most_recent_by_farmer[farmer_code] = performed_at
+    visited_ids = set(most_recent_by_farmer)
     cutoff = now - timedelta(days=recent_days)
-    recent_ids = {task_id for task_id, seen_at in most_recent_by_task.items() if cutoff <= seen_at <= now}
+    recent_ids = {
+        farmer_code for farmer_code, seen_at in most_recent_by_farmer.items()
+        if cutoff <= seen_at <= now
+    }
     return {
-        "taken_kit": len(task_ids),
+        "taken_kit": len(farmer_codes),
         "visited": len(visited_ids),
         "recent": len(recent_ids),
-        "overdue": len(task_ids - recent_ids),
-        "never_visited": len(task_ids - visited_ids),
+        "overdue": len(farmer_codes - recent_ids),
+        "never_visited": len(farmer_codes - visited_ids),
     }
 
 
@@ -116,11 +131,17 @@ def _visit_summary(visits: Iterable[Mapping[str, str]], officers: Iterable[Mappi
         if performed_at is not None and performed_at.astimezone(now.tzinfo).date() == now.date():
             on_day.append(visit)
     filing_officers = {visit.get("filing_officer_id") for visit in on_day if visit.get("filing_officer_id")}
-    active_officers = {
-        officer.get("officer_id")
-        for officer in officers
-        if officer.get("officer_id") and officer.get("active_status", "active").lower() == "active"
-    }
+    active_officers = set()
+    for officer in officers:
+        officer_id = officer.get("officer_id")
+        effective_from = _optional_timestamp(officer.get("effective_from"))
+        if (
+            officer_id
+            and effective_from is not None
+            and effective_from.astimezone(now.tzinfo).date() == now.date()
+            and officer.get("active_status", "active").lower() == "active"
+        ):
+            active_officers.add(officer_id)
     return {
         "filed_on_reporting_day": len(on_day),
         "filing_officers": len(filing_officers),
@@ -167,6 +188,48 @@ def _pesticide_summary(events: Iterable[Mapping[str, str]]) -> dict:
         "off_kit_review_cues": off_kit,
         "events_with_timing_context": timing_context,
         "policy": "review cue only; not an application recommendation or compliance verdict",
+    }
+
+
+def _operating_outcomes(coverage: Mapping[str, int], pesticides: Mapping[str, int], issues: Mapping[str, Any]) -> dict:
+    """Name the three useful management truths without overstating the source.
+
+    Each outcome carries its own denominator and limitation so callers cannot
+    quietly relabel activity data as purchase share, EU compliance, or a crop
+    diagnosis.  Procurement, laboratory, and reviewed agronomy evidence are
+    separate source lanes and must be connected before those claims are shown.
+    """
+    eligible_farmers = int(coverage.get("taken_kit", 0))
+    recently_reached = int(coverage.get("recent", 0))
+    share_percent = (
+        round(100 * recently_reached / eligible_farmers, 1)
+        if eligible_farmers
+        else None
+    )
+    issue_rows = issues.get("by_issue", [])
+    lead_issue = issue_rows[0] if isinstance(issue_rows, list) and issue_rows else None
+    return {
+        "farmer_reach": {
+            "recently_reached": recently_reached,
+            "eligible_farmers": eligible_farmers,
+            "share_percent": share_percent,
+            "window_days": 14,
+            "basis": "distinct kit-taking farmer codes with a valid visit in the reporting window",
+            "limitation": "contact coverage, not crop purchase share",
+        },
+        "chemical_record": {
+            "reported_events": int(pesticides.get("event_count", 0)),
+            "review_cues": int(pesticides.get("off_kit_review_cues", 0)),
+            "basis": "reported pesticide use or recommendation events",
+            "limitation": "reported events, not a compliance or export-readiness verdict",
+        },
+        "crop_signals": {
+            "observations": int(issues.get("observation_count", 0)),
+            "window_days": int(issues.get("window_days", 7)),
+            "lead_issue": lead_issue,
+            "basis": "dated field observations",
+            "limitation": "detection signal, not a diagnosis or prevalence rate",
+        },
     }
 
 

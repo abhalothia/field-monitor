@@ -43,11 +43,11 @@
       refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
       sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
       localContext: "Local operating context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
-      supplyAtRisk: "Supply at risk", complianceGaps: "Compliance gaps", cropInterventions: "Crop interventions",
-      purchaseDataUnavailable: "Purchase data not connected", pesticideProofUnavailable: "Pesticide and proof data not connected",
-      farmersAtRisk: "farmers at risk",
-      pesticideReviewCue: "{count} pesticide review cue", pesticideReviewCues: "{count} pesticide review cues", pesticideReviewOnly: "Review cues, not a compliance verdict",
-      activeIntervention: "active intervention", activeInterventions: "active interventions",
+      farmerReach: "Farmer reach", chemicalRecord: "Chemical record", cropSignals: "Crop signals",
+      programmeDataLoading: "Reading programme data…", noEligibleFarmers: "No kit-taking farmer records yet",
+      farmerReachNote: "{recent} of {total} reached in 14 days · not crop purchase share",
+      chemicalRecordNote: "{count} reported · not compliance or export proof",
+      cropSignalsNote: "{count} in the last {days} days · detection, not diagnosis",
       verifiedFarms: "Where verified farms are.", reviewedRecord: "Reviewed operating record", verifiedFields: "Verified fields",
       map: "Map", cards: "Cards", table: "Table", all: "All", field: "Field", crop: "Crop", variety: "Variety", status: "Status",
       reviewedPeople: "Reviewed people", farmer: "Farmer", farmerPlural: "Farmers", fieldWorker: "Field worker", fieldWorkerPlural: "Field workers",
@@ -93,11 +93,11 @@
       refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
       sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
       localContext: "स्थानीय परिचालन संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
-      supplyAtRisk: "जोखिम में आपूर्ति", complianceGaps: "अनुपालन की कमी", cropInterventions: "फसल हस्तक्षेप",
-      purchaseDataUnavailable: "खरीद डेटा नहीं जुड़ा है", pesticideProofUnavailable: "कीटनाशक और प्रमाण डेटा नहीं जुड़ा है",
-      farmersAtRisk: "किसान जोखिम में हैं",
-      pesticideReviewCue: "{count} कीटनाशक समीक्षा संकेत", pesticideReviewCues: "{count} कीटनाशक समीक्षा संकेत", pesticideReviewOnly: "समीक्षा संकेत हैं, अनुपालन का निर्णय नहीं",
-      activeIntervention: "सक्रिय हस्तक्षेप", activeInterventions: "सक्रिय हस्तक्षेप",
+      farmerReach: "किसान संपर्क", chemicalRecord: "रसायन रिकॉर्ड", cropSignals: "फसल संकेत",
+      programmeDataLoading: "कार्यक्रम डेटा पढ़ा जा रहा है…", noEligibleFarmers: "किट लेने वाले किसानों का रिकॉर्ड अभी नहीं है",
+      farmerReachNote: "{total} में से {recent} से 14 दिनों में संपर्क · यह फसल खरीद हिस्सेदारी नहीं है",
+      chemicalRecordNote: "{count} दर्ज · यह अनुपालन या निर्यात-तैयारी का प्रमाण नहीं है",
+      cropSignalsNote: "पिछले {days} दिनों में {count} संकेत · यह पहचान है, निदान नहीं",
       verifiedFarms: "सत्यापित खेत कहाँ हैं", reviewedRecord: "समीक्षित परिचालन रिकॉर्ड", verifiedFields: "सत्यापित खेत",
       map: "नक्शा", cards: "कार्ड", table: "तालिका", all: "सभी", field: "खेत", crop: "फसल", variety: "किस्म", status: "स्थिति",
       reviewedPeople: "समीक्षित लोग", farmer: "किसान", farmerPlural: "किसान", fieldWorker: "फील्ड कर्मी", fieldWorkerPlural: "फील्ड कर्मी",
@@ -333,6 +333,11 @@
           { issue_code: "leaf folder", count: 265, highest_severity: "moderate" }
         ]
       },
+      outcomes: {
+        farmer_reach: { recently_reached: 1585, eligible_farmers: 2592, share_percent: 61.1, window_days: 14 },
+        chemical_record: { reported_events: 0, review_cues: 0 },
+        crop_signals: { observations: 545, window_days: 7, lead_issue: { issue_code: "leaf folder", count: 265, highest_severity: "moderate" } }
+      },
       freshness: { status: "available", age_hours: 1 }
     };
   }
@@ -448,33 +453,46 @@
 
   function renderHomeMetrics() {
     var metrics = currentProgramme && currentProgramme.metrics ? currentProgramme.metrics : null;
-    var runtime = currentRuntime || {};
-    var procurement = (metrics && metrics.procurement) || runtime.procurement || null;
-    var supplyAtRisk = procurement && firstKnownNumber([
-      procurement.farmers_at_risk, procurement.at_risk_farmers, procurement.at_risk_count
-    ]);
+    var freshness = metrics && metrics.freshness ? metrics.freshness : {};
+    var outcomes = metrics && metrics.outcomes ? metrics.outcomes : {};
+    var sourceIsReady = freshness.status === "available";
+    var farmerReach = outcomes.farmer_reach || {};
+    var eligibleFarmers = firstKnownNumber([farmerReach.eligible_farmers]);
+    var recentlyReached = firstKnownNumber([farmerReach.recently_reached]);
+    var reachShare = firstKnownNumber([farmerReach.share_percent]);
     setHomeMetric(
       "home-supply-value", "home-supply-note",
-      supplyAtRisk === null ? "—" : formatCount(supplyAtRisk),
-      supplyAtRisk === null ? t("purchaseDataUnavailable") : t("farmersAtRisk")
+      !sourceIsReady || reachShare === null ? "—" : formatPercent(reachShare),
+      !sourceIsReady ? t("programmeDataLoading") : (!eligibleFarmers ? t("noEligibleFarmers") :
+        message("farmerReachNote", { recent: formatCount(recentlyReached), total: formatCount(eligibleFarmers) }))
     );
-    var sourceFreshness = metrics && metrics.freshness ? metrics.freshness.status : "unavailable";
-    var pesticides = sourceFreshness === "available" && metrics && metrics.pesticides ? metrics.pesticides : null;
-    var pesticideEventCount = pesticides ? firstKnownNumber([pesticides.event_count]) : null;
-    var complianceGaps = pesticides ? firstKnownNumber([pesticides.off_kit_review_cues]) : null;
+    var chemicalRecord = outcomes.chemical_record || {};
+    var chemicalEvents = firstKnownNumber([chemicalRecord.reported_events]);
     setHomeMetric(
       "home-compliance-value", "home-compliance-note",
-      pesticideEventCount === null || complianceGaps === null ? "—" : formatCount(complianceGaps),
-      pesticideEventCount === null || complianceGaps === null ? t("pesticideProofUnavailable") :
-        (complianceGaps === 1 ? message("pesticideReviewCue", { count: formatCount(complianceGaps) }) :
-          message("pesticideReviewCues", { count: formatCount(complianceGaps) })) + " · " + t("pesticideReviewOnly")
+      !sourceIsReady || chemicalEvents === null ? "—" : formatCount(chemicalEvents),
+      !sourceIsReady ? t("programmeDataLoading") :
+        message("chemicalRecordNote", { count: formatCount(chemicalEvents) })
     );
-    var interventions = openInterventionCount();
+    var cropSignals = outcomes.crop_signals || {};
+    var observations = firstKnownNumber([cropSignals.observations]);
+    var signalWindow = firstKnownNumber([cropSignals.window_days]);
     setHomeMetric(
       "home-interventions-value", "home-interventions-note",
-      interventions === null ? "—" : formatCount(interventions),
-      interventions === null ? t("loading") : (interventions === 1 ? t("activeIntervention") : t("activeInterventions"))
+      !sourceIsReady || observations === null ? "—" : formatCount(observations),
+      !sourceIsReady ? t("programmeDataLoading") :
+        message("cropSignalsNote", { count: formatCount(observations), days: formatCount(signalWindow || 7) })
     );
+  }
+
+  function formatPercent(value) {
+    var numeric = Number(value);
+    if (!isFinite(numeric)) {
+      return "—";
+    }
+    return new Intl.NumberFormat(interfaceLocale === "hi" ? "hi-IN" : "en-IN", {
+      maximumFractionDigits: 1
+    }).format(numeric) + "%";
   }
 
   function firstKnownNumber(values) {
@@ -1753,21 +1771,21 @@
     var confidence = freshness.status === "available" ?
       "· " + formatAgeHours(freshness.age_hours) : "";
 
-    if (officersWithoutVisit > 0) {
-      setDailyDirection(
-        "attention", t("coverageRiskTitle"),
-        message("coverageRiskNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
-        message("officersFiled", { filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
-        t("reviewWorkerFollowUp"), confidence, "workers"
-      );
-      return;
-    }
     if (urgentIssue) {
       setDailyDirection(
         "attention", message("cropInterventionTitle", { issue: readable(urgentIssue.issue_code) }),
         message("cropInterventionNote", { count: formatCount(urgentIssue.count), days: formatCount(issues.window_days || 7) }),
         message("visitsFiledMetric", { count: formatCount(filedToday) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
         t("reviewDecisionQueue"), confidence, "inbox"
+      );
+      return;
+    }
+    if (officersWithoutVisit > 0) {
+      setDailyDirection(
+        "attention", t("coverageRiskTitle"),
+        message("coverageRiskNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
+        message("officersFiled", { filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
+        t("reviewWorkerFollowUp"), confidence, "workers"
       );
       return;
     }

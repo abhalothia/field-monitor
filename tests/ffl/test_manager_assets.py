@@ -55,9 +55,10 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "renderTodayClock" in app_js
     assert "renderWeatherContext" in app_js
     assert "renderHomeMetrics" in app_js
-    assert "openInterventionCount" in app_js
-    assert "purchaseDataUnavailable" in app_js
-    assert "pesticideProofUnavailable" in app_js
+    assert "formatPercent" in app_js
+    assert "farmerReachNote" in app_js
+    assert "chemicalRecordNote" in app_js
+    assert "cropSignalsNote" in app_js
     assert "renderFortuneMap" in app_js
     assert "renderMapCanvas" in app_js
     assert "setDirectoryView" in app_js
