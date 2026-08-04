@@ -33,6 +33,7 @@ DEFAULT_TIMEZONE = "Asia/Kolkata"
 MAPPING_VERSION = "trackwick-task-v2"
 
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CUSTOMER_NAME_CODE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?=\s*\()")
 _CREDENTIAL_REFERENCE = re.compile(r"(?:env|secret)://[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")
 _EMPTY_ANSWER = frozenset({"", "-", "na", "n/a", "nil", "none", "no", "not applicable", "नहीं", "कोई नहीं"})
 
@@ -279,7 +280,7 @@ def _normalise_task(
     if str(task.get("type", "")).strip().casefold() != config.form_title.casefold():
         return tuple()
     task_id = _opaque(task.get("id"))
-    farmer_code = _opaque(task.get("customerIden"))
+    farmer_code = _farmer_code(task)
     source_time = _task_time(task, fallback_time)
     if task_id is None or farmer_code is None or source_time is None:
         return None
@@ -517,6 +518,25 @@ def _value_code(value: str) -> Optional[str]:
 def _opaque(value: Any) -> Optional[str]:
     candidate = str(value or "").strip()
     return candidate if _OPAQUE_ID.fullmatch(candidate) else None
+
+
+def _farmer_code(task: Mapping[str, Any]) -> Optional[str]:
+    """Read a provider ID without retaining the provider's farmer name.
+
+    TrackWick normally supplies ``customerIden``.  The supplied Fortune task
+    sample also shows an older shape: ``FC-01734 (GAJENDRA SINGH)`` in
+    ``customerName``.  When the explicit identifier is absent, retain only the
+    leading opaque code immediately followed by ``(``; a name by itself never
+    becomes an identity or a source record.
+    """
+    direct = _opaque(task.get("customerIden"))
+    if direct is not None:
+        return direct
+    value = task.get("customerName")
+    if not isinstance(value, str):
+        return None
+    match = _CUSTOMER_NAME_CODE.match(value)
+    return match.group(1) if match is not None else None
 
 
 def _required_opaque(value: Optional[str], name: str) -> str:

@@ -67,6 +67,6 @@ or exposing provider access to the browser.
 
 ## What is deliberately discarded
 
-The connector never persists or returns farmer names, mobile numbers, email, photos, exact GPS, address geometry, raw `formDetails`, task URLs, or the customer/API credentials. A farmer is represented by TrackWick's opaque `customerIden`; village is retained only when it is explicitly supplied as a coarse field-form value.
+The connector never persists or returns farmer names, mobile numbers, email, photos, exact GPS, address geometry, raw `formDetails`, task URLs, or the customer/API credentials. A farmer is represented by TrackWick's opaque `customerIden`. If an older task omits that field but has the verified Fortune shape `FC-01734 (Farmer Name)`, the connector retains only `FC-01734`; a name alone is rejected. Village is retained only when it is explicitly supplied as a coarse field-form value.
 
 TrackWick does not provide an authoritative territory owner, purchase commitment, collection/weighbridge record, grade, lot, residue test, or EU-compliance result. Those require their own reviewed Fortune sources. A pesticide record is a review cue, never proof that the crop is compliant.

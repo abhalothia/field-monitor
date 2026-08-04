@@ -137,6 +137,38 @@ def test_trackwick_uses_only_an_explicitly_configured_form_field_for_issue_sever
     assert {record["severity"] for record in issue_values} == {"high"}
 
 
+def test_trackwick_uses_only_the_leading_opaque_code_when_older_tasks_omit_customer_iden():
+    task = dict(TASK)
+    task.pop("customerIden")
+    task["customerName"] = "FC-01734 (GAJENDRA SINGH)"
+
+    normalised = normalise_trackwick(
+        TrackwickFetchResult(tasks=(task,), attendance=(), task_pages=1),
+        CONFIG,
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    farmer_task = next(record for record in normalised.records if record.feed == "farmer_tasks")
+    assert normalised.quarantined_rows == 0
+    assert farmer_task.values["farmer_code"] == "FC-01734"
+    assert "GAJENDRA" not in repr(normalised.records)
+
+
+def test_trackwick_never_uses_a_name_without_an_opaque_customer_code():
+    task = dict(TASK)
+    task.pop("customerIden")
+    task["customerName"] = "Gajendra Singh"
+
+    normalised = normalise_trackwick(
+        TrackwickFetchResult(tasks=(task,), attendance=(), task_pages=1),
+        CONFIG,
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    assert normalised.records == ()
+    assert normalised.quarantined_rows == 1
+
+
 def test_trackwick_rejects_an_unsafe_configured_severity_form_key():
     with pytest.raises(ValueError, match="SEVERITY_FORM_KEY"):
         TrackwickApiConfig.from_environment({
