@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#173b2c">
+    <title>AGRO CEO</title>
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <link rel="stylesheet" href="/assets/portal.css">
+  </head>
+  <body>
+    <main class="portal-shell">
+      <header class="portal-mark"><img src="/assets/rice-sheaf-icon.png" alt=""> <span>AGRO CEO</span></header>
+      <section class="portal-card" aria-labelledby="portal-title">
+        <p id="portal-kicker" class="kicker">Your farm operation</p>
+        <h1 id="portal-title">Sign in with your phone.</h1>
+        <p id="portal-detail">Your number is your access.</p>
+
+        <form id="phone-form" novalidate>
+          <label for="phone">Mobile number</label>
+          <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
+          <p class="field-help">Enter the number registered for your AGRO CEO access.</p>
+          <button id="request-code" type="submit">Send code</button>
+        </form>
+
+        <form id="code-form" novalidate hidden>
+          <label for="code">One-time code</label>
+          <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="12" required>
+          <p id="code-detail" class="field-help">Enter the code sent to your phone.</p>
+          <button id="verify-code" type="submit">Continue</button>
+          <button id="use-other-number" class="quiet-action" type="button">Use another number</button>
+        </form>
+
+        <section id="signed-in-state" hidden aria-live="polite">
+          <p id="signed-in-copy" class="signed-in-copy"></p>
+          <button id="sign-out" class="quiet-action" type="button">Sign out</button>
+        </section>
+
+        <p id="portal-message" class="portal-message" role="status" aria-live="polite"></p>
+      </section>
+      <p class="portal-foot">किसान · फील्ड टीम · फॉर्च्यून टीम</p>
+    </main>
+    <script src="/assets/portal.js"></script>
+  </body>
+</html>

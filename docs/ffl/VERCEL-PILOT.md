@@ -22,6 +22,9 @@ Fortune launch-password session.
 2. Attach `agroceo.co` and `www.agroceo.co` in **Project → Settings → Domains**.
    Make `agroceo.co` primary and redirect `www` to it. Add the exact DNS records
    Vercel presents; do not copy generic records from another project.
+   For the phone-first customer portal, also attach `fortune.agroceo.com` or a
+   reviewed `*.agroceo.com` wildcard to this same project. The wildcard must
+   have Vercel's exact DNS verification before any customer hostname can work.
 3. Set `FFL_PUBLIC_ORIGIN=https://agroceo.co` in **Production**. This is the
    only authority for canonical and social-card URLs; it prevents a request
    header from changing cached link-preview metadata.
@@ -48,6 +51,15 @@ Fortune launch-password session.
    object; larger field media needs a later named-user resumable upload flow.
    If this configuration is absent, Vercel rejects upload requests rather than
    using `/tmp`.
+6. Customer phone portal sign-in additionally needs
+   `FFL_PORTAL_BASE_DOMAIN=agroceo.com`, a strong
+   `FFL_PORTAL_SESSION_SECRET`, `FFL_PORTAL_SESSION_MAX_AGE_SECONDS=43200`,
+   `FFL_SUPABASE_URL`, `FFL_SUPABASE_PUBLISHABLE_KEY`, and
+   `FFL_PORTAL_OTP_CHANNEL=sms` in Production. Enable Supabase Phone Auth and
+   configure its delivery provider before turning the portal on. Use
+   `whatsapp` only when Supabase is configured with Twilio/Twilio Verify's
+   WhatsApp channel. Never put a Supabase service-role key in Vercel or a
+   browser. See [customer portals](CUSTOMER-PORTALS.md).
 
 ## Preview policy
 

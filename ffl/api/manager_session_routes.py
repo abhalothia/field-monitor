@@ -5,7 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from ffl.communications.auth import MANAGER_ROLES
+from ffl.communications.auth import MANAGER_ROLES, active_portal_principal
+from ffl.launch_auth import SESSION_FLAG
 from ffl.manager_session_auth import (
     MANAGER_SESSION_FLAG,
     active_manager_session,
@@ -13,6 +14,7 @@ from ffl.manager_session_auth import (
     manager_session_configuration_is_present,
     manager_session_matches_secret,
 )
+from ffl.portal_auth import active_portal_session, end_portal_session
 
 
 router = APIRouter(prefix="/api/v1/manager-session")
@@ -47,6 +49,14 @@ def _configuration_or_503(request: Request) -> None:
 def manager_session_status(request: Request) -> dict:
     """A safe UI status surface; it reveals no credentials or identity data."""
 
+    portal_principal = active_portal_principal(request)
+    if portal_principal is not None and portal_principal.is_manager:
+        portal_session = active_portal_session(request.app, request.session)
+        return {
+            "authenticated": True,
+            "expires_at": portal_session["expires_at"],
+            "auth_method": "phone",
+        }
     active = active_manager_session(request.app, request.session)
     if active is None:
         return {"authenticated": False}
@@ -71,5 +81,10 @@ def manager_session_login(payload: ManagerSessionLoginRequest, request: Request)
 def manager_session_logout(request: Request) -> dict:
     """Remove manager authority without changing the outer launch session."""
 
+    portal_principal = active_portal_principal(request)
+    if portal_principal is not None and portal_principal.is_manager:
+        end_portal_session(request.session)
+        request.session.pop(SESSION_FLAG, None)
+        return {"status": "signed_out"}
     request.session.pop(MANAGER_SESSION_FLAG, None)
     return {"status": "signed_out"}

@@ -7,11 +7,13 @@ AGRO CEO has two deliberately separate browser gates:
 
 `agro_access_memberships` separately records the Fortune app team: owners and
 admins are not inferred from a person's field role. The initial three records
-are identity-pending until a verified email/Auth subject is attached; do not
-invent credentials from display names. The current session gate remains a
-single configured transitional manager binding, so choose one active approved
-person for `FFL_MANAGER_PERSON_ID` until the named Supabase Auth hand-off is
-enabled.
+are identity-pending until a verified email/phone Auth subject is attached; do
+not invent credentials from display names. `fortune.agroceo.com` now provides
+the replacement path: a verified owner/admin phone session is rechecked against
+the private customer membership on each request and unlocks `/manager`. The
+single configured manager secret remains a transition and server-to-server
+fallback on the primary pilot domain, not the customer portal login. See
+[customer portals](CUSTOMER-PORTALS.md).
 
 Set these only as encrypted server environment variables:
 

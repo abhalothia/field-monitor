@@ -27,10 +27,17 @@ from ffl.api.source_routes import router as source_router
 from ffl.api.trial_routes import router as trial_router
 from ffl.api.trackolap_routes import router as trackolap_router
 from ffl.api.trackwick_routes import router as trackwick_router
+from ffl.api.portal_routes import router as portal_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
 from ffl.manager_session_auth import configured_manager_session_max_age_seconds, configured_manager_session_secret
+from ffl.portal import customer_portal_for_hostname, hostname_from_host_header, normalise_hostname, portal_host_is_under_base
+from ffl.portal_auth import (
+    SupabasePhoneOtpProvider,
+    configured_portal_session_max_age_seconds,
+    configured_portal_session_secret,
+)
 from ffl.pilot_setup_auth import configured_pilot_setup_approval_token
 from ffl.services.evidence_store import evidence_store_from_environment
 from ffl.services.operating_profile import normalize_operating_profile, operating_profile_from_environment
@@ -48,6 +55,7 @@ from ffl.persistence.schema import create_schema
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 FIELD_INDEX = STATIC_DIR / "field" / "index.html"
 MANAGER_INDEX = STATIC_DIR / "manager" / "index.html"
+PORTAL_INDEX = STATIC_DIR / "portal" / "index.html"
 LAUNCH_INDEX = STATIC_DIR / "launch" / "index.html"
 BRAND_DIR = STATIC_DIR / "brand"
 MANIFEST = BRAND_DIR / "site.webmanifest"
@@ -60,6 +68,8 @@ WEB_ASSETS = {
     "launch.js": STATIC_DIR / "launch" / "app.js",
     "manager.css": STATIC_DIR / "manager" / "styles.css",
     "manager.js": STATIC_DIR / "manager" / "app.js",
+    "portal.css": STATIC_DIR / "portal" / "styles.css",
+    "portal.js": STATIC_DIR / "portal" / "app.js",
     "first-field-manifest.csv": STATIC_DIR / "manager" / "first-field-manifest.csv",
     "field.css": STATIC_DIR / "field" / "styles.css",
     "field.js": STATIC_DIR / "field" / "app.js",
@@ -152,7 +162,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.conn.close()
 
 
-def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None, manager_session_secret=None, manager_session_max_age_seconds: Optional[int] = None, field_capture_signing_key: Optional[str] = None) -> FastAPI:
+def create_app(database_path: Optional[str] = None, communication_provider=None, manager_api_token=None, manager_person_id=None, communication_receipt_key=None, launch_password=None, pilot_setup_approval_token=None, evidence_store=None, operating_profile=None, private_communications_worker_attested: Optional[bool] = None, manager_session_secret=None, manager_session_max_age_seconds: Optional[int] = None, field_capture_signing_key: Optional[str] = None, portal_auth_provider=None, portal_session_secret=None, portal_session_max_age_seconds: Optional[int] = None, portal_base_domain: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="FFL Operating Kernel", lifespan=_lifespan)
     app.state.database_path = database_path or FFL_DATABASE_PATH
     app.state.database_target = database_target(sqlite_path=app.state.database_path)
@@ -173,6 +183,21 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         if manager_session_max_age_seconds is not None
         else configured_manager_session_max_age_seconds()
     )
+    app.state.portal_auth_provider = portal_auth_provider or SupabasePhoneOtpProvider.from_environment()
+    app.state.portal_session_secret = (
+        portal_session_secret if portal_session_secret is not None else configured_portal_session_secret()
+    )
+    app.state.portal_session_max_age_seconds = (
+        portal_session_max_age_seconds
+        if portal_session_max_age_seconds is not None
+        else configured_portal_session_max_age_seconds()
+    )
+    try:
+        app.state.portal_base_domain = normalise_hostname(
+            portal_base_domain if portal_base_domain is not None else os.environ.get("FFL_PORTAL_BASE_DOMAIN", "agroceo.com")
+        )
+    except ValueError as error:
+        raise RuntimeError("FFL_PORTAL_BASE_DOMAIN must be a lower-case hostname") from error
     app.state.communication_receipt_key = communication_receipt_key if communication_receipt_key is not None else os.environ.get("FFL_COMMUNICATION_RECEIPT_KEY")
     # A browser, webhook, or Vercel preview can never attest a private recovery
     # worker.  Production composition may set this trusted fact only on the
@@ -225,6 +250,8 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     async def launch_access_gate(request: Request, call_next):
         password = app.state.launch_password
         path = request.url.path
+        portal_hostname = hostname_from_host_header(request.headers.get("host"))
+        portal_host = portal_host_is_under_base(portal_hostname, app.state.portal_base_domain)
         webhook = path == "/api/v1/communications/loopmessage/webhook" and request.method == "POST"
         public_paths = {
             "/",
@@ -237,6 +264,27 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             "/api/v1/launch/login",
             "/api/v1/launch/logout",
         }
+        portal_public_paths = {
+            "/", "/portal", "/login",
+            "/api/v1/portal/bootstrap", "/api/v1/portal/session",
+            "/api/v1/portal/auth/request-code", "/api/v1/portal/auth/verify-code",
+            "/api/v1/portal/auth/logout",
+        }
+        if portal_host:
+            # Customer subdomains are phone-first.  The shared pilot password
+            # is never a fallback login there; every protected request still
+            # passes its own membership/manager check after this shell gate.
+            if path.startswith("/api/v1/launch/"):
+                return JSONResponse({"detail": "customer portal sign-in is required"}, status_code=404)
+            if path in portal_public_paths or path.startswith("/assets/") or path.startswith("/brand/") or path in {
+                "/favicon.svg", "/favicon.png", "/favicon.ico", "/site.webmanifest",
+            }:
+                return await call_next(request)
+            if request.session.get(SESSION_FLAG) is True:
+                return await call_next(request)
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "phone sign-in is required"}, status_code=401)
+            return RedirectResponse(url="/", status_code=303)
         if not password:
             # A local disposable preview may intentionally omit access setup.
             # A Vercel URL must never turn that omission into an open operating
@@ -261,7 +309,8 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret(
-            app.state.launch_password or "ffl-local-development-only", app.state.manager_session_secret
+            app.state.launch_password or "ffl-local-development-only", app.state.manager_session_secret,
+            app.state.portal_session_secret,
         ),
         max_age=SESSION_MAX_AGE_SECONDS,
         same_site="lax",
@@ -275,7 +324,12 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         return {"service": "ffl-operating-kernel", "status": "ok"}
 
     @app.get("/", include_in_schema=False)
-    def public_landing() -> HTMLResponse:
+    def public_landing(request: Request):
+        hostname = hostname_from_host_header(request.headers.get("host"))
+        if portal_host_is_under_base(hostname, app.state.portal_base_domain) and customer_portal_for_hostname(
+            getattr(request.state, "conn", app.state.conn), hostname,
+        ) is not None:
+            return FileResponse(PORTAL_INDEX)
         return HTMLResponse(_public_landing(_public_origin()))
 
     @app.get("/favicon.png", include_in_schema=False)
@@ -336,8 +390,22 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         return FileResponse(FIELD_INDEX)
 
     @app.get("/login", include_in_schema=False)
-    def launch_login() -> FileResponse:
+    def launch_login(request: Request) -> FileResponse:
+        hostname = hostname_from_host_header(request.headers.get("host"))
+        if portal_host_is_under_base(hostname, app.state.portal_base_domain) and customer_portal_for_hostname(
+            getattr(request.state, "conn", app.state.conn), hostname,
+        ) is not None:
+            return FileResponse(PORTAL_INDEX)
         return FileResponse(LAUNCH_INDEX)
+
+    @app.get("/portal", include_in_schema=False)
+    def customer_portal_surface(request: Request) -> FileResponse:
+        hostname = hostname_from_host_header(request.headers.get("host"))
+        if not portal_host_is_under_base(hostname, app.state.portal_base_domain) or customer_portal_for_hostname(
+            getattr(request.state, "conn", app.state.conn), hostname,
+        ) is None:
+            raise HTTPException(status_code=404, detail="customer portal was not found")
+        return FileResponse(PORTAL_INDEX)
 
     @app.get("/manager", include_in_schema=False)
     def manager_surface() -> FileResponse:
@@ -361,6 +429,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(operating_profile_router)
     app.include_router(trackolap_router)
     app.include_router(trackwick_router)
+    app.include_router(portal_router)
     return app
 
 

@@ -20,7 +20,9 @@ def configured_launch_password() -> Optional[str]:
     return value if value else None
 
 
-def session_secret(password: str, manager_session_secret: Optional[str] = None) -> str:
+def session_secret(
+    password: str, manager_session_secret: Optional[str] = None, portal_session_secret: Optional[str] = None,
+) -> str:
     """Derive the browser-cookie signing key from configured server secrets.
 
     A configured manager unlock secret participates in the cookie key so its
@@ -28,7 +30,9 @@ def session_secret(password: str, manager_session_secret: Optional[str] = None) 
     participates separately; it is never itself manager authority.
     """
 
-    material = "\x00".join(("ffl-browser-session-v2", password, manager_session_secret or ""))
+    material = "\x00".join((
+        "ffl-browser-session-v3", password, manager_session_secret or "", portal_session_secret or "",
+    ))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 

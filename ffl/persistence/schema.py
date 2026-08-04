@@ -2,6 +2,15 @@ import sqlite3
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
+    # Local SQLite files predate the phone-first portal.  Production uses the
+    # reviewed PostgreSQL migration; this tiny additive shim merely keeps an
+    # existing developer preview from failing before the full schema script can
+    # create its new partial index below.
+    existing_access_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(access_memberships)").fetchall()
+    }
+    if existing_access_columns and "identity_phone" not in existing_access_columns:
+        conn.execute("ALTER TABLE access_memberships ADD COLUMN identity_phone TEXT")
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS operating_units (
@@ -629,6 +638,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             person_id TEXT NOT NULL UNIQUE REFERENCES people(id),
             auth_subject TEXT UNIQUE,
             identity_email TEXT,
+            identity_phone TEXT,
             access_role TEXT NOT NULL CHECK (access_role IN ('owner', 'admin')),
             identity_status TEXT NOT NULL CHECK (identity_status IN ('identity_pending', 'invited', 'active', 'suspended')),
             invited_at TEXT,
@@ -636,10 +646,60 @@ def create_schema(conn: sqlite3.Connection) -> None:
             last_authenticated_at TEXT,
             created_at TEXT NOT NULL,
             CHECK (
-                (identity_status = 'identity_pending' AND auth_subject IS NULL AND identity_email IS NULL)
-                OR (identity_status = 'invited' AND auth_subject IS NULL AND identity_email IS NOT NULL AND invited_at IS NOT NULL)
-                OR (identity_status = 'active' AND auth_subject IS NOT NULL AND identity_email IS NOT NULL AND activated_at IS NOT NULL)
+                (identity_status = 'identity_pending' AND auth_subject IS NULL AND identity_email IS NULL AND identity_phone IS NULL)
+                OR (identity_status = 'invited' AND auth_subject IS NULL AND (identity_email IS NOT NULL OR identity_phone IS NOT NULL) AND invited_at IS NOT NULL)
+                OR (identity_status = 'active' AND auth_subject IS NOT NULL AND (identity_email IS NOT NULL OR identity_phone IS NOT NULL) AND activated_at IS NOT NULL)
                 OR identity_status = 'suspended'
+            )
+        );
+
+        -- A customer account is not an operating unit, a farm, or a CRM
+        -- tenant.  It owns the hostname and is the outer boundary for a
+        -- person's verified portal role.
+        CREATE TABLE IF NOT EXISTS customer_portals (
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            hostname TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL CHECK (status IN ('active', 'suspended')),
+            created_at TEXT NOT NULL,
+            CHECK (length(slug) BETWEEN 2 AND 63),
+            CHECK (hostname = lower(hostname))
+        );
+
+        CREATE TABLE IF NOT EXISTS portal_identities (
+            id TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL UNIQUE REFERENCES people(id),
+            phone_e164 TEXT NOT NULL UNIQUE,
+            auth_subject TEXT UNIQUE,
+            identity_status TEXT NOT NULL CHECK (identity_status IN ('invited', 'active', 'suspended')),
+            invited_at TEXT NOT NULL,
+            verified_at TEXT,
+            last_authenticated_at TEXT,
+            created_at TEXT NOT NULL,
+            CHECK (
+                (identity_status = 'invited' AND auth_subject IS NULL AND verified_at IS NULL)
+                OR (identity_status = 'active' AND auth_subject IS NOT NULL AND verified_at IS NOT NULL)
+                OR identity_status = 'suspended'
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS portal_memberships (
+            id TEXT PRIMARY KEY,
+            portal_id TEXT NOT NULL REFERENCES customer_portals(id),
+            person_id TEXT NOT NULL REFERENCES people(id),
+            identity_id TEXT REFERENCES portal_identities(id),
+            portal_role TEXT NOT NULL CHECK (portal_role IN ('owner', 'admin', 'field_worker', 'farmer')),
+            membership_status TEXT NOT NULL CHECK (membership_status IN ('identity_pending', 'invited', 'active', 'suspended')),
+            invited_at TEXT,
+            activated_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (portal_id, person_id),
+            CHECK (
+                (membership_status = 'identity_pending' AND identity_id IS NULL)
+                OR (membership_status = 'invited' AND identity_id IS NOT NULL AND invited_at IS NOT NULL)
+                OR (membership_status = 'active' AND identity_id IS NOT NULL AND activated_at IS NOT NULL)
+                OR membership_status = 'suspended'
             )
         );
 
@@ -1030,8 +1090,16 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_access_memberships_email
             ON access_memberships (lower(identity_email))
             WHERE identity_email IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_access_memberships_phone
+            ON access_memberships (identity_phone)
+            WHERE identity_phone IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_access_memberships_role_status
             ON access_memberships (access_role, identity_status);
+        CREATE INDEX IF NOT EXISTS idx_portal_memberships_portal_role_status
+            ON portal_memberships (portal_id, portal_role, membership_status);
+        CREATE INDEX IF NOT EXISTS idx_portal_memberships_identity
+            ON portal_memberships (identity_id, membership_status)
+            WHERE identity_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_trackwick_parties_source_kind
             ON trackwick_parties (source_id, party_kind, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_contacts_party
