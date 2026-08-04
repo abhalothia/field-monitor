@@ -22,6 +22,7 @@
 
 **Files:**
 - Create: `db/postgres/0009_agro_trackwick_private_spatial_evidence.sql`
+- Modify: `ffl/persistence/schema.py`
 - Test: `tests/ffl/test_trackwick_private_schema.py`
 
 **Interfaces:**
@@ -47,7 +48,8 @@ Run: `pytest -q tests/ffl/test_trackwick_private_schema.py`
 Create typed party, contact, task, visit, finding, crop-input, registration,
 plot, location, media, worker-day, and review-link tables. Add source identity
 uniqueness, source-row provenance, location bounds checks, GiST/foreign-key
-indexes, and no-public-access revocations.
+indexes, and no-public-access revocations. Mirror the relational columns in
+the SQLite test schema without PostGIS so the service tests exercise real SQL.
 
 - [ ] **Step 4: Run schema-contract tests**
 

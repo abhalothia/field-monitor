@@ -27,7 +27,7 @@ never enter an ordinary browser JSON response.
 | TrackWick data | Destination | Rule |
 |---|---|---|
 | Customer code, name, status, owner, tag, created time | `agro_trackwick_parties` | Farmer source identity only; it is not an `agro_people` row. |
-| Customer and registration mobile | `agro_trackwick_contact_points` | Encrypted private contact vault; consent is initially `unknown`. |
+| Customer and registration mobile | `agro_trackwick_contact_points` | Restricted private contact vault; consent is initially `unknown`. |
 | Assigned worker ID/name and productivity date | parties and worker-day rows | Source activity, not a reviewed worker relationship. |
 | Task type/status/times | `agro_trackwick_tasks` | One current typed task row per provider task. |
 | Farmer Visit crop timing, condition and kit | `agro_trackwick_visits` | A reported observation, not an agronomic conclusion. |
@@ -38,6 +38,12 @@ never enter an ordinary browser JSON response.
 
 The importer rejects Aadhaar numbers/photos, signatures, free-text comments,
 unknown media labels, and raw provider payloads.
+
+The private contact value is not selected by ordinary manager list/map queries
+and no route serialises it until Fortune adds a separate, reviewed contact
+surface. Database privacy and the existing server-only connection boundary are
+the V1 control; end-to-end field encryption is a future contact-service project,
+not an unimplemented claim in this import.
 
 ## Tables and joins
 
@@ -61,6 +67,11 @@ Three review-link tables preserve foreign keys: source party to
 `agro_people`, source plot to a reviewed parcel/block, and source task to
 `agro_crop_allocations`. Unlinked source rows remain valid and visibly
 unresolved.
+
+The PostgreSQL migration is mirrored by a minimal SQLite test schema with the
+same relational fields and constraints except the generated PostGIS geography
+column. This keeps the source normaliser and repository lane testable locally;
+production remains the only place that creates the spatial index.
 
 ## Spatial and media contract
 
@@ -105,4 +116,3 @@ partial source state.
 - Contact messaging, consent collection, or phone display.
 - Image copying, AI vision, diagnosis, or agronomic recommendation.
 - TrackWick write-back.
-

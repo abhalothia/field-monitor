@@ -621,6 +621,273 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (source_id, feed, source_identifier, source_updated_at)
         );
 
+        -- Private TrackWick CRM and spatial evidence.  This is a typed source
+        -- lane, not a shortcut into Fortune's canonical farm graph.  SQLite
+        -- mirrors the PostgreSQL shape for tests; production additionally
+        -- derives a PostGIS geography point from each coordinate pair.
+        CREATE TABLE IF NOT EXISTS trackwick_parties (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            party_kind TEXT NOT NULL CHECK (party_kind IN ('farmer', 'field_worker')),
+            provider_identifier TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            crm_status TEXT,
+            provider_owner_identifier TEXT,
+            provider_tag TEXT,
+            provider_created_at TEXT,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (source_id, party_kind, provider_identifier)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_contact_points (
+            id TEXT PRIMARY KEY,
+            party_id TEXT NOT NULL REFERENCES trackwick_parties(id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            contact_kind TEXT NOT NULL CHECK (contact_kind = 'mobile'),
+            contact_value TEXT NOT NULL,
+            value_fingerprint TEXT NOT NULL CHECK (length(value_fingerprint) = 64 AND value_fingerprint = lower(value_fingerprint)),
+            consent_status TEXT NOT NULL CHECK (consent_status IN ('unknown', 'granted', 'revoked')),
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (party_id, contact_kind, value_fingerprint)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_tasks (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            provider_task_id TEXT NOT NULL,
+            farmer_party_id TEXT REFERENCES trackwick_parties(id),
+            field_worker_party_id TEXT REFERENCES trackwick_parties(id),
+            provider_customer_identifier TEXT,
+            task_type TEXT NOT NULL,
+            task_status TEXT NOT NULL CHECK (task_status IN ('completed', 'in_progress', 'pending', 'unknown')),
+            provider_created_at TEXT,
+            provider_started_at TEXT,
+            provider_completed_at TEXT,
+            provider_follow_up_at TEXT,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (source_id, provider_task_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_visits (
+            task_id TEXT PRIMARY KEY REFERENCES trackwick_tasks(id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            observed_at TEXT NOT NULL,
+            transplanted_on TEXT,
+            crop_stage TEXT,
+            water_condition TEXT,
+            crop_condition_score REAL CHECK (crop_condition_score IS NULL OR (crop_condition_score >= 1 AND crop_condition_score <= 10)),
+            kit_status TEXT NOT NULL CHECK (kit_status IN ('taken', 'not_taken', 'unknown')),
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_visit_findings (
+            id TEXT PRIMARY KEY,
+            visit_task_id TEXT NOT NULL REFERENCES trackwick_visits(task_id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            finding_kind TEXT NOT NULL CHECK (finding_kind IN ('pest', 'disease')),
+            reported_value TEXT NOT NULL,
+            source_field TEXT NOT NULL,
+            declared_severity TEXT NOT NULL CHECK (declared_severity IN ('unknown', 'low', 'moderate', 'high', 'critical')),
+            observed_at TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (visit_task_id, finding_kind, source_field, reported_value)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_crop_inputs (
+            id TEXT PRIMARY KEY,
+            visit_task_id TEXT NOT NULL REFERENCES trackwick_visits(task_id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            input_kind TEXT NOT NULL CHECK (input_kind IN ('pesticide', 'fertilizer')),
+            event_kind TEXT NOT NULL CHECK (event_kind IN ('applied', 'recommended')),
+            reported_product TEXT NOT NULL,
+            source_field TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (visit_task_id, input_kind, event_kind, source_field, reported_product)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_registrations (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL UNIQUE REFERENCES trackwick_tasks(id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            farmer_party_id TEXT REFERENCES trackwick_parties(id),
+            registration_status TEXT NOT NULL CHECK (registration_status IN ('completed', 'in_progress', 'pending', 'unknown')),
+            village_name TEXT,
+            block_name TEXT,
+            district_name TEXT,
+            reported_total_area_acres REAL,
+            reported_plot_count INTEGER CHECK (reported_plot_count IS NULL OR reported_plot_count >= 0),
+            reported_pb1_area_acres REAL,
+            reported_1718_area_acres REAL,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_registration_plots (
+            id TEXT PRIMARY KEY,
+            registration_id TEXT NOT NULL REFERENCES trackwick_registrations(id),
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+            gata_number TEXT,
+            reported_area_bigha REAL,
+            plot_type TEXT,
+            village_name TEXT,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (registration_id, ordinal)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_media_references (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            task_id TEXT NOT NULL REFERENCES trackwick_tasks(id),
+            provider_media_key TEXT NOT NULL,
+            media_kind TEXT NOT NULL CHECK (media_kind IN ('crop_photo', 'plot_photo')),
+            remote_url TEXT NOT NULL CHECK (remote_url GLOB 'https://trackolap-images-prod.s3.amazonaws.com/*'),
+            provider_created_at TEXT,
+            source_access_state TEXT NOT NULL CHECK (source_access_state IN ('available', 'unavailable', 'blocked')),
+            content_state TEXT NOT NULL CHECK (content_state IN ('remote_only', 'retained', 'failed')),
+            exif_state TEXT NOT NULL CHECK (exif_state IN ('not_checked', 'extracted', 'absent', 'unreadable')),
+            content_hash TEXT CHECK (content_hash IS NULL OR (length(content_hash) = 64 AND content_hash = lower(content_hash))),
+            content_type TEXT,
+            size_bytes INTEGER CHECK (size_bytes IS NULL OR size_bytes >= 0),
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (source_id, provider_media_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_location_observations (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            task_id TEXT REFERENCES trackwick_tasks(id),
+            registration_id TEXT REFERENCES trackwick_registrations(id),
+            media_reference_id TEXT REFERENCES trackwick_media_references(id),
+            provider_location_key TEXT NOT NULL,
+            location_kind TEXT NOT NULL CHECK (location_kind IN (
+                'task_completion', 'visit_location', 'registration', 'media_capture', 'crm', 'soil'
+            )),
+            location_confidence TEXT NOT NULL CHECK (location_confidence IN ('declared', 'observed', 'verified')),
+            latitude REAL NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
+            longitude REAL NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
+            provider_address TEXT,
+            provider_geo_address TEXT,
+            provider_accuracy_m REAL CHECK (provider_accuracy_m IS NULL OR provider_accuracy_m >= 0),
+            observed_at TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            CHECK (task_id IS NOT NULL OR registration_id IS NOT NULL OR media_reference_id IS NOT NULL),
+            UNIQUE (source_id, provider_location_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_worker_days (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            field_worker_party_id TEXT NOT NULL REFERENCES trackwick_parties(id),
+            observed_on TEXT NOT NULL,
+            attendance_status TEXT NOT NULL CHECK (attendance_status IN ('present', 'not_punched', 'unknown')),
+            reported_start_time TEXT,
+            reported_total_time TEXT,
+            source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (field_worker_party_id, observed_on)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_party_person_links (
+            id TEXT PRIMARY KEY,
+            party_id TEXT NOT NULL REFERENCES trackwick_parties(id),
+            person_id TEXT NOT NULL REFERENCES people(id),
+            link_status TEXT NOT NULL CHECK (link_status IN ('proposed', 'reviewed', 'rejected')),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (party_id, person_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_plot_operating_links (
+            id TEXT PRIMARY KEY,
+            plot_id TEXT NOT NULL REFERENCES trackwick_registration_plots(id),
+            land_parcel_id TEXT REFERENCES land_parcels(id),
+            operational_block_id TEXT REFERENCES operational_blocks(id),
+            link_status TEXT NOT NULL CHECK (link_status IN ('proposed', 'reviewed', 'rejected')),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            created_at TEXT NOT NULL,
+            CHECK (land_parcel_id IS NOT NULL OR operational_block_id IS NOT NULL),
+            UNIQUE (plot_id, land_parcel_id, operational_block_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS trackwick_task_allocation_links (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL REFERENCES trackwick_tasks(id),
+            crop_allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            link_status TEXT NOT NULL CHECK (link_status IN ('proposed', 'reviewed', 'rejected')),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (task_id, crop_allocation_id)
+        );
+
         CREATE TABLE IF NOT EXISTS playbooks (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -737,6 +1004,45 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON import_batches (purpose, received_at);
         CREATE INDEX IF NOT EXISTS idx_trackolap_records_source_status_feed
             ON trackolap_records (source_id, status, feed, source_updated_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_parties_source_kind
+            ON trackwick_parties (source_id, party_kind, last_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_contacts_party
+            ON trackwick_contact_points (party_id, contact_kind);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_tasks_farmer_created
+            ON trackwick_tasks (farmer_party_id, provider_created_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_tasks_worker_created
+            ON trackwick_tasks (field_worker_party_id, provider_created_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_tasks_open
+            ON trackwick_tasks (source_id, provider_created_at)
+            WHERE task_status IN ('pending', 'in_progress');
+        CREATE INDEX IF NOT EXISTS idx_trackwick_visits_observed
+            ON trackwick_visits (observed_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_findings_visit
+            ON trackwick_visit_findings (visit_task_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_inputs_visit
+            ON trackwick_crop_inputs (visit_task_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_registrations_farmer
+            ON trackwick_registrations (farmer_party_id, registration_status);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_plots_registration
+            ON trackwick_registration_plots (registration_id, ordinal);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_media_task
+            ON trackwick_media_references (task_id, provider_created_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_locations_source_time
+            ON trackwick_location_observations (source_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_locations_task
+            ON trackwick_location_observations (task_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_locations_coordinates
+            ON trackwick_location_observations (latitude, longitude);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_worker_days_worker_date
+            ON trackwick_worker_days (field_worker_party_id, observed_on);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_party_links_person
+            ON trackwick_party_person_links (person_id, link_status);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_plot_links_parcel
+            ON trackwick_plot_operating_links (land_parcel_id, link_status);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_plot_links_block
+            ON trackwick_plot_operating_links (operational_block_id, link_status);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_task_links_allocation
+            ON trackwick_task_allocation_links (crop_allocation_id, link_status);
         CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial
             ON trial_allocations (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trials_owner_created
