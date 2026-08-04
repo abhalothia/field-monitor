@@ -23,6 +23,7 @@ from ffl.integrations.trackolap.trackwick import (
     TrackwickApiConfig,
     TrackwickConfigurationError,
     TrackwickSourceFailure,
+    normalise_trackwick_basics,
     normalise_trackwick,
     refresh_trackwick,
 )
@@ -99,6 +100,9 @@ def refresh_live_trackwick(
         return TrackwickRefreshResult(source, run, run.status, run.error_summary, 0, 0)
 
     normalised = normalise_trackwick(fetched, resolved_config, as_of=as_of)
+    basics = normalise_trackwick_basics(fetched, resolved_config, as_of=as_of)
+    all_records = (*normalised.records, *basics.records)
+    quarantined_rows = normalised.quarantined_rows + basics.quarantined_rows
     with _REFRESH_LOCK:
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -110,6 +114,8 @@ def refresh_live_trackwick(
                     "sync_scope": sync_scope,
                     "task_pages": fetched.task_pages,
                     "task_rows": len(fetched.tasks),
+                    "customer_pages": fetched.customer_pages,
+                    "customer_rows": len(fetched.customers),
                     "attendance_rows": len(fetched.attendance),
                     **(
                         {
@@ -122,14 +128,14 @@ def refresh_live_trackwick(
                 },
                 mapping_version=MAPPING_VERSION,
                 cursor=json.dumps({"reporting_date": _as_of_date(as_of, resolved_config.reporting_timezone)}, separators=(",", ":")),
-                status="quarantined" if normalised.quarantined_rows else "succeeded",
+                status="quarantined" if quarantined_rows else "succeeded",
                 fetched_at=_now(),
                 rows_received=fetched.rows_received,
                 # A single Farmer Visit expands into several safe aggregate
                 # records (visit, issue and pesticide cues). Source-run counts
                 # remain counts of provider rows, not derived records.
-                rows_accepted=max(0, fetched.rows_received - normalised.quarantined_rows),
-                error_summary="row_validation_failed" if normalised.quarantined_rows else None,
+                rows_accepted=max(0, fetched.rows_received - quarantined_rows),
+                error_summary="row_validation_failed" if quarantined_rows else None,
                 commit=False,
             )
             repository.create_trackolap_records(
@@ -145,7 +151,7 @@ def refresh_live_trackwick(
                         record.tenant_id,
                         dict(record.values),
                     )
-                    for record in normalised.records
+                    for record in all_records
                 ],
                 # A manager explicitly triggering this read-only refresh
                 # accepts it as aggregate source context. It is still not an
@@ -169,10 +175,10 @@ def refresh_live_trackwick(
     return TrackwickRefreshResult(
         source,
         run,
-        "quarantined" if normalised.quarantined_rows else "succeeded",
-        "row_validation_failed" if normalised.quarantined_rows else None,
-        len(normalised.records),
-        normalised.quarantined_rows,
+        "quarantined" if quarantined_rows else "succeeded",
+        "row_validation_failed" if quarantined_rows else None,
+        len(all_records),
+        quarantined_rows,
     )
 
 
@@ -187,23 +193,27 @@ def _ensure_source(conn, owner_id: str, config: Optional[TrackwickApiConfig]) ->
         source_key=SOURCE_KEY,
         display_name="Fortune paddy visits (TrackWick)",
         source_type="trackwick",
-        purpose="Fortune paddy visit, crop-observation, and field-activity context",
+        purpose="Fortune farmer, farm-candidate, crop-observation, and field-activity context",
         authority_level="partner",
         owner_id=owner_id,
         credentials_reference=config.api_key_reference if config else None,
         endpoint="https://app.trackolap.com/cust/1/api",
         permitted_data_classes=[
             "officer_activity",
+            "field_worker_identity_basics",
+            "farmer_identity_basics",
+            "farm_candidate_context",
             "farm_task_context",
+            "crop_context",
             "visit_observation",
             "issue_observation",
             "pesticide_event",
         ],
-        schema_version="trackwick-v1",
+        schema_version="trackwick-v2",
         mapping_version=MAPPING_VERSION if config else "not_configured",
         default_coverage={"tenant": config.tenant_id if config else "not_configured"},
         freshness_target_hours=24,
-        license_notes="Read-only TrackWick API; raw task payload, names, mobile numbers, photos, and GPS are never retained.",
+        license_notes="Read-only TrackWick API; only the reviewed basics allow-list is retained. Aadhaar, mobile numbers, signatures, photos, comments, and exact GPS are never retained.",
         enabled=config is not None,
     )
 

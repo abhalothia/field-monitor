@@ -10,6 +10,7 @@ from ffl.integrations.trackolap.trackwick import (
     TrackwickApiAdapter,
     TrackwickApiConfig,
     TrackwickFetchResult,
+    normalise_trackwick_basics,
     normalise_trackwick,
 )
 from ffl.persistence import repository
@@ -54,6 +55,43 @@ ATTENDANCE = {
     "startTime": "09:00",
 }
 
+CUSTOMER = {
+    "id": "customer-row-1",
+    "iden": "farmer-1",
+    "name": "Fortune Farmer",
+    "mobile": "9999999999",
+    "geo": {"lat": 27.95, "lng": 78.27},
+    "owner": "officer-1",
+    "status": "ACTIVE",
+    "tag": "PB1",
+    "createdOn": 1785750000000,
+}
+
+REGISTRATION_TASK = {
+    "id": "registration-1",
+    "type": "New Farmer Registration",
+    "status": "Completed",
+    "customerIden": "farmer-1",
+    "customerName": "Fortune Farmer",
+    "employeeIden": "officer-1",
+    "assignedTo": "Fortune Field Worker",
+    "completed": 1785751200000,
+    "formDetails": {
+        "Village": "Dargava",
+        "Block": "Gabhana",
+        "District": "Aligarh",
+        "Total Acre": "5.5",
+        "Number of Plots": "2",
+        "P.B-1 Acre": "3",
+        "1718 Acre": "2.5",
+        "Aadhar No": "111122223333",
+        "Aadhar Card Photo": {"url": "https://provider.example/private-aadhaar-photo"},
+        "Mobile No": "9999999999",
+        "Farmer Signature": {"url": "https://provider.example/private-signature"},
+        "Geo": {"lat": 27.95, "lng": 78.27},
+    },
+}
+
 
 class RecordingTransport(httpx.BaseTransport):
     def __init__(self):
@@ -62,10 +100,11 @@ class RecordingTransport(httpx.BaseTransport):
     def handle_request(self, request):
         self.requests.append(request)
         if request.url.path == "/cust/1/api/task/list":
-            assert request.url.params["form-type"] == "CUSTOMER"
-            assert request.url.params["form-title"] == "Farmer Visit"
             assert request.url.params["pn"] == "0"
             return httpx.Response(200, json={"s": True, "data": [TASK], "hm": False}, request=request)
+        if request.url.path == "/cust/1/api/customer/list":
+            assert request.url.params["pn"] == "0"
+            return httpx.Response(200, json={"s": True, "data": [CUSTOMER], "hm": False}, request=request)
         if request.url.path == "/cust/1/api/asset/productivity":
             assert request.url.params["date"] == "2026-08-03"
             return httpx.Response(200, json={"s": True, "data": [ATTENDANCE], "hm": False}, request=request)
@@ -83,7 +122,7 @@ def test_trackwick_adapter_uses_verified_get_contract_and_keeps_raw_rows_in_memo
     )
     normalised = normalise_trackwick(fetched, CONFIG, as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"))
 
-    assert [request.method for request in transport.requests] == ["GET", "GET"]
+    assert [request.method for request in transport.requests] == ["GET", "GET", "GET"]
     assert all(request.headers["platform"] == "API" for request in transport.requests)
     assert all(request.headers["tlp-cid"] == "trackwick-tenant" for request in transport.requests)
     assert normalised.quarantined_rows == 0
@@ -95,6 +134,47 @@ def test_trackwick_adapter_uses_verified_get_contract_and_keeps_raw_rows_in_memo
     assert "9999999999" not in serialized
     assert "27.95" not in serialized
     assert "private-photo" not in serialized
+
+
+def test_trackwick_basics_are_allow_listed_and_never_include_contact_or_evidence_fields():
+    basics = normalise_trackwick_basics(
+        TrackwickFetchResult(tasks=(REGISTRATION_TASK,), customers=(CUSTOMER,), attendance=(), task_pages=1, customer_pages=1),
+        CONFIG,
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    profiles = [record.values for record in basics.records if record.feed == "farmer_profiles"]
+    farms = [record.values for record in basics.records if record.feed == "farm_candidates"]
+    workers = [record.values for record in basics.records if record.feed == "field_workers"]
+    serialized = repr(basics.records)
+
+    assert profiles == [{
+        "farmer_id": "farmer-1",
+        "display_name": "Fortune Farmer",
+        "crm_status": "active",
+        "territory_owner_id": "officer-1",
+        "registered_at": "2026-08-03T15:10:00+05:30",
+    }]
+    assert farms == [{
+        "farm_candidate_id": "registration-1",
+        "farmer_id": "farmer-1",
+        "village": "Dargava",
+        "block": "Gabhana",
+        "district": "Aligarh",
+        "reported_area_acres": "5.5",
+        "reported_plot_count": "2",
+        "pb1_area_acres": "3",
+        "var1718_area_acres": "2.5",
+        "registration_status": "completed",
+    }]
+    assert workers == [{
+        "worker_id": "officer-1",
+        "display_name": "Fortune Field Worker",
+        "last_activity_at": "2026-08-03T15:30:00+05:30",
+        "activity_status": "completed",
+    }]
+    for forbidden in ("9999999999", "111122223333", "private-aadhaar-photo", "private-signature", "27.95", "formDetails"):
+        assert forbidden not in serialized
 
 
 def test_trackwick_adapter_uses_verified_epoch_creation_window_when_requested():

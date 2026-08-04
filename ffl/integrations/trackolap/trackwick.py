@@ -27,10 +27,11 @@ from .contracts import TrackolapRecord
 
 BASE_URL = "https://app.trackolap.com"
 TASK_LIST_PATH = "/cust/1/api/task/list"
+CUSTOMER_LIST_PATH = "/cust/1/api/customer/list"
 PRODUCTIVITY_PATH = "/cust/1/api/asset/productivity"
 DEFAULT_FORM_TITLE = "Farmer Visit"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
-MAPPING_VERSION = "trackwick-task-v2"
+MAPPING_VERSION = "trackwick-task-v3"
 
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CUSTOMER_NAME_CODE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?=\s*\()")
@@ -48,6 +49,25 @@ _FORM_KEYS = {
     "other_pesticide": "कोई अन्य कीटनाशक (Pesticide) का छिड़काव किया गया है तो उसकी जानकारी दें",
     "pesticide_recommended": "कृपया उस कीटनाशक (Pesticide) का चयन करें, जिसका सुझाव आपने किसानों को दिया है।",
 }
+
+_REGISTRATION_FORM_KEYS = {
+    "village": "Village",
+    "block": "Block",
+    "district": "District",
+    "area_acres": "Total Acre",
+    "plot_count": "Number of Plots",
+    "pb1_area_acres": "P.B-1 Acre",
+    "var1718_area_acres": "1718 Acre",
+}
+
+_VISIT_BASIC_FORM_KEYS = {
+    "transplanted_at": "रोपाई की तारीख (Date of transplanting)",
+    "crop_stage": "फसल की अवस्था",
+    "water_condition": "खेत में पानी की स्थिति",
+    "crop_condition": "फसल की स्थिति (1 = बहुत खराब | 10 = बहुत अच्छी )",
+}
+
+_SOIL_TASK_TYPES = frozenset({"new farmer soil testing", "registered farmer soil testing"})
 
 
 class TrackwickConfigurationError(ValueError):
@@ -118,10 +138,12 @@ class TrackwickFetchResult:
     tasks: tuple[Mapping[str, Any], ...]
     attendance: tuple[Mapping[str, Any], ...]
     task_pages: int
+    customers: tuple[Mapping[str, Any], ...] = ()
+    customer_pages: int = 0
 
     @property
     def rows_received(self) -> int:
-        return len(self.tasks) + len(self.attendance)
+        return len(self.tasks) + len(self.customers) + len(self.attendance)
 
 
 @dataclass(frozen=True)
@@ -148,8 +170,6 @@ class TrackwickApiAdapter:
         params = {
             "pt": config.page_size,
             "showForm": "true",
-            "form-type": "CUSTOMER",
-            "form-title": config.form_title,
         }
         if created_since is not None:
             params["createDateBegin"] = _epoch_milliseconds(created_since, config.reporting_timezone)
@@ -172,6 +192,21 @@ class TrackwickApiAdapter:
             else:
                 raise TrackwickSourceFailure("task_page_limit_reached")
 
+            customers: list[Mapping[str, Any]] = []
+            for customer_page in range(config.max_pages):
+                response = _get(
+                    client,
+                    CUSTOMER_LIST_PATH,
+                    headers,
+                    {"pt": config.page_size, "pn": customer_page},
+                )
+                rows, has_more = _rows(response, "customer_list_response_invalid")
+                customers.extend(rows)
+                if not has_more:
+                    break
+            else:
+                raise TrackwickSourceFailure("customer_page_limit_reached")
+
             attendance_response = _get(
                 client,
                 PRODUCTIVITY_PATH,
@@ -179,7 +214,13 @@ class TrackwickApiAdapter:
                 {"date": now.date().isoformat()},
             )
             attendance, _unused_has_more = _rows(attendance_response, "attendance_response_invalid")
-        return TrackwickFetchResult(tuple(tasks), tuple(attendance), page + 1)
+        return TrackwickFetchResult(
+            tasks=tuple(tasks),
+            customers=tuple(customers),
+            attendance=tuple(attendance),
+            task_pages=page + 1,
+            customer_pages=customer_page + 1,
+        )
 
 
 def refresh_trackwick(
@@ -230,6 +271,230 @@ def normalise_trackwick(
             continue
         records.extend(attendance_records)
     return TrackwickNormalisationResult(tuple(records), quarantined)
+
+
+def normalise_trackwick_basics(
+    fetched: TrackwickFetchResult,
+    config: TrackwickApiConfig,
+    as_of: Optional[datetime] = None,
+) -> TrackwickNormalisationResult:
+    """Create an allow-listed CRM staging view from the live tenant.
+
+    This is deliberately separate from the aggregate COO metrics lane.  It
+    admits only names, stable identifiers, work ownership, coarse operating
+    location, acreage, crop timing, and task state.  Aadhaar, mobile numbers,
+    signatures, photos, comments, raw form payloads, and exact GPS are not
+    read into a normalized record under any condition.
+    """
+    timezone_value = ZoneInfo(config.reporting_timezone)
+    fallback_time = (as_of or datetime.now(timezone.utc)).astimezone(timezone_value)
+    records: list[TrackolapRecord] = []
+    quarantined = 0
+
+    for customer in fetched.customers:
+        record = _normalise_customer(customer, config, fallback_time)
+        if record is None:
+            quarantined += 1
+            continue
+        records.append(record)
+
+    for task in fetched.tasks:
+        task_records = _normalise_task_basics(task, config, fallback_time)
+        if task_records is None:
+            quarantined += 1
+            continue
+        records.extend(task_records)
+    return TrackwickNormalisationResult(tuple(records), quarantined)
+
+
+def _normalise_customer(
+    customer: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime
+) -> Optional[TrackolapRecord]:
+    """Admit the minimum identity needed to recognise a Fortune farmer.
+
+    A TrackWick customer can carry mobile and exact geo.  Neither is accessed
+    here; this function is the privacy boundary for the farmer CRM feed.
+    """
+    farmer_id = _opaque(customer.get("iden")) or _opaque(customer.get("id"))
+    display_name = _safe_text(customer.get("name"), maximum=160)
+    source_time = _timestamp(customer.get("createdOn"), fallback_time.tzinfo)
+    if farmer_id is None or display_name is None or source_time is None:
+        return None
+    owner_id = _opaque(customer.get("owner")) or "unassigned"
+    return _record(
+        "farmer_profiles",
+        "farmer:" + farmer_id,
+        source_time.isoformat(),
+        config.tenant_id,
+        {
+            "farmer_id": farmer_id,
+            "display_name": display_name,
+            "crm_status": _safe_status(customer.get("status"), "unknown"),
+            "territory_owner_id": owner_id,
+            "registered_at": source_time.isoformat(),
+        },
+    )
+
+
+def _normalise_task_basics(
+    task: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime
+) -> Optional[tuple[TrackolapRecord, ...]]:
+    task_id = _opaque(task.get("id"))
+    source_time = _task_time(task, fallback_time)
+    if task_id is None or source_time is None:
+        return None
+    task_type = _safe_text(task.get("type"), maximum=120)
+    if task_type is None:
+        return tuple()
+    status = _safe_status(task.get("status"), "unknown")
+    form = task.get("formDetails")
+    form_details = form if isinstance(form, Mapping) else {}
+    records: list[TrackolapRecord] = []
+
+    worker = _normalise_field_worker(task, source_time, config.tenant_id, status)
+    if worker is not None:
+        records.append(worker)
+
+    type_key = task_type.casefold()
+    if type_key == "new farmer registration":
+        farm = _normalise_farm_candidate(
+            task_id, task, form_details, source_time, config.tenant_id, status
+        )
+        if farm is not None:
+            records.append(farm)
+    if type_key == config.form_title.casefold():
+        crop = _normalise_crop_context(
+            task_id, task, form_details, source_time, config.tenant_id, status
+        )
+        if crop is not None:
+            records.append(crop)
+    if type_key in _SOIL_TASK_TYPES:
+        soil = _normalise_soil_context(task_id, task, source_time, config.tenant_id, status)
+        if soil is not None:
+            records.append(soil)
+    if status != "completed":
+        follow_up = _normalise_follow_up(
+            task_id, task, task_type, source_time, config.tenant_id, status
+        )
+        if follow_up is not None:
+            records.append(follow_up)
+    return tuple(records)
+
+
+def _normalise_field_worker(
+    task: Mapping[str, Any], source_time: str, tenant_id: str, status: str
+) -> Optional[TrackolapRecord]:
+    worker_id = _opaque(task.get("employeeIden"))
+    if worker_id is None:
+        return None
+    display_name = _safe_text(task.get("assignedTo"), maximum=160) or "Field worker"
+    return _record(
+        "field_workers",
+        "field-worker:" + worker_id + ":" + source_time,
+        source_time,
+        tenant_id,
+        {
+            "worker_id": worker_id,
+            "display_name": display_name,
+            "last_activity_at": source_time,
+            "activity_status": status,
+        },
+    )
+
+
+def _normalise_farm_candidate(
+    task_id: str,
+    task: Mapping[str, Any],
+    form: Mapping[str, Any],
+    source_time: str,
+    tenant_id: str,
+    status: str,
+) -> Optional[TrackolapRecord]:
+    farmer_id = _farmer_code(task)
+    if farmer_id is None:
+        return None
+    values = {
+        "farm_candidate_id": task_id,
+        "farmer_id": farmer_id,
+        "village": _safe_text(form.get(_REGISTRATION_FORM_KEYS["village"]), maximum=120) or "not_reported",
+        "block": _safe_text(form.get(_REGISTRATION_FORM_KEYS["block"]), maximum=120) or "not_reported",
+        "district": _safe_text(form.get(_REGISTRATION_FORM_KEYS["district"]), maximum=120) or "not_reported",
+        "reported_area_acres": _safe_decimal(form.get(_REGISTRATION_FORM_KEYS["area_acres"])) or "not_reported",
+        "reported_plot_count": _safe_whole_number(form.get(_REGISTRATION_FORM_KEYS["plot_count"])) or "not_reported",
+        "pb1_area_acres": _safe_decimal(form.get(_REGISTRATION_FORM_KEYS["pb1_area_acres"])) or "not_reported",
+        "var1718_area_acres": _safe_decimal(form.get(_REGISTRATION_FORM_KEYS["var1718_area_acres"])) or "not_reported",
+        "registration_status": status,
+    }
+    return _record("farm_candidates", "farm-candidate:" + task_id, source_time, tenant_id, values)
+
+
+def _normalise_crop_context(
+    task_id: str,
+    task: Mapping[str, Any],
+    form: Mapping[str, Any],
+    source_time: str,
+    tenant_id: str,
+    status: str,
+) -> Optional[TrackolapRecord]:
+    farmer_id = _farmer_code(task)
+    if farmer_id is None:
+        return None
+    values = {
+        "crop_context_id": task_id,
+        "farmer_id": farmer_id,
+        "visit_status": status,
+        "transplanted_on": _safe_date(form.get(_VISIT_BASIC_FORM_KEYS["transplanted_at"])) or "not_reported",
+        "crop_stage": _safe_text(form.get(_VISIT_BASIC_FORM_KEYS["crop_stage"]), maximum=120) or "not_reported",
+        "water_condition": _safe_text(form.get(_VISIT_BASIC_FORM_KEYS["water_condition"]), maximum=120) or "not_reported",
+        "crop_condition_score": _safe_decimal(form.get(_VISIT_BASIC_FORM_KEYS["crop_condition"])) or "not_reported",
+        "kit_status": _kit_status(form.get(_FORM_KEYS["kit_taken"])),
+    }
+    return _record("crop_context", "crop-context:" + task_id, source_time, tenant_id, values)
+
+
+def _normalise_soil_context(
+    task_id: str,
+    task: Mapping[str, Any],
+    source_time: str,
+    tenant_id: str,
+    status: str,
+) -> Optional[TrackolapRecord]:
+    farmer_id = _farmer_code(task)
+    if farmer_id is None:
+        return None
+    return _record(
+        "soil_context",
+        "soil-context:" + task_id,
+        source_time,
+        tenant_id,
+        {"soil_context_id": task_id, "farmer_id": farmer_id, "task_status": status},
+    )
+
+
+def _normalise_follow_up(
+    task_id: str,
+    task: Mapping[str, Any],
+    task_type: str,
+    source_time: str,
+    tenant_id: str,
+    status: str,
+) -> Optional[TrackolapRecord]:
+    worker_id = _opaque(task.get("employeeIden")) or "unassigned"
+    farmer_id = _farmer_code(task) or "unassigned"
+    return _record(
+        "follow_ups",
+        "follow-up:" + task_id,
+        source_time,
+        tenant_id,
+        {
+            "follow_up_id": task_id,
+            "farmer_id": farmer_id,
+            "worker_id": worker_id,
+            "task_type": _safe_status(task_type, "other"),
+            "task_status": status,
+            "reported_at": source_time,
+        },
+    )
 
 
 def _headers(customer_id: str, api_key: str) -> dict[str, str]:
@@ -454,6 +719,42 @@ def _timestamp(value: Any, tzinfo: Optional[timezone]) -> Optional[datetime]:
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             return None
         return parsed.astimezone(tzinfo)
+    return None
+
+
+def _safe_text(value: Any, maximum: int) -> Optional[str]:
+    """Accept a compact scalar, never a provider object or free-text payload."""
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        return None
+    candidate = re.sub(r"\s+", " ", str(value).strip())
+    if not candidate or len(candidate) > maximum or any(character in candidate for character in "\r\n\x00"):
+        return None
+    return candidate
+
+
+def _safe_decimal(value: Any) -> Optional[str]:
+    candidate = _safe_text(value, maximum=32)
+    if candidate is None or re.fullmatch(r"(?:0|[1-9]\d*)(?:\.\d{1,4})?", candidate) is None:
+        return None
+    return candidate
+
+
+def _safe_whole_number(value: Any) -> Optional[str]:
+    candidate = _safe_text(value, maximum=16)
+    if candidate is None or re.fullmatch(r"(?:0|[1-9]\d{0,5})", candidate) is None:
+        return None
+    return candidate
+
+
+def _safe_date(value: Any) -> Optional[str]:
+    candidate = _safe_text(value, maximum=32)
+    if candidate is None:
+        return None
+    for pattern in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(candidate, pattern).date().isoformat()
+        except ValueError:
+            continue
     return None
 
 

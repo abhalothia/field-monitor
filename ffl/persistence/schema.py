@@ -608,7 +608,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
             import_batch_id TEXT REFERENCES import_batches(id),
             feed TEXT NOT NULL CHECK (feed IN (
                 'officers', 'attendance', 'farmer_tasks', 'visits',
-                'issue_observations', 'pesticide_events'
+                'issue_observations', 'pesticide_events',
+                'farmer_profiles', 'farm_candidates', 'field_workers',
+                'crop_context', 'soil_context', 'follow_ups'
             )),
             source_identifier TEXT NOT NULL,
             source_updated_at TEXT NOT NULL,

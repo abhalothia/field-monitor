@@ -1,12 +1,13 @@
 # TrackWick integration
 
-AGRO CEO connects to Fortune's TrackWick tenant as a **read-only, manager-triggered** source of field-operation context. It uses the verified TrackOlap EEP API V2 task stream and productivity endpoint; it does not use the browser, write to TrackWick, or expose credentials to a manager session.
+AGRO CEO connects to Fortune's TrackWick tenant as a **read-only, manager-triggered** source of field-operation context. It uses the verified TrackOlap EEP API V2 task stream, Customer CRM list, and productivity endpoint; it does not use the browser, write to TrackWick, or expose credentials to a manager session.
 
 This is a source layer, not the manager's operating record. The precise
 source-to-screen boundary is in [Operating architecture](OPERATING-ARCHITECTURE.md):
-TrackWick may inform aggregate reach, reported chemical activity, crop signals,
-and field-worker filing; it never creates a farm pin, reviewed farmer, or
-automatic diagnosis.
+TrackWick may inform aggregate reach, farmer and field-worker candidates,
+reported chemical activity, crop signals, and field-worker filing; it never
+creates a canonical farm pin, reviewed farmer, land right, or automatic
+diagnosis.
 
 ## Server configuration
 
@@ -28,11 +29,12 @@ FFL_TRACKWICK_SEVERITY_FORM_KEY=<exact form field label>
 
 Optional bounds are `FFL_TRACKWICK_TASK_PAGE_SIZE` (1–250, default 100), `FFL_TRACKWICK_TASK_MAX_PAGES` (1–1000, default 500), and `FFL_TRACKWICK_DELTA_LOOKBACK_DAYS` (1–31, default 2). The connector uses only these GET endpoints:
 
-- `/cust/1/api/task/list`, filtered to the approved `Farmer Visit` form;
+- `/cust/1/api/task/list`, for the approved Fortune task history;
+- `/cust/1/api/customer/list`, for the Fortune Customer CRM;
 - `/cust/1/api/asset/productivity`, for the current India reporting date.
 
 Before the first refresh, apply the reviewed private migrations through
-`0007_agro_field_capture.sql` to the intended Supabase project and create the
+`0008_agro_trackwick_crm_basics.sql` to the intended Supabase project and create the
 real accountable Fortune manager in `agro_people` with the role
 `farm_manager`, `operations_lead`, or `agronomist`. The refresh will fail
 closed if that owner is absent or has another role; it never creates a
@@ -40,13 +42,13 @@ fictional person to make a dashboard look populated.
 
 ## What enters AGRO CEO
 
-One task can safely become a farmer-task context row, completed visit, issue observation, and reported pesticide event. Productivity rows create attendance and active field-worker context. The manager-only endpoints are:
+One task can safely become a farmer-task context row, completed visit, issue observation, reported pesticide event, crop context, safe follow-up, soil context, or farm candidate. Customer rows become farmer profiles; task assignment becomes basic field-worker context. Productivity rows create attendance and active field-worker context. The manager-only endpoints are:
 
 - `POST /api/v1/trackwick/refresh`
 - `GET /api/v1/trackwick/health`
 - `GET /api/v1/trackwick/metrics`
 
-The refresh is manual and manager-authorized. Its published records are aggregate source context only; they never create farms, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
+The refresh is manual and manager-authorized. Its published records are source context only; farmer, farm, and field-worker basics remain candidates until reviewed. They never create a canonical farm, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
 
 Severity stays `unknown` unless Fortune explicitly adds a low/moderate/high/critical field to the Farmer Visit form and supplies its exact label in `FFL_TRACKWICK_SEVERITY_FORM_KEY`. AGRO CEO never infers severity from a pest or disease name. New submissions then carry the field worker's stated severity; existing source records remain unchanged.
 
@@ -67,6 +69,15 @@ or exposing provider access to the browser.
 
 ## What is deliberately discarded
 
-The connector never persists or returns farmer names, mobile numbers, email, photos, exact GPS, address geometry, raw `formDetails`, task URLs, or the customer/API credentials. A farmer is represented by TrackWick's opaque `customerIden`. If an older task omits that field but has the verified Fortune shape `FC-01734 (Farmer Name)`, the connector retains only `FC-01734`; a name alone is rejected. Village is retained only when it is explicitly supplied as a coarse field-form value.
+The CRM-basics lane retains a farmer or field-worker **name** only with its
+stable TrackWick identifier; that is the minimum needed to review a real
+person. It never persists or returns mobile numbers, Aadhaar, family details,
+signature, photos, email, comments, exact GPS, address geometry, raw
+`formDetails`, task URLs, or the customer/API credentials. A farmer is
+otherwise represented by TrackWick's opaque `customerIden`. If an older task
+omits that field but has the verified Fortune shape `FC-01734 (Farmer Name)`,
+the connector retains only `FC-01734`; a name alone is rejected. Village,
+block, district, reported acreage, and crop timing are retained only when they
+come from their reviewed, explicit form fields.
 
 TrackWick does not provide an authoritative territory owner, purchase commitment, collection/weighbridge record, grade, lot, residue test, or EU-compliance result. Those require their own reviewed Fortune sources. A pesticide record is a review cue, never proof that the crop is compliant.
