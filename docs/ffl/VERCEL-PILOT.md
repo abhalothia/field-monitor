@@ -61,6 +61,12 @@ Fortune launch-password session.
    WhatsApp channel. Never put a Supabase service-role key in Vercel or a
    browser. See [customer portals](CUSTOMER-PORTALS.md).
 
+The runtime database role is deliberately narrower than the migration role.
+Apply `0013_agro_vc_runtime_operating_reads.sql` after the private schema
+migrations: it grants the tables already used by the manager API, but never
+DELETE, schema changes, or browser/Data API access. Without it, portfolio and
+TrackWick board reads fail with a PostgreSQL permission error.
+
 ## Preview policy
 
 - Git pull requests get Vercel Preview deployments automatically. Give Preview

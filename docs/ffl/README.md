@@ -20,6 +20,7 @@ The product has one promise:
 | How TrackWick context is read, normalised, and kept private | [TrackWick integration](TRACKWICK-INTEGRATION.md) |
 | What is actually present in the live Fortune TrackWick tenant | [Live TrackWick inventory](TRACKWICK-LIVE-INVENTORY.md) |
 | How to measure Fortune purchase share without retaining grower identities | [Purchase capture](PURCHASE-CAPTURE.md) |
+| What is live, what must be configured next, and the three future operating loops | [Next tiers](NEXT-TIERS.md) |
 | How to run or deploy the private application | [Local run](LOCAL-RUN.md) and [Deployment](DEPLOYMENT.md) |
 
 ## What this product is—and is not
