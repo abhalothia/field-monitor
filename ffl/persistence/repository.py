@@ -1,10 +1,11 @@
 import json
+import hashlib
 import math
 import re
 import sqlite3
 import uuid
 from datetime import date, datetime, timezone
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 from ffl.domain.models import (
     AuditEvent,
@@ -74,6 +75,53 @@ _FIELD_INFORMATION_REQUEST_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9.
 _FIELD_INFORMATION_REQUEST_SYSTEM_ACTOR = re.compile(r"system:[a-z][a-z0-9._-]{2,80}")
 _FIELD_CAPTURE_TOKEN_HASH = re.compile(r"[0-9a-f]{64}")
 _FIELD_CAPTURE_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
+
+_TRACKWICK_PRIVATE_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "trackwick_parties": (
+        ("id", "party_kind", "provider_identifier", "display_name", "crm_status", "provider_owner_identifier", "provider_tag", "provider_created_at"),
+        ("source_id", "party_kind", "provider_identifier"),
+    ),
+    "trackwick_contact_points": (
+        ("id", "party_id", "contact_kind", "contact_value", "value_fingerprint", "consent_status"),
+        ("party_id", "contact_kind", "value_fingerprint"),
+    ),
+    "trackwick_tasks": (
+        ("id", "provider_task_id", "farmer_party_id", "field_worker_party_id", "provider_customer_identifier", "task_type", "task_status", "provider_created_at", "provider_started_at", "provider_completed_at", "provider_follow_up_at"),
+        ("source_id", "provider_task_id"),
+    ),
+    "trackwick_visits": (
+        ("task_id", "observed_at", "transplanted_on", "crop_stage", "water_condition", "crop_condition_score", "kit_status"),
+        ("task_id",),
+    ),
+    "trackwick_visit_findings": (
+        ("id", "visit_task_id", "finding_kind", "reported_value", "source_field", "declared_severity", "observed_at"),
+        ("visit_task_id", "finding_kind", "source_field", "reported_value"),
+    ),
+    "trackwick_crop_inputs": (
+        ("id", "visit_task_id", "input_kind", "event_kind", "reported_product", "source_field", "occurred_at"),
+        ("visit_task_id", "input_kind", "event_kind", "source_field", "reported_product"),
+    ),
+    "trackwick_registrations": (
+        ("id", "task_id", "farmer_party_id", "registration_status", "village_name", "block_name", "district_name", "reported_total_area_acres", "reported_plot_count", "reported_pb1_area_acres", "reported_1718_area_acres"),
+        ("task_id",),
+    ),
+    "trackwick_registration_plots": (
+        ("id", "registration_id", "ordinal", "gata_number", "reported_area_bigha", "plot_type", "village_name"),
+        ("registration_id", "ordinal"),
+    ),
+    "trackwick_media_references": (
+        ("id", "task_id", "provider_media_key", "media_kind", "remote_url", "provider_created_at", "source_access_state", "content_state", "exif_state", "content_hash", "content_type", "size_bytes"),
+        ("source_id", "provider_media_key"),
+    ),
+    "trackwick_location_observations": (
+        ("id", "party_id", "task_id", "registration_id", "media_reference_id", "provider_location_key", "location_kind", "location_confidence", "latitude", "longitude", "provider_address", "provider_geo_address", "provider_accuracy_m", "observed_at"),
+        ("source_id", "provider_location_key"),
+    ),
+    "trackwick_worker_days": (
+        ("id", "field_worker_party_id", "observed_on", "attendance_status", "reported_start_time", "reported_total_time"),
+        ("field_worker_party_id", "observed_on"),
+    ),
+}
 
 
 def _new_identity() -> Tuple[str, str]:
@@ -1877,6 +1925,83 @@ def create_trackolap_records(
     if commit:
         conn.commit()
     return cursor.rowcount
+
+
+def upsert_trackwick_private_records(
+    conn: sqlite3.Connection,
+    source_id: str,
+    source_run_id: Optional[str],
+    records: Sequence[Any],
+    mapping_version: str,
+    *,
+    observed_at: Optional[str] = None,
+    commit: bool = True,
+) -> int:
+    """Upsert allow-listed TrackWick evidence without accepting raw payloads.
+
+    ``records`` must expose a reviewed ``table`` name and a mapping of exactly
+    the fields owned by that table.  The fixed table/column registry below is
+    deliberately the persistence boundary: arbitrary provider keys cannot turn
+    into SQL columns or a JSON blob here.  Replays update the latest source
+    values and provenance while preserving the first-seen audit timestamp.
+    """
+    if not records:
+        return 0
+    now = observed_at or datetime.now(timezone.utc).isoformat()
+    grouped: dict[str, list[tuple[Any, ...]]] = {}
+    statements: dict[str, str] = {}
+    for record in records:
+        table = getattr(record, "table", None)
+        values = getattr(record, "values", None)
+        if table not in _TRACKWICK_PRIVATE_TABLES or not isinstance(values, Mapping):
+            raise ValueError("invalid private TrackWick record")
+        columns, conflict_columns = _TRACKWICK_PRIVATE_TABLES[table]
+        if set(values) != set(columns):
+            raise ValueError("private TrackWick record fields do not match its typed table")
+        fingerprint = _trackwick_private_fingerprint(values)
+        insert_columns = (
+            "source_id", "source_run_id", *columns,
+            "source_fingerprint", "mapping_version", "data_quality_status",
+            "first_seen_at", "last_seen_at", "created_at",
+        )
+        update_columns = (
+            "source_run_id", *(column for column in columns if column != "id"),
+            "source_fingerprint", "mapping_version", "data_quality_status", "last_seen_at",
+        )
+        if table not in statements:
+            placeholders = ", ".join("?" for _ in insert_columns)
+            assignments = ", ".join(column + " = excluded." + column for column in update_columns)
+            statements[table] = (
+                "INSERT INTO {table} ({columns}) VALUES ({placeholders}) "
+                "ON CONFLICT ({conflict}) DO UPDATE SET {assignments}"
+            ).format(
+                table=table,
+                columns=", ".join(insert_columns),
+                placeholders=placeholders,
+                conflict=", ".join(conflict_columns),
+                assignments=assignments,
+            )
+        grouped.setdefault(table, []).append((
+            source_id,
+            source_run_id,
+            *(values[column] for column in columns),
+            fingerprint,
+            mapping_version,
+            "valid",
+            now,
+            now,
+            now,
+        ))
+    written = 0
+    for table, rows in grouped.items():
+        written += conn.executemany(statements[table], rows).rowcount
+    if commit:
+        conn.commit()
+    return written
+
+
+def _trackwick_private_fingerprint(values: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_json_value(dict(values)).encode("utf-8")).hexdigest()
 
 
 def get_trackolap_record(conn: sqlite3.Connection, record_id: str) -> Optional[TrackolapStoredRecord]:

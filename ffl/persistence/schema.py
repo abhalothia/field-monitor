@@ -811,6 +811,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             source_id TEXT NOT NULL REFERENCES source_registry(id),
             source_run_id TEXT REFERENCES source_runs(id),
+            party_id TEXT REFERENCES trackwick_parties(id),
             task_id TEXT REFERENCES trackwick_tasks(id),
             registration_id TEXT REFERENCES trackwick_registrations(id),
             media_reference_id TEXT REFERENCES trackwick_media_references(id),
@@ -831,7 +832,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            CHECK (task_id IS NOT NULL OR registration_id IS NOT NULL OR media_reference_id IS NOT NULL),
+            CHECK (party_id IS NOT NULL OR task_id IS NOT NULL OR registration_id IS NOT NULL OR media_reference_id IS NOT NULL),
             UNIQUE (source_id, provider_location_key)
         );
 
@@ -1031,6 +1032,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trackwick_location_observations (source_id, observed_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_locations_task
             ON trackwick_location_observations (task_id, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_locations_party
+            ON trackwick_location_observations (party_id, observed_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_locations_coordinates
             ON trackwick_location_observations (latitude, longitude);
         CREATE INDEX IF NOT EXISTS idx_trackwick_worker_days_worker_date

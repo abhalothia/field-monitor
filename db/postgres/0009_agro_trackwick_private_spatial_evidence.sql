@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS agro_trackwick_location_observations (
     id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL REFERENCES agro_source_registry(id),
     source_run_id TEXT REFERENCES agro_source_runs(id),
+    party_id TEXT REFERENCES agro_trackwick_parties(id),
     task_id TEXT REFERENCES agro_trackwick_tasks(id),
     registration_id TEXT REFERENCES agro_trackwick_registrations(id),
     media_reference_id TEXT REFERENCES agro_trackwick_media_references(id),
@@ -216,7 +217,7 @@ CREATE TABLE IF NOT EXISTS agro_trackwick_location_observations (
     first_seen_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    CHECK (task_id IS NOT NULL OR registration_id IS NOT NULL OR media_reference_id IS NOT NULL),
+    CHECK (party_id IS NOT NULL OR task_id IS NOT NULL OR registration_id IS NOT NULL OR media_reference_id IS NOT NULL),
     UNIQUE (source_id, provider_location_key)
 );
 
@@ -321,6 +322,8 @@ CREATE INDEX IF NOT EXISTS agro_idx_trackwick_locations_source_time
     ON agro_trackwick_location_observations (source_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS agro_idx_trackwick_locations_task
     ON agro_trackwick_location_observations (task_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS agro_idx_trackwick_locations_party
+    ON agro_trackwick_location_observations (party_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS agro_idx_trackwick_worker_days_worker_date
     ON agro_trackwick_worker_days (field_worker_party_id, observed_on DESC);
 CREATE INDEX IF NOT EXISTS agro_idx_trackwick_party_links_person
@@ -342,4 +345,3 @@ REVOKE ALL ON TABLE agro_trackwick_parties, agro_trackwick_contact_points,
 REVOKE ALL ON FUNCTION agro_set_trackwick_location_geog() FROM PUBLIC;
 
 COMMIT;
-

@@ -313,6 +313,57 @@ def test_trackwick_replay_is_idempotent_with_an_overlapping_window(ffl_db, owner
     assert after == before
 
 
+def test_trackwick_refresh_upserts_the_private_typed_evidence_graph(ffl_db, owner):
+    as_of = datetime.fromisoformat("2026-08-03T10:00:00+05:30")
+    first = refresh_live_trackwick(
+        ffl_db, owner.id, config=CONFIG, credential_resolver=lambda _: "runtime-key",
+        transport=RecordingTransport(), as_of=as_of,
+    )
+
+    tables = (
+        "trackwick_parties", "trackwick_contact_points", "trackwick_tasks",
+        "trackwick_visits", "trackwick_visit_findings", "trackwick_crop_inputs",
+        "trackwick_location_observations", "trackwick_worker_days",
+    )
+    before = {
+        table: ffl_db.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
+        for table in tables
+    }
+    task = ffl_db.execute(
+        "SELECT task_status, farmer_party_id, field_worker_party_id FROM trackwick_tasks"
+    ).fetchone()
+    location_kinds = {
+        row[0] for row in ffl_db.execute(
+            "SELECT location_kind FROM trackwick_location_observations"
+        ).fetchall()
+    }
+
+    replay = refresh_live_trackwick(
+        ffl_db, owner.id, config=CONFIG, credential_resolver=lambda _: "runtime-key",
+        transport=RecordingTransport(), as_of=as_of,
+    )
+    after = {
+        table: ffl_db.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
+        for table in tables
+    }
+
+    assert first.state == replay.state == "succeeded"
+    assert before == after
+    assert before == {
+        "trackwick_parties": 2,
+        "trackwick_contact_points": 1,
+        "trackwick_tasks": 1,
+        "trackwick_visits": 1,
+        "trackwick_visit_findings": 1,
+        "trackwick_crop_inputs": 2,
+        "trackwick_location_observations": 2,
+        "trackwick_worker_days": 1,
+    }
+    assert task["task_status"] == "completed"
+    assert task["farmer_party_id"] and task["field_worker_party_id"]
+    assert location_kinds == {"crm", "task_completion"}
+
+
 def test_trackwick_refresh_uses_a_delta_window_after_the_first_baseline(ffl_db, owner):
     first_transport = RecordingTransport()
     as_of = datetime.fromisoformat("2026-08-03T10:00:00+05:30")

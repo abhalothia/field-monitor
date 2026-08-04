@@ -18,6 +18,7 @@ import re
 import time as clock
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Sequence
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -32,6 +33,7 @@ PRODUCTIVITY_PATH = "/cust/1/api/asset/productivity"
 DEFAULT_FORM_TITLE = "Farmer Visit"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 MAPPING_VERSION = "trackwick-task-v3"
+PRIVATE_EVIDENCE_MAPPING_VERSION = "trackwick-private-v1"
 
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CUSTOMER_NAME_CODE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?=\s*\()")
@@ -48,6 +50,9 @@ _FORM_KEYS = {
     "pesticide_used": "जिस कीटनाशक (Pesticide) का छिड़काव किया गया है , सूची में उसका चयन करें ?",
     "other_pesticide": "कोई अन्य कीटनाशक (Pesticide) का छिड़काव किया गया है तो उसकी जानकारी दें",
     "pesticide_recommended": "कृपया उस कीटनाशक (Pesticide) का चयन करें, जिसका सुझाव आपने किसानों को दिया है।",
+    "fertilizer_used": "उर्वरक (Fertilizer) का उपयोग",
+    "fertilizer_recommended": "कृपया उस उर्वरक (Fertilizer) का चयन करें, जिसका सुझाव आपने किसानों को दिया है।",
+    "crop_photo": "फसल की फोटो",
 }
 
 _REGISTRATION_FORM_KEYS = {
@@ -68,6 +73,20 @@ _VISIT_BASIC_FORM_KEYS = {
 }
 
 _SOIL_TASK_TYPES = frozenset({"new farmer soil testing", "registered farmer soil testing"})
+_TRACKWICK_MEDIA_HOST = "trackolap-images-prod.s3.amazonaws.com"
+_PRIVATE_TABLE_ORDER = (
+    "trackwick_parties",
+    "trackwick_contact_points",
+    "trackwick_tasks",
+    "trackwick_visits",
+    "trackwick_visit_findings",
+    "trackwick_crop_inputs",
+    "trackwick_registrations",
+    "trackwick_registration_plots",
+    "trackwick_media_references",
+    "trackwick_location_observations",
+    "trackwick_worker_days",
+)
 
 
 class TrackwickConfigurationError(ValueError):
@@ -96,6 +115,7 @@ class TrackwickApiConfig:
     max_pages: int = 500
     delta_lookback_days: int = 2
     severity_form_key: Optional[str] = None
+    plot_photo_form_key: Optional[str] = None
 
     @classmethod
     def from_environment(
@@ -118,6 +138,7 @@ class TrackwickApiConfig:
         except Exception as error:
             raise TrackwickConfigurationError("FFL_TRACKWICK_REPORTING_TIMEZONE must be an IANA timezone") from error
         severity_form_key = _optional_form_key(values.get("FFL_TRACKWICK_SEVERITY_FORM_KEY"))
+        plot_photo_form_key = _optional_form_key(values.get("FFL_TRACKWICK_PLOT_PHOTO_FORM_KEY"))
         return cls(
             customer_id=customer_id,
             tenant_id=tenant_id,
@@ -130,6 +151,7 @@ class TrackwickApiConfig:
                 values.get("FFL_TRACKWICK_DELTA_LOOKBACK_DAYS"), 2, 1, 31
             ),
             severity_form_key=severity_form_key,
+            plot_photo_form_key=plot_photo_form_key,
         )
 
 
@@ -150,6 +172,31 @@ class TrackwickFetchResult:
 class TrackwickNormalisationResult:
     records: tuple[TrackolapRecord, ...]
     quarantined_rows: int
+
+
+@dataclass(frozen=True)
+class TrackwickPrivateRecord:
+    """One allow-listed row for the private TrackWick evidence graph.
+
+    The source adapter returns typed values, never the raw provider task or
+    form payload.  Repository code appends source-run provenance and performs
+    the reviewed upsert into the private database tables.
+    """
+
+    table: str
+    values: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class TrackwickPrivateEvidenceResult:
+    records: tuple[TrackwickPrivateRecord, ...]
+    quarantined_rows: int
+
+    def records_by_table(self) -> dict[str, tuple[TrackwickPrivateRecord, ...]]:
+        grouped: dict[str, list[TrackwickPrivateRecord]] = {}
+        for record in self.records:
+            grouped.setdefault(record.table, []).append(record)
+        return {table: tuple(rows) for table, rows in grouped.items()}
 
 
 class TrackwickApiAdapter:
@@ -305,6 +352,336 @@ def normalise_trackwick_basics(
             continue
         records.extend(task_records)
     return TrackwickNormalisationResult(tuple(records), quarantined)
+
+
+def normalise_trackwick_private_evidence(
+    fetched: TrackwickFetchResult,
+    config: TrackwickApiConfig,
+    as_of: Optional[datetime] = None,
+) -> TrackwickPrivateEvidenceResult:
+    """Map the reviewed private TrackWick evidence contract.
+
+    This is intentionally separate from the public-safe aggregate and basics
+    lanes.  It reads exact location, remote crop/plot-photo references and
+    contact data only into the server-only private graph.  It never creates a
+    canonical Fortune entity and never serialises raw task/form payloads.
+    """
+    timezone_value = ZoneInfo(config.reporting_timezone)
+    fallback_time = (as_of or datetime.now(timezone.utc)).astimezone(timezone_value)
+    collector = _PrivateEvidenceCollector()
+    quarantined = 0
+
+    for customer in fetched.customers:
+        if not _normalise_private_customer(customer, config, fallback_time, collector):
+            quarantined += 1
+    for task in fetched.tasks:
+        if not _normalise_private_task(task, config, fallback_time, collector):
+            quarantined += 1
+    for attendance in fetched.attendance:
+        if not _normalise_private_attendance(attendance, config, fallback_time, collector):
+            quarantined += 1
+
+    return TrackwickPrivateEvidenceResult(collector.records(), quarantined)
+
+
+class _PrivateEvidenceCollector:
+    """Deduplicate provider identities before persistence without raw payloads."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, dict[str, dict[str, Any]]] = {
+            table: {} for table in _PRIVATE_TABLE_ORDER
+        }
+
+    def add(self, table: str, values: Mapping[str, Any]) -> None:
+        if table not in self._rows:
+            raise ValueError("unknown private TrackWick table")
+        identifier = values.get("id") or values.get("task_id")
+        if not isinstance(identifier, str) or not identifier:
+            raise ValueError("private TrackWick record requires an id")
+        current = self._rows[table].get(identifier)
+        if current is None:
+            self._rows[table][identifier] = dict(values)
+            return
+        for key, value in values.items():
+            if value is None:
+                continue
+            if current.get(key) in (None, "", "Farmer", "Field worker"):
+                current[key] = value
+
+    def records(self) -> tuple[TrackwickPrivateRecord, ...]:
+        return tuple(
+            TrackwickPrivateRecord(table, MappingProxyType(dict(values)))
+            for table in _PRIVATE_TABLE_ORDER
+            for values in self._rows[table].values()
+        )
+
+
+def _normalise_private_customer(
+    customer: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime,
+    collector: _PrivateEvidenceCollector,
+) -> bool:
+    provider_identifier = _opaque(customer.get("iden")) or _opaque(customer.get("id"))
+    if provider_identifier is None:
+        return False
+    created_at = _timestamp(customer.get("createdOn"), fallback_time.tzinfo) or fallback_time
+    party_id = _add_private_party(
+        collector,
+        config.tenant_id,
+        "farmer",
+        provider_identifier,
+        _safe_text(customer.get("name"), maximum=160) or "Farmer",
+        crm_status=_private_status(customer.get("status")),
+        provider_owner_identifier=_opaque(customer.get("owner")),
+        provider_tag=_safe_text(customer.get("tag"), maximum=120),
+        provider_created_at=created_at.isoformat(),
+    )
+    _add_private_contact(collector, config.tenant_id, party_id, customer.get("mobile"))
+    _add_private_location(
+        collector,
+        config.tenant_id,
+        provider_location_key="crm:" + provider_identifier,
+        location_kind="crm",
+        location=customer.get("geo"),
+        observed_at=created_at.isoformat(),
+        party_id=party_id,
+    )
+    return True
+
+
+def _normalise_private_task(
+    task: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime,
+    collector: _PrivateEvidenceCollector,
+) -> bool:
+    provider_task_id = _opaque(task.get("id"))
+    task_type = _safe_text(task.get("type"), maximum=120)
+    observed_at = _task_time(task, fallback_time)
+    if provider_task_id is None or task_type is None or observed_at is None:
+        return False
+    task_id = _private_id("task", config.tenant_id, provider_task_id)
+    farmer_identifier = _farmer_code(task)
+    farmer_party_id = None
+    if farmer_identifier is not None:
+        farmer_party_id = _add_private_party(
+            collector,
+            config.tenant_id,
+            "farmer",
+            farmer_identifier,
+            _task_customer_display_name(task) or "Farmer",
+        )
+        _add_private_contact(collector, config.tenant_id, farmer_party_id, task.get("customerMobile"))
+    worker_identifier = _opaque(task.get("employeeIden"))
+    field_worker_party_id = None
+    if worker_identifier is not None:
+        field_worker_party_id = _add_private_party(
+            collector,
+            config.tenant_id,
+            "field_worker",
+            worker_identifier,
+            _safe_text(task.get("assignedTo"), maximum=160) or "Field worker",
+        )
+    status = _private_status(task.get("status"))
+    collector.add("trackwick_tasks", {
+        "id": task_id,
+        "provider_task_id": provider_task_id,
+        "farmer_party_id": farmer_party_id,
+        "field_worker_party_id": field_worker_party_id,
+        "provider_customer_identifier": farmer_identifier,
+        "task_type": task_type,
+        "task_status": status,
+        "provider_created_at": _timestamp_iso(task.get("created"), fallback_time),
+        "provider_started_at": _timestamp_iso(task.get("started"), fallback_time),
+        "provider_completed_at": _timestamp_iso(task.get("completed"), fallback_time),
+        "provider_follow_up_at": _timestamp_iso(task.get("followUpDate"), fallback_time),
+    })
+    _add_private_location(
+        collector,
+        config.tenant_id,
+        provider_location_key="task-completion:" + provider_task_id,
+        location_kind="task_completion",
+        location=task.get("completeGeo"),
+        observed_at=observed_at,
+        task_id=task_id,
+        accuracy=_safe_nonnegative_number(task.get("accuracy")),
+    )
+
+    form = task.get("formDetails")
+    form_details = form if isinstance(form, Mapping) else {}
+    type_key = task_type.casefold()
+    if type_key == config.form_title.casefold() and status == "completed":
+        _normalise_private_visit(
+            task_id, provider_task_id, form_details, observed_at, config, collector,
+        )
+    if type_key == "new farmer registration":
+        _normalise_private_registration(
+            task_id, farmer_party_id, form_details, status, observed_at, config, collector,
+        )
+    if type_key in _SOIL_TASK_TYPES:
+        _add_private_location(
+            collector,
+            config.tenant_id,
+            provider_location_key="soil:" + provider_task_id,
+            location_kind="soil",
+            location=form_details.get("Field GPS Location"),
+            observed_at=observed_at,
+            task_id=task_id,
+        )
+    if config.plot_photo_form_key:
+        _add_private_media(
+            collector,
+            config,
+            task_id,
+            provider_task_id,
+            "plot_photo",
+            form_details.get(config.plot_photo_form_key),
+            observed_at,
+        )
+    return True
+
+
+def _normalise_private_visit(
+    task_id: str,
+    provider_task_id: str,
+    form: Mapping[str, Any],
+    observed_at: str,
+    config: TrackwickApiConfig,
+    collector: _PrivateEvidenceCollector,
+) -> None:
+    collector.add("trackwick_visits", {
+        "task_id": task_id,
+        "observed_at": observed_at,
+        "transplanted_on": _safe_date(form.get(_VISIT_BASIC_FORM_KEYS["transplanted_at"])),
+        "crop_stage": _safe_text(form.get(_VISIT_BASIC_FORM_KEYS["crop_stage"]), maximum=120),
+        "water_condition": _safe_text(form.get(_VISIT_BASIC_FORM_KEYS["water_condition"]), maximum=120),
+        "crop_condition_score": _safe_score(form.get(_VISIT_BASIC_FORM_KEYS["crop_condition"])),
+        "kit_status": _kit_status(form.get(_FORM_KEYS["kit_taken"])),
+    })
+    severity = _severity(form.get(config.severity_form_key)) if config.severity_form_key else "unknown"
+    for field, kind in (
+        ("disease", "disease"),
+        ("other_disease", "disease"),
+        ("pest", "pest"),
+        ("other_pest", "pest"),
+    ):
+        source_field = _FORM_KEYS[field]
+        for answer in _answers(form.get(source_field)):
+            collector.add("trackwick_visit_findings", {
+                "id": _private_id("finding", config.tenant_id, task_id, kind, source_field, answer),
+                "visit_task_id": task_id,
+                "finding_kind": kind,
+                "reported_value": answer,
+                "source_field": source_field,
+                "declared_severity": severity,
+                "observed_at": observed_at,
+            })
+    for field, input_kind, event_kind in (
+        ("pesticide_used", "pesticide", "applied"),
+        ("other_pesticide", "pesticide", "applied"),
+        ("pesticide_recommended", "pesticide", "recommended"),
+        ("fertilizer_used", "fertilizer", "applied"),
+        ("fertilizer_recommended", "fertilizer", "recommended"),
+    ):
+        source_field = _FORM_KEYS[field]
+        for answer in _answers(form.get(source_field)):
+            collector.add("trackwick_crop_inputs", {
+                "id": _private_id("input", config.tenant_id, task_id, input_kind, event_kind, source_field, answer),
+                "visit_task_id": task_id,
+                "input_kind": input_kind,
+                "event_kind": event_kind,
+                "reported_product": answer,
+                "source_field": source_field,
+                "occurred_at": observed_at,
+            })
+    _add_private_location(
+        collector,
+        config.tenant_id,
+        provider_location_key="visit-location:" + provider_task_id,
+        location_kind="visit_location",
+        location=form.get(_FORM_KEYS["location"]),
+        observed_at=observed_at,
+        task_id=task_id,
+    )
+    _add_private_media(
+        collector, config, task_id, provider_task_id, "crop_photo",
+        form.get(_FORM_KEYS["crop_photo"]), observed_at,
+    )
+
+
+def _normalise_private_registration(
+    task_id: str,
+    farmer_party_id: Optional[str],
+    form: Mapping[str, Any],
+    status: str,
+    observed_at: str,
+    config: TrackwickApiConfig,
+    collector: _PrivateEvidenceCollector,
+) -> None:
+    registration_id = _private_id("registration", config.tenant_id, task_id)
+    collector.add("trackwick_registrations", {
+        "id": registration_id,
+        "task_id": task_id,
+        "farmer_party_id": farmer_party_id,
+        "registration_status": status,
+        "village_name": _safe_text(form.get(_REGISTRATION_FORM_KEYS["village"]), maximum=120),
+        "block_name": _safe_text(form.get(_REGISTRATION_FORM_KEYS["block"]), maximum=120),
+        "district_name": _safe_text(form.get(_REGISTRATION_FORM_KEYS["district"]), maximum=120),
+        "reported_total_area_acres": _safe_number(form.get(_REGISTRATION_FORM_KEYS["area_acres"])),
+        "reported_plot_count": _safe_integer(form.get(_REGISTRATION_FORM_KEYS["plot_count"])),
+        "reported_pb1_area_acres": _safe_number(form.get(_REGISTRATION_FORM_KEYS["pb1_area_acres"])),
+        "reported_1718_area_acres": _safe_number(form.get(_REGISTRATION_FORM_KEYS["var1718_area_acres"])),
+    })
+    if farmer_party_id is not None:
+        _add_private_contact(collector, config.tenant_id, farmer_party_id, form.get("Mobile No"))
+    _add_private_location(
+        collector,
+        config.tenant_id,
+        provider_location_key="registration:" + task_id,
+        location_kind="registration",
+        location=form.get("Geo"),
+        observed_at=observed_at,
+        registration_id=registration_id,
+    )
+    plots = form.get("Plot Details")
+    if not isinstance(plots, list):
+        return
+    for ordinal, plot in enumerate(plots, start=1):
+        if not isinstance(plot, Mapping):
+            continue
+        collector.add("trackwick_registration_plots", {
+            "id": _private_id("plot", config.tenant_id, registration_id, ordinal),
+            "registration_id": registration_id,
+            "ordinal": ordinal,
+            "gata_number": _safe_text(plot.get("Gata No."), maximum=120),
+            "reported_area_bigha": _safe_number(plot.get("Plot Size (Bigha)")),
+            "plot_type": _safe_text(plot.get("Plot Type"), maximum=120),
+            "village_name": _safe_text(plot.get("Village"), maximum=120),
+        })
+
+
+def _normalise_private_attendance(
+    attendance: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime,
+    collector: _PrivateEvidenceCollector,
+) -> bool:
+    provider_identifier = _opaque(attendance.get("empId"))
+    observed_at = _date_time(attendance.get("date"), fallback_time, config.reporting_timezone)
+    if provider_identifier is None or observed_at is None:
+        return False
+    party_id = _add_private_party(
+        collector,
+        config.tenant_id,
+        "field_worker",
+        provider_identifier,
+        _safe_text(attendance.get("name"), maximum=160) or "Field worker",
+    )
+    start_time = _safe_text(attendance.get("startTime"), maximum=32)
+    collector.add("trackwick_worker_days", {
+        "id": _private_id("worker-day", config.tenant_id, provider_identifier, observed_at[:10]),
+        "field_worker_party_id": party_id,
+        "observed_on": observed_at[:10],
+        "attendance_status": "present" if start_time else "not_punched",
+        "reported_start_time": start_time,
+        "reported_total_time": _safe_text(attendance.get("totalTime"), maximum=32),
+    })
+    return True
 
 
 def _normalise_customer(
@@ -670,6 +1047,232 @@ def _pesticide_records(
                 },
             ))
     return records
+
+
+def _add_private_party(
+    collector: _PrivateEvidenceCollector,
+    tenant_id: str,
+    party_kind: str,
+    provider_identifier: str,
+    display_name: str,
+    *,
+    crm_status: Optional[str] = None,
+    provider_owner_identifier: Optional[str] = None,
+    provider_tag: Optional[str] = None,
+    provider_created_at: Optional[str] = None,
+) -> str:
+    party_id = _private_id("party", tenant_id, party_kind, provider_identifier)
+    collector.add("trackwick_parties", {
+        "id": party_id,
+        "party_kind": party_kind,
+        "provider_identifier": provider_identifier,
+        "display_name": display_name,
+        "crm_status": crm_status,
+        "provider_owner_identifier": provider_owner_identifier,
+        "provider_tag": provider_tag,
+        "provider_created_at": provider_created_at,
+    })
+    return party_id
+
+
+def _add_private_contact(
+    collector: _PrivateEvidenceCollector, tenant_id: str, party_id: str, value: Any,
+) -> None:
+    mobile = _private_mobile(value)
+    if mobile is None:
+        return
+    fingerprint = hashlib.sha256(mobile.encode("utf-8")).hexdigest()
+    collector.add("trackwick_contact_points", {
+        "id": _private_id("contact", tenant_id, party_id, fingerprint),
+        "party_id": party_id,
+        "contact_kind": "mobile",
+        "contact_value": mobile,
+        "value_fingerprint": fingerprint,
+        "consent_status": "unknown",
+    })
+
+
+def _add_private_location(
+    collector: _PrivateEvidenceCollector,
+    tenant_id: str,
+    *,
+    provider_location_key: str,
+    location_kind: str,
+    location: Any,
+    observed_at: str,
+    party_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+    registration_id: Optional[str] = None,
+    media_reference_id: Optional[str] = None,
+    accuracy: Optional[float] = None,
+) -> None:
+    parsed = _private_location(location)
+    if parsed is None:
+        return
+    latitude, longitude, provider_address, provider_geo_address, provider_accuracy = parsed
+    collector.add("trackwick_location_observations", {
+        "id": _private_id("location", tenant_id, provider_location_key),
+        "party_id": party_id,
+        "task_id": task_id,
+        "registration_id": registration_id,
+        "media_reference_id": media_reference_id,
+        "provider_location_key": provider_location_key,
+        "location_kind": location_kind,
+        "location_confidence": "observed" if location_kind in {"task_completion", "visit_location", "media_capture"} else "declared",
+        "latitude": latitude,
+        "longitude": longitude,
+        "provider_address": provider_address,
+        "provider_geo_address": provider_geo_address,
+        "provider_accuracy_m": accuracy if accuracy is not None else provider_accuracy,
+        "observed_at": observed_at,
+    })
+
+
+def _add_private_media(
+    collector: _PrivateEvidenceCollector,
+    config: TrackwickApiConfig,
+    task_id: str,
+    provider_task_id: str,
+    media_kind: str,
+    raw_value: Any,
+    observed_at: str,
+) -> None:
+    for item in _private_media_items(raw_value):
+        url = _safe_remote_trackwick_url(item.get("url"))
+        if url is None:
+            continue
+        provider_media_key = ":".join((provider_task_id, media_kind, hashlib.sha256(url.encode("utf-8")).hexdigest()))
+        media_id = _private_id("media", config.tenant_id, provider_media_key)
+        created_at = _timestamp_iso(item.get("createdOn"), _timestamp_from_iso(observed_at)) or observed_at
+        collector.add("trackwick_media_references", {
+            "id": media_id,
+            "task_id": task_id,
+            "provider_media_key": provider_media_key,
+            "media_kind": media_kind,
+            "remote_url": url,
+            "provider_created_at": created_at,
+            "source_access_state": "available",
+            "content_state": "remote_only",
+            "exif_state": "not_checked",
+            "content_hash": None,
+            "content_type": None,
+            "size_bytes": None,
+        })
+        _add_private_location(
+            collector,
+            config.tenant_id,
+            provider_location_key="media:" + provider_media_key,
+            location_kind="media_capture",
+            location=item.get("geo"),
+            observed_at=created_at,
+            task_id=task_id,
+            media_reference_id=media_id,
+        )
+
+
+def _private_media_items(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if isinstance(value, Mapping):
+        return (value,)
+    if isinstance(value, list):
+        return tuple(item for item in value if isinstance(item, Mapping))
+    return ()
+
+
+def _safe_remote_trackwick_url(value: Any) -> Optional[str]:
+    url = _safe_text(value, maximum=2000)
+    if url is None:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != _TRACKWICK_MEDIA_HOST:
+        return None
+    return url
+
+
+def _private_location(value: Any) -> Optional[tuple[float, float, Optional[str], Optional[str], Optional[float]]]:
+    if not isinstance(value, Mapping):
+        return None
+    latitude = _safe_coordinate(value.get("lat"), lower=-90, upper=90)
+    longitude = _safe_coordinate(value.get("lng"), lower=-180, upper=180)
+    if latitude is None or longitude is None:
+        return None
+    # TrackWick's inGeoDetail can contain a more detailed provider payload.  It
+    # is deliberately not part of the private contract; the two explicit
+    # address labels are enough for reviewed manager use.
+    return (
+        latitude,
+        longitude,
+        _safe_text(value.get("address"), maximum=320),
+        _safe_text(value.get("geoAddress"), maximum=320),
+        _safe_nonnegative_number(value.get("accuracy")),
+    )
+
+
+def _private_id(kind: str, tenant_id: str, *parts: object) -> str:
+    canonical = "\x1f".join((kind, tenant_id, *(str(part) for part in parts)))
+    return "tw:" + kind + ":" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+
+def _private_mobile(value: Any) -> Optional[str]:
+    candidate = _safe_text(value, maximum=32)
+    if candidate is None:
+        return None
+    digits = re.sub(r"[^0-9]", "", candidate)
+    if not 7 <= len(digits) <= 15:
+        return None
+    return digits
+
+
+def _private_status(value: Any) -> str:
+    candidate = _safe_status(value, "unknown")
+    return candidate if candidate in {"completed", "in_progress", "pending"} else "unknown"
+
+
+def _task_customer_display_name(task: Mapping[str, Any]) -> Optional[str]:
+    return _safe_text(task.get("customerName"), maximum=160)
+
+
+def _timestamp_iso(value: Any, fallback_time: datetime) -> Optional[str]:
+    parsed = _timestamp(value, fallback_time.tzinfo)
+    return parsed.isoformat() if parsed is not None else None
+
+
+def _timestamp_from_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _safe_coordinate(value: Any, *, lower: float, upper: float) -> Optional[float]:
+    number = _safe_number(value)
+    if number is None or not lower <= number <= upper:
+        return None
+    return round(number, 6)
+
+
+def _safe_number(value: Any) -> Optional[float]:
+    candidate = _safe_text(value, maximum=32)
+    if candidate is None:
+        return None
+    try:
+        parsed = float(candidate)
+    except ValueError:
+        return None
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):
+        return None
+    return parsed
+
+
+def _safe_nonnegative_number(value: Any) -> Optional[float]:
+    parsed = _safe_number(value)
+    return parsed if parsed is not None and parsed >= 0 else None
+
+
+def _safe_integer(value: Any) -> Optional[int]:
+    candidate = _safe_whole_number(value)
+    return int(candidate) if candidate is not None else None
+
+
+def _safe_score(value: Any) -> Optional[float]:
+    score = _safe_number(value)
+    return score if score is not None and 1 <= score <= 10 else None
 
 
 def _record(feed: str, source_id: str, source_updated_at: str, tenant_id: str, values: Mapping[str, str]) -> TrackolapRecord:

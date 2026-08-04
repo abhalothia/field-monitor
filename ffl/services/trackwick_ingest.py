@@ -19,11 +19,12 @@ import httpx
 
 from ffl.domain.models import SourceRegistry, SourceRun
 from ffl.integrations.trackolap.trackwick import (
-    MAPPING_VERSION,
+    PRIVATE_EVIDENCE_MAPPING_VERSION,
     TrackwickApiConfig,
     TrackwickConfigurationError,
     TrackwickSourceFailure,
     normalise_trackwick_basics,
+    normalise_trackwick_private_evidence,
     normalise_trackwick,
     refresh_trackwick,
 )
@@ -32,6 +33,7 @@ from ffl.services.sources import environment_credential_resolver
 
 
 SOURCE_KEY = "trackwick-fortune-paddy"
+LIVE_MAPPING_VERSION = "trackwick-live-v4"
 _REFRESH_LOCK = threading.RLock()
 
 
@@ -68,7 +70,7 @@ def refresh_live_trackwick(
             conn,
             source.id,
             coverage={"input": "trackwick_live_api"},
-            mapping_version=MAPPING_VERSION if configuration_error else "not_configured",
+            mapping_version=LIVE_MAPPING_VERSION if configuration_error else "not_configured",
             status="unavailable",
             fetched_at=_now(),
             error_summary=configuration_error or "configuration_unavailable",
@@ -92,7 +94,7 @@ def refresh_live_trackwick(
             conn,
             source.id,
             coverage={"input": "trackwick_live_api"},
-            mapping_version=MAPPING_VERSION,
+            mapping_version=LIVE_MAPPING_VERSION,
             status="unavailable" if str(error) in {"configuration_unavailable", "credentials_unavailable"} else "failed",
             fetched_at=_now(),
             error_summary=_safe_reason_code(str(error)),
@@ -101,8 +103,13 @@ def refresh_live_trackwick(
 
     normalised = normalise_trackwick(fetched, resolved_config, as_of=as_of)
     basics = normalise_trackwick_basics(fetched, resolved_config, as_of=as_of)
+    private_evidence = normalise_trackwick_private_evidence(fetched, resolved_config, as_of=as_of)
     all_records = (*normalised.records, *basics.records)
-    quarantined_rows = normalised.quarantined_rows + basics.quarantined_rows
+    quarantined_rows = (
+        normalised.quarantined_rows
+        + basics.quarantined_rows
+        + private_evidence.quarantined_rows
+    )
     with _REFRESH_LOCK:
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -117,6 +124,7 @@ def refresh_live_trackwick(
                     "customer_pages": fetched.customer_pages,
                     "customer_rows": len(fetched.customers),
                     "attendance_rows": len(fetched.attendance),
+                    "private_evidence_rows": len(private_evidence.records),
                     **(
                         {
                             "create_date_begin": created_since.isoformat(),
@@ -126,7 +134,7 @@ def refresh_live_trackwick(
                         else {}
                     ),
                 },
-                mapping_version=MAPPING_VERSION,
+                mapping_version=LIVE_MAPPING_VERSION,
                 cursor=json.dumps({"reporting_date": _as_of_date(as_of, resolved_config.reporting_timezone)}, separators=(",", ":")),
                 status="quarantined" if quarantined_rows else "succeeded",
                 fetched_at=_now(),
@@ -159,6 +167,14 @@ def refresh_live_trackwick(
                 status="published",
                 commit=False,
             )
+            repository.upsert_trackwick_private_records(
+                conn,
+                source.id,
+                run.id,
+                private_evidence.records,
+                PRIVATE_EVIDENCE_MAPPING_VERSION,
+                commit=False,
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -166,7 +182,7 @@ def refresh_live_trackwick(
                 conn,
                 source.id,
                 coverage={"input": "trackwick_live_api"},
-                mapping_version=MAPPING_VERSION,
+                mapping_version=LIVE_MAPPING_VERSION,
                 status="failed",
                 fetched_at=_now(),
                 error_summary="persistence_failed",
@@ -177,7 +193,7 @@ def refresh_live_trackwick(
         run,
         "quarantined" if quarantined_rows else "succeeded",
         "row_validation_failed" if quarantined_rows else None,
-        len(all_records),
+        len(all_records) + len(private_evidence.records),
         quarantined_rows,
     )
 
@@ -208,12 +224,15 @@ def _ensure_source(conn, owner_id: str, config: Optional[TrackwickApiConfig]) ->
             "visit_observation",
             "issue_observation",
             "pesticide_event",
+            "private_contact_vault",
+            "private_spatial_evidence",
+            "private_media_reference",
         ],
-        schema_version="trackwick-v2",
-        mapping_version=MAPPING_VERSION if config else "not_configured",
+        schema_version="trackwick-v3",
+        mapping_version=LIVE_MAPPING_VERSION if config else "not_configured",
         default_coverage={"tenant": config.tenant_id if config else "not_configured"},
         freshness_target_hours=24,
-        license_notes="Read-only TrackWick API; only the reviewed basics allow-list is retained. Aadhaar, mobile numbers, signatures, photos, comments, and exact GPS are never retained.",
+        license_notes="Read-only TrackWick API. Aggregate basics are published separately; reviewed mobile, exact GPS and remote crop/plot-photo references stay in private source tables. Aadhaar, signatures, comments and raw form payloads are never retained.",
         enabled=config is not None,
     )
 

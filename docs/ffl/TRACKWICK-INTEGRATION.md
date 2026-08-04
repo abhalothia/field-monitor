@@ -25,6 +25,8 @@ FFL_TRACKWICK_TENANT_ID=fortune-paddy
 FFL_TRACKWICK_REPORTING_TIMEZONE=Asia/Kolkata
 # Optional: exact TrackWick form label for a human-reported low/moderate/high/critical field
 FFL_TRACKWICK_SEVERITY_FORM_KEY=<exact form field label>
+# Optional: exact form label for an approved plot-photo field; no guessed label is read
+FFL_TRACKWICK_PLOT_PHOTO_FORM_KEY=<exact form field label>
 ```
 
 Optional bounds are `FFL_TRACKWICK_TASK_PAGE_SIZE` (1–250, default 100), `FFL_TRACKWICK_TASK_MAX_PAGES` (1–1000, default 500), and `FFL_TRACKWICK_DELTA_LOOKBACK_DAYS` (1–31, default 2). The connector uses only these GET endpoints:
@@ -34,7 +36,7 @@ Optional bounds are `FFL_TRACKWICK_TASK_PAGE_SIZE` (1–250, default 100), `FFL_
 - `/cust/1/api/asset/productivity`, for the current India reporting date.
 
 Before the first refresh, apply the reviewed private migrations through
-`0008_agro_trackwick_crm_basics.sql` to the intended Supabase project and create the
+`0009_agro_trackwick_private_spatial_evidence.sql` to the intended Supabase project and create the
 real accountable Fortune manager in `agro_people` with the role
 `farm_manager`, `operations_lead`, or `agronomist`. The refresh will fail
 closed if that owner is absent or has another role; it never creates a
@@ -49,6 +51,14 @@ One task can safely become a farmer-task context row, completed visit, issue obs
 - `GET /api/v1/trackwick/metrics`
 
 The refresh is manual and manager-authorized. Its published records are source context only; farmer, farm, and field-worker basics remain candidates until reviewed. They never create a canonical farm, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
+
+The separate private evidence lane retains only the extra source facts needed
+for a useful operational map and later review: customer/registration mobiles
+in a restricted contact vault, typed tasks/visits/plots, exact source points,
+and remote crop/plot-photo references from TrackWick's approved image host.
+It marks registration/CRM points as declared and task/visit/photo points as
+observed. Those pins are never farm boundaries, and a refresh never copies a
+photo or sends private evidence to the browser.
 
 Severity stays `unknown` unless Fortune explicitly adds a low/moderate/high/critical field to the Farmer Visit form and supplies its exact label in `FFL_TRACKWICK_SEVERITY_FORM_KEY`. AGRO CEO never infers severity from a pest or disease name. New submissions then carry the field worker's stated severity; existing source records remain unchanged.
 
@@ -71,13 +81,16 @@ or exposing provider access to the browser.
 
 The CRM-basics lane retains a farmer or field-worker **name** only with its
 stable TrackWick identifier; that is the minimum needed to review a real
-person. It never persists or returns mobile numbers, Aadhaar, family details,
-signature, photos, email, comments, exact GPS, address geometry, raw
-`formDetails`, task URLs, or the customer/API credentials. A farmer is
-otherwise represented by TrackWick's opaque `customerIden`. If an older task
-omits that field but has the verified Fortune shape `FC-01734 (Farmer Name)`,
-the connector retains only `FC-01734`; a name alone is rejected. Village,
-block, district, reported acreage, and crop timing are retained only when they
-come from their reviewed, explicit form fields.
+person. A farmer is otherwise represented by TrackWick's opaque
+`customerIden`. If an older task omits that field but has the verified Fortune
+shape `FC-01734 (Farmer Name)`, the connector retains only `FC-01734`; a name
+alone is rejected. Village, block, district, reported acreage, and crop timing
+are retained only when they come from their reviewed, explicit form fields.
+
+Both lanes discard Aadhaar numbers and images, family details, signatures,
+email, free-text comments, unknown photo labels, raw `formDetails`, task URLs,
+and the customer/API credentials. The private lane keeps an approved photo as
+a remote reference only: no copied bytes, EXIF extraction, or AI
+interpretation occurs during sync.
 
 TrackWick does not provide an authoritative territory owner, purchase commitment, collection/weighbridge record, grade, lot, residue test, or EU-compliance result. Those require their own reviewed Fortune sources. A pesticide record is a review cue, never proof that the crop is compliant.

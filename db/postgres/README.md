@@ -20,3 +20,10 @@ never applies this migration itself.
 (`0006`) and adds the private native field-capture pass/candidate ledger. It
 does not enable a browser identity, upload endpoint, public Data API, or
 provider integration by itself.
+
+`0009_agro_trackwick_private_spatial_evidence.sql` adds the private typed
+TrackWick CRM/evidence graph. It enables PostGIS in Supabase's `extensions`
+schema and stores only source points—not farm polygons. Apply it with the
+direct migration connection, never the Vercel transaction pooler. Its tables
+remain outside Supabase's Data API and require an accountable Fortune manager
+before the source refresh can run.
