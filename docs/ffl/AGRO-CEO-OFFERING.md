@@ -4,6 +4,9 @@ AGRO CEO is Fortune Farms' private operating system for running a real farm
 with more clarity, speed, and discipline. It is not an information portal, a
 government dashboard, a generic farmer CRM, or an autonomous agronomy bot.
 
+The current Fortune Rice manager experience, its six views, and the source-to-
+decision boundary are defined in the [operating architecture](OPERATING-ARCHITECTURE.md).
+
 ## The promise
 
 For the company: **see what matters, decide who owns it, and learn what

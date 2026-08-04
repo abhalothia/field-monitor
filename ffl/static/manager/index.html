@@ -13,7 +13,7 @@
   <body>
     <main class="shell">
       <header class="masthead">
-        <a class="wordmark" href="/" aria-label="AGRO CEO home">
+        <a class="wordmark" href="/manager" aria-label="AGRO CEO home">
           <img src="/assets/rice-sheaf-icon.png" alt="">
           <span id="wordmark-name">AGRO CEO</span>
         </a>
@@ -56,7 +56,7 @@
             <div class="weather-context">
               <span class="material-symbols-outlined" aria-hidden="true">partly_cloudy_day</span>
               <div>
-                <strong id="weather-state">Weather loading</strong>
+                <strong id="weather-state" data-i18n="weatherLoading">Weather loading</strong>
                 <p id="weather-note"></p>
               </div>
             </div>
@@ -162,10 +162,7 @@
       <section id="panel-settings" class="command-view object-view" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <section class="command-card single-focus-card manager-access-card" aria-labelledby="settings-heading">
           <div class="card-heading">
-            <div>
-              <p class="eyebrow" data-i18n="oneThing">One thing</p>
-              <h2 id="settings-heading" data-i18n="managerAccess">Manager access</h2>
-            </div>
+            <div><h2 id="settings-heading" data-i18n="managerAccess">Manager access</h2></div>
           </div>
           <p id="manager-session-status" class="manager-session-status" aria-live="polite" data-i18n="managerLocked">Manager actions are locked on this browser.</p>
           <button id="manager-session-action" class="pulse-action" type="button" data-i18n="unlockActions">Unlock manager actions</button>

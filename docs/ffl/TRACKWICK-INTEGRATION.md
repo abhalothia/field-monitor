@@ -2,6 +2,12 @@
 
 AGRO CEO connects to Fortune's TrackWick tenant as a **read-only, manager-triggered** source of field-operation context. It uses the verified TrackOlap EEP API V2 task stream and productivity endpoint; it does not use the browser, write to TrackWick, or expose credentials to a manager session.
 
+This is a source layer, not the manager's operating record. The precise
+source-to-screen boundary is in [Operating architecture](OPERATING-ARCHITECTURE.md):
+TrackWick may inform aggregate reach, reported chemical activity, crop signals,
+and field-worker filing; it never creates a farm pin, reviewed farmer, or
+automatic diagnosis.
+
 ## Server configuration
 
 Set these only in the deployment secret manager or server environment. Do not put values in source code, browser configuration, a database record, or a client-side `.env` file.

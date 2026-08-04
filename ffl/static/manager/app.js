@@ -4,10 +4,7 @@
   var runtimeUrl = "/api/v1/runtime";
   var portfolioUrl = "/api/v1/portfolio";
   var fortuneMapUrl = "/api/v1/fortune-map";
-  var allocationCalendarUrl = "/api/v1/allocations/";
   var dataLanesUrl = "/api/v1/data-lanes";
-  var operatingProfileUrl = "/api/v1/operating-profile";
-  var pilotReadinessUrl = "/api/v1/pilot/readiness";
   var managerSessionStatusUrl = "/api/v1/manager-session/status";
   var managerSessionLoginUrl = "/api/v1/manager-session/login";
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
@@ -27,12 +24,6 @@
   var connectedAllocationId = null;
   var leafletMaps = {};
   var sampleMode = false;
-  var inboxOwnerId = null;
-  var allocationCalendars = {};
-  var focusedAllocationId = null;
-  var allocationCalendarRequest = 0;
-  var pendingAction = null;
-  var focusExceptionId = null;
   var focusTargetView = "farms";
   var managerSessionAuthenticated = false;
   var localeStorageKey = "ffl.manager.interface-locale";
@@ -40,7 +31,7 @@
   var copy = {
     en: {
       navHome: "Home", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
-      refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From",
+      refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From", weatherLoading: "Weather loading",
       sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
       localContext: "Local operating context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
       farmerReach: "Farmer reach", purchaseShare: "Purchase share", chemicalRecord: "Chemical record", cropSignals: "Crop signals",
@@ -59,12 +50,12 @@
       sampleFarm: "Jewar Model Farm · North Block", sampleFarmName: "Jewar Model Farm", sampleField: "North Block", sampleCrop: "Pusa Basmati 1121", sampleFarmerTrait: "Contract grower", sampleWorkerTrait: "Field operator", sampleLocationShort: "Dargava, Aligarh",
       reading: "reading", attention: "attention", reported: "reported", planned: "planned", verified: "verified", high: "high", moderate: "moderate", low: "low", critical: "critical",
       grower: "grower", fieldOperator: "field operator", stemBorer: "stem borer", leafFolder: "leaf folder",
-      loading: "loading", today: "today", filedToday: "filed today", farmersNeedVisit: "farmers need a visit", highCriticalSevenDays: "high / critical · 7 days", notScheduled: "Not scheduled", notVisited: "never visited", reachedFourteenDays: "reached in 14 days", workerNoFile: "active officers did not file",
+      loading: "loading", today: "today", filedToday: "filed today", farmersNeedVisit: "farmers need a visit", highCriticalSevenDays: "high / critical · 7 days", notScheduled: "Not scheduled", notVisited: "never visited", reachedFourteenDays: "reached in 14 days", workerNoFile: "active officers did not file", unassigned: "Unassigned",
       coverageLoading: "Coverage is loading.", coverageUnavailable: "Coverage is unavailable.", dailyFilingLoading: "Daily filing is loading.", dailyFilingUnavailable: "Daily filing is unavailable.",
-      mapUnavailable: "Map unavailable", noReviewedGeometry: "No reviewed geometry", reviewedField: "reviewed field", reviewedFields: "reviewed fields",
+      mapUnavailable: "Map unavailable", noReviewedGeometry: "No reviewed geometry", reviewedField: "reviewed field", reviewedFields: "reviewed fields", mapEmpty: "No reviewed field geometry is available yet. A programme village or coverage count is never placed on this map.", mapLibraryUnavailable: "The map library is unavailable. Reviewed field geometry remains protected until the map can load.", mapManifestNote: "Map detail comes only from the latest published, reviewed farm manifest.", mapPrivacyNote: "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.", farmMapNote: "The map uses the same reviewed farm geometry as Home.", farmMapPrivacyNote: "Only reviewed field geometry is shown. No source village is treated as a farm point.", unlockMap: "Unlock to reveal map", mapLoadFailed: "Reviewed field geometry could not be loaded right now.", mapAccessRequired: "Manager access is required before private reviewed field geometry can be shown.",
       settingsTitle: "Settings.", settingsDetail: "Access and source boundaries.", homeDetail: "What needs to move today.", farmsDetail: "Ground truth from reviewed farm and field records.", farmersDetail: "Coverage context and reviewed farmer relationships.", workersDetail: "Daily activity and reviewed ownership.", inboxDetail: "Decisions, work, and follow-through.",
       todayTitle: "Home.", farmsTitle: "Farms.", farmersTitle: "Farmers.", workersTitle: "Field workers.", inboxTitle: "Inbox.",
-      openFarms: "Open farms", openFarmers: "Open farmers", openInbox: "Open inbox", openSettings: "Open settings", ready: "Ready.",
+      openFarms: "Open farms", openFarmers: "Open farmers", openInbox: "Open inbox", openSettings: "Open settings", ready: "Ready.", loadingStatus: "Loading…", loadingActions: "Loading actions…", updatedNow: "Updated just now.", refreshingField: "Refreshing field context…", currentFieldOperations: "Current field operations",
       managerUnlocked: "Manager actions are unlocked briefly on this browser.", managerLocked: "Manager actions are locked on this browser.", lockActions: "Lock manager actions", unlockActions: "Unlock manager actions", unlocking: "Unlocking…", unlockPrivateActions: "Unlock private actions", managerSecret: "Manager secret", managerSecretHelp: "Use the separately configured manager secret. It is sent only to this server and is never saved in the browser.", managerExpiry: "Manager access expires automatically.",
       directionLoadingTitle: "Reading the operation.", directionLoadingNote: "The field picture is loading.", dailyActivityLoading: "Daily activity loading", coverageLoadingShort: "Coverage loading", openWorkers: "Open field workers", awaitingSignal: "Awaiting field signal",
       coverageRiskTitle: "Field coverage is the supply risk.", coverageRiskNote: "{filed} visits were filed by {filing} of {active} field workers. Missing visits leave crop, purchase, and proof uncertain.",
@@ -87,11 +78,11 @@
       fieldAskReady: "is reviewed; delivery stays independently gated", awaitingFieldAnswer: "Awaiting a reviewable field answer from",
       checkDelivery: "Check delivery eligibility or cancel and reissue it. Do not assume an answer.",
       reviewFieldAnswer: "Review any response and retained proof. The linked work stays open until a human closes it.",
-      openFieldAsks: "Open field asks"
+      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
     },
     hi: {
       navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
-      refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे",
+      refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे", weatherLoading: "मौसम लोड हो रहा है",
       sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
       localContext: "स्थानीय परिचालन संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
       farmerReach: "किसान संपर्क", purchaseShare: "खरीद हिस्सेदारी", chemicalRecord: "रसायन रिकॉर्ड", cropSignals: "फसल संकेत",
@@ -110,12 +101,12 @@
       sampleFarm: "जेवर मॉडल फ़ार्म · उत्तर खंड", sampleFarmName: "जेवर मॉडल फ़ार्म", sampleField: "उत्तर खंड", sampleCrop: "पूसा बासमती 1121", sampleFarmerTrait: "अनुबंधित किसान", sampleWorkerTrait: "फील्ड कर्मी", sampleLocationShort: "दरगावा, अलीगढ़",
       reading: "पढ़ा जा रहा है", attention: "ध्यान", reported: "दर्ज", planned: "योजित", verified: "सत्यापित", high: "उच्च", moderate: "मध्यम", low: "कम", critical: "अति गंभीर",
       grower: "किसान", fieldOperator: "फील्ड कर्मी", stemBorer: "तना छेदक", leafFolder: "पत्ता लपेटक",
-      loading: "लोड हो रहा है", today: "आज", filedToday: "आज दर्ज", farmersNeedVisit: "किसानों की मुलाक़ात बाकी", highCriticalSevenDays: "उच्च / अति गंभीर · 7 दिन", notScheduled: "निर्धारित नहीं", notVisited: "कभी मुलाक़ात नहीं हुई", reachedFourteenDays: "14 दिन में पहुँचे", workerNoFile: "सक्रिय कर्मियों ने दर्ज नहीं किया",
+      loading: "लोड हो रहा है", today: "आज", filedToday: "आज दर्ज", farmersNeedVisit: "किसानों की मुलाक़ात बाकी", highCriticalSevenDays: "उच्च / अति गंभीर · 7 दिन", notScheduled: "निर्धारित नहीं", notVisited: "कभी मुलाक़ात नहीं हुई", reachedFourteenDays: "14 दिन में पहुँचे", workerNoFile: "सक्रिय कर्मियों ने दर्ज नहीं किया", unassigned: "जिम्मेदार तय नहीं",
       coverageLoading: "कवरेज लोड हो रहा है।", coverageUnavailable: "कवरेज उपलब्ध नहीं है।", dailyFilingLoading: "दैनिक दर्ज करना लोड हो रहा है।", dailyFilingUnavailable: "दैनिक दर्ज करना उपलब्ध नहीं है।",
-      mapUnavailable: "नक्शा उपलब्ध नहीं है", noReviewedGeometry: "कोई सत्यापित ज्यामिति नहीं", reviewedField: "सत्यापित खेत", reviewedFields: "सत्यापित खेत",
+      mapUnavailable: "नक्शा उपलब्ध नहीं है", noReviewedGeometry: "कोई सत्यापित ज्यामिति नहीं", reviewedField: "सत्यापित खेत", reviewedFields: "सत्यापित खेत", mapEmpty: "अभी कोई समीक्षित खेत ज्यामिति उपलब्ध नहीं है। कार्यक्रम का गांव या कवरेज संख्या इस नक्शे पर नहीं रखी जाती।", mapLibraryUnavailable: "नक्शा सेवा उपलब्ध नहीं है। समीक्षित खेत ज्यामिति नक्शा लोड होने तक सुरक्षित रहती है।", mapManifestNote: "नक्शे का विवरण केवल नवीनतम प्रकाशित, समीक्षित फार्म मैनिफेस्ट से आता है।", mapPrivacyNote: "यहाँ केवल प्रबंधक द्वारा समीक्षित बिंदु और सीमाएँ दिखाई जाती हैं। कार्यक्रम कवरेज कभी फार्म पिन नहीं बनती।", farmMapNote: "यह नक्शा मुख्य पृष्ठ वाली समीक्षित फार्म ज्यामिति ही दिखाता है।", farmMapPrivacyNote: "केवल समीक्षित खेत ज्यामिति दिखाई जाती है। किसी स्रोत गांव को फार्म बिंदु नहीं माना जाता।", unlockMap: "नक्शा देखने के लिए पहुँच खोलें", mapLoadFailed: "समीक्षित खेत ज्यामिति अभी लोड नहीं हो सकी।", mapAccessRequired: "निजी समीक्षित खेत ज्यामिति दिखाने के लिए प्रबंधक पहुँच आवश्यक है।",
       settingsTitle: "सेटिंग्स।", settingsDetail: "पहुँच और स्रोत सीमाएँ।", homeDetail: "आज क्या आगे बढ़ाना है।", farmsDetail: "समीक्षित खेत और फील्ड रिकॉर्ड से वास्तविक स्थिति।", farmersDetail: "कवरेज और समीक्षित किसान संबंध।", workersDetail: "दैनिक गतिविधि और जिम्मेदारी।", inboxDetail: "निर्णय, काम और अनुपालन।",
       todayTitle: "मुख्य।", farmsTitle: "खेत।", farmersTitle: "किसान।", workersTitle: "फील्ड कर्मी।", inboxTitle: "इनबॉक्स।",
-      openFarms: "खेत खोलें", openFarmers: "किसान खोलें", openInbox: "इनबॉक्स खोलें", openSettings: "सेटिंग्स खोलें", ready: "तैयार।",
+      openFarms: "खेत खोलें", openFarmers: "किसान खोलें", openInbox: "इनबॉक्स खोलें", openSettings: "सेटिंग्स खोलें", ready: "तैयार।", loadingStatus: "लोड हो रहा है…", loadingActions: "कार्रवाइयाँ लोड हो रही हैं…", updatedNow: "अभी अपडेट हुआ।", refreshingField: "फील्ड संदर्भ ताज़ा हो रहा है…", currentFieldOperations: "वर्तमान फील्ड परिचालन",
       managerUnlocked: "इस ब्राउज़र में प्रबंधक कार्रवाई कुछ समय के लिए खुली है।", managerLocked: "इस ब्राउज़र में प्रबंधक कार्रवाई बंद है।", lockActions: "प्रबंधक कार्रवाई बंद करें", unlockActions: "प्रबंधक कार्रवाई खोलें", unlocking: "खोला जा रहा है…", unlockPrivateActions: "निजी कार्रवाई खोलें", managerSecret: "प्रबंधक पासवर्ड", managerSecretHelp: "अलग से तय प्रबंधक पासवर्ड इस्तेमाल करें। यह केवल इस सर्वर को भेजा जाता है और ब्राउज़र में सहेजा नहीं जाता।", managerExpiry: "प्रबंधक पहुँच अपने-आप समाप्त हो जाती है।",
       directionLoadingTitle: "परिचालन स्थिति पढ़ी जा रही है।", directionLoadingNote: "खेतों की स्थिति लोड हो रही है।", dailyActivityLoading: "दैनिक गतिविधि लोड हो रही है", coverageLoadingShort: "कवरेज लोड हो रहा है", openWorkers: "फील्ड कर्मी खोलें", awaitingSignal: "फील्ड संकेत की प्रतीक्षा",
       coverageRiskTitle: "फील्ड कवरेज ही आपूर्ति जोखिम है।", coverageRiskNote: "{active} फील्ड कर्मियों में से {filing} ने {filed} मुलाक़ातें दर्ज कीं। अधूरी मुलाक़ात से फसल, खरीद और प्रमाण अनिश्चित रहते हैं।",
@@ -138,7 +129,7 @@
       fieldAskReady: "की समीक्षा हो चुकी है; भेजना अलग से स्वीकृत होगा", awaitingFieldAnswer: "समीक्षा योग्य उत्तर की प्रतीक्षा",
       checkDelivery: "भेजने की पात्रता जाँचें या इसे रद्द करके फिर से जारी करें। उत्तर मान कर न चलें।",
       reviewFieldAnswer: "किसी भी उत्तर और सुरक्षित प्रमाण की समीक्षा करें। मानव बंद होने तक जुड़ा काम खुला रहता है।",
-      openFieldAsks: "खेत की जानकारी खोलें"
+      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
     }
   };
 
@@ -147,7 +138,7 @@
   }
 
   function text(value) {
-    return value === null || value === undefined || value === "" ? "Not assigned" : String(value);
+    return value === null || value === undefined || value === "" ? t("unassigned") : String(value);
   }
 
   function t(key) {
@@ -393,17 +384,6 @@
     return Math.round(count).toLocaleString(interfaceLocale === "hi" ? "hi-IN" : "en-IN");
   }
 
-  function formatAgeHours(value) {
-    var hours = Number(value);
-    if (!isFinite(hours) || hours < 0) {
-      return "No published timestamp";
-    }
-    if (hours < 1) {
-      return "Under 1 hour";
-    }
-    return Math.round(hours) + (Math.round(hours) === 1 ? " hour" : " hours");
-  }
-
   function programmeFact(label, value) {
     return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(formatCount(value)) + "</dd></div>";
   }
@@ -565,13 +545,6 @@
     renderHomeMetrics();
   }
 
-  function programmeWarningCopy(code) {
-    if (code === "low_observation_confidence") {
-      return "Observation confidence is low. Fewer detections do not mean risk has fallen.";
-    }
-    return "Review source limitation: " + readable(code) + ".";
-  }
-
   function renderProgrammeLocked() {
     if (sampleMode) {
       renderProgramme(sampleProgramme(), { state: "sample" });
@@ -638,10 +611,6 @@
 
   function isOpenWork(workItem) {
     return ["accepted", "completed", "cancelled"].indexOf(workItem.status) === -1;
-  }
-
-  function isOverdue(workItem) {
-    return isOpenWork(workItem) && workItem.due_at && new Date(workItem.due_at).getTime() < Date.now();
   }
 
   function setHtml(id, markup) {
@@ -877,9 +846,9 @@
     if (currentRuntime) {
       renderDailyDirection();
     }
-    element("portfolio-status").textContent = "Actions are unavailable. Home is still usable.";
-    element("inbox-summary").textContent = "The decision queue is unavailable right now.";
-    setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">Risk and action context is unavailable right now.</td></tr>');
+    element("portfolio-status").textContent = t("actionsUnavailable");
+    element("inbox-summary").textContent = t("decisionQueueUnavailable");
+    setHtml("portfolio-ledger", '<tr><td colspan="6" class="table-empty">' + escapeHtml(t("riskActionUnavailable")) + "</td></tr>");
     renderHomeMetrics();
   }
 
@@ -943,182 +912,6 @@
     renderHomeMetrics();
   }
 
-  function portfolioActionDetail(item) {
-    var entity = item && item.entity ? item.entity : {};
-    if (entity.type !== "field_information_request") {
-      return readable(item.action);
-    }
-    var owner = item.owner_id ? personName(item.owner_id) : t("noFieldPerson");
-    var due = item.due_at ? " · " + t("due") + " " + formatTime(item.due_at) : "";
-    var proof = item.proof_required ? " · " + t("fieldProofRequired") : " · " + t("fieldUpdateRequested");
-    if (item.status === "draft") {
-      return t("fieldAsk") + " · " + owner + " " + t("fieldAskNeedsReview") + proof + ".";
-    }
-    if (item.status === "ready") {
-      return t("fieldAsk") + " · " + owner + " " + t("fieldAskReady") + due + proof + ".";
-    }
-    return t("awaitingFieldAnswer") + " " + owner + due + proof + ".";
-  }
-
-  function laneStatusLabel(status) {
-    var labels = {
-      ready: "ready",
-      context_available: "context ready",
-      review_needed: "review needed",
-      attention: "needs attention",
-      needs_first_farm: "start here",
-      needs_active_crop: "needs crop plan",
-      needs_first_observation: "needs field check",
-      needs_verified_district: "needs district",
-      needs_lab_report: "needs lab report",
-      needs_field_boundary: "needs boundary",
-      needs_market_mapping: "needs market mapping",
-      not_connected: "not connected",
-      access_review: "access review",
-      not_run: "not run"
-    };
-    return labels[status] || readable(status);
-  }
-
-  function laneClass(status) {
-    return ["ready", "context_available"].indexOf(status) !== -1 ? "is-ready" :
-      status === "review_needed" || status === "attention" ? "is-attention" : "is-gated";
-  }
-
-  function fallbackDataLanes() {
-    return [
-      { name: "Field truth", status: "needs_first_farm", source: "Field team + retained FFL evidence", fact: "Set up the first farm to begin the field loop.", limitation: "Public context never replaces field evidence.", next_move: "Prepare the first farm." },
-      { name: "Weather", status: "needs_first_farm", source: "India Meteorological Department (IMD)", fact: "District context is not connected yet.", limitation: "Weather is context, not a field reading or instruction.", next_move: "Verify the farm district." },
-      { name: "Soil & water", status: "needs_first_farm", source: "Reviewed lab report + field measurement", fact: "No soil baseline is ready yet.", limitation: "Predicted soil data does not replace a lab report.", next_move: "Retain one reviewed lab report." },
-      { name: "Satellite", status: "needs_first_farm", source: "Copernicus Sentinel-2", fact: "No farm or field boundary is ready yet.", limitation: "Imagery is corroboration, never diagnosis.", next_move: "Build field truth before imagery." },
-      { name: "Market", status: "needs_first_farm", source: "AGMARKNET / data.gov.in", fact: "No crop or market mapping is ready yet.", limitation: "Mandi context is not a sale price.", next_move: "Record the active crop first." }
-    ];
-  }
-
-  function renderDataLanes(snapshot) {
-    var lanes = snapshot && Array.isArray(snapshot.lanes) && snapshot.lanes.length === 5 ? snapshot.lanes : fallbackDataLanes();
-    setHtml("data-lanes", lanes.map(function (lane) {
-      var status = lane.status || "not_connected";
-      return '<article class="data-lane ' + laneClass(status) + '">' +
-        '<div class="data-lane-heading"><h4>' + escapeHtml(lane.name) + '</h4><span class="status">' +
-        escapeHtml(laneStatusLabel(status)) + '</span></div>' +
-        '<p class="data-lane-fact">' + escapeHtml(lane.fact) + '</p>' +
-        '<p class="data-lane-source">' + escapeHtml(lane.source) + '</p>' +
-        '<p class="data-lane-limit">' + escapeHtml(lane.limitation) + '</p>' +
-        '<p class="data-lane-next"><strong>Next</strong> ' + escapeHtml(lane.next_move) + '</p>' +
-        '</article>';
-    }).join(""));
-  }
-
-  function renderDataLanesUnavailable() {
-    renderDataLanes({ lanes: fallbackDataLanes() });
-  }
-
-  function setProfileLink(id, url, label) {
-    var link = element(id);
-    if (!url) {
-      link.hidden = true;
-      link.removeAttribute("href");
-      return;
-    }
-    link.href = url;
-    link.textContent = label;
-    link.hidden = false;
-  }
-
-  function renderMapExplorer(profile) {
-    var configured = profile && profile.configured === true;
-    element("map-stage-guard").textContent = "Public coverage only";
-    if (!configured) {
-      element("map-stage-note").textContent = "No approved public operating area is configured yet.";
-      setHtml("map-explorer", '<p class="map-empty">This map stays empty until a reviewed public hub or operating area is configured.</p>');
-      setHtml("map-facts", '<div><dt>Farm locations</dt><dd>Not supplied</dd></div><div><dt>Supply villages</dt><dd>Not supplied</dd></div>');
-      setProfileLink("map-source", null, "");
-      return;
-    }
-    var facts = [];
-    if (profile.public_hub_label) {
-      facts.push('<div><dt>Public anchor</dt><dd>' + escapeHtml(profile.public_hub_label) + "</dd></div>");
-    }
-    if (profile.network_summary) {
-      facts.push('<div><dt>Public network</dt><dd>' + escapeHtml(profile.network_summary) + "</dd></div>");
-    }
-    facts.push('<div><dt>Supply villages</dt><dd>Waiting for Fortune’s reviewed village hierarchy.</dd></div>');
-    facts.push('<div><dt>Verified fields</dt><dd>Waiting for a reviewed farm manifest with location proof.</dd></div>');
-    setHtml("map-facts", facts.join(""));
-    setProfileLink("map-source", profile.source_url, "View public source");
-    if (!profile.map_embed_url) {
-      element("map-stage-note").textContent = "Public context is configured, but no map anchor has been approved.";
-      setHtml("map-explorer", '<p class="map-empty">No map anchor is configured. Partner farms and field boundaries are never guessed here.</p>');
-      return;
-    }
-    element("map-stage-note").textContent = "The mark is a public hub or coverage anchor. It is not a partner farm or a field boundary.";
-    setHtml("map-explorer", '<iframe title="Approved public operating footprint" loading="lazy" referrerpolicy="no-referrer" src="' +
-      escapeHtml(profile.map_embed_url) + '"></iframe>');
-  }
-
-  function renderOperatingProfile(profile) {
-    var configured = profile && profile.configured === true;
-    var displayName = configured ? text(profile.display_name) : "No operating profile set";
-    element("wordmark-name").textContent = configured ? displayName : "AGRO CEO";
-    element("profile-heading").textContent = displayName;
-    if (!configured) {
-      element("profile-summary").textContent = "Add approved public operating context in deployment settings. No farm locations are guessed.";
-      setHtml("profile-facts", "");
-      setProfileLink("profile-website", null, "");
-      setProfileLink("profile-source", null, "");
-      renderMapExplorer(profile);
-      return;
-    }
-    element("profile-summary").textContent = "Public operating context only. It is not a field map or a source of record.";
-    var facts = [];
-    if (profile.coverage_label) {
-      facts.push('<div><dt>Operating area</dt><dd>' + escapeHtml(profile.coverage_label) + "</dd></div>");
-    }
-    if (profile.network_summary) {
-      facts.push('<div><dt>Publicly stated network</dt><dd>' + escapeHtml(profile.network_summary) + "</dd></div>");
-    }
-    if (profile.public_hub_label) {
-      facts.push('<div><dt>Public hub</dt><dd>' + escapeHtml(profile.public_hub_label) + "</dd></div>");
-    }
-    setHtml("profile-facts", facts.join("") || '<p class="empty-state">No public coverage details configured.</p>');
-    setProfileLink("profile-website", profile.website_url, "Open company site");
-    setProfileLink("profile-source", profile.source_url, "View public source");
-    if (!profile.map_embed_url) {
-      renderMapExplorer(profile);
-      return;
-    }
-    renderMapExplorer(profile);
-  }
-
-  function renderOperatingProfileUnavailable() {
-    renderOperatingProfile({ configured: false });
-  }
-
-  function countStatusItems(statuses) {
-    if (!statuses || typeof statuses !== "object") {
-      return 0;
-    }
-    return Object.keys(statuses).reduce(function (total, status) {
-      return total + (typeof statuses[status] === "number" ? statuses[status] : 0);
-    }, 0);
-  }
-
-  function renderLearning(portfolio) {
-    var learning = portfolio.learning || {};
-    var trialStatuses = learning.trials && learning.trials.by_status;
-    var playbookStatuses = learning.playbooks && learning.playbooks.by_status;
-    var availability = learning.availability ? readable(learning.availability) : "unavailable";
-    if (availability !== "available") {
-      setHtml("portfolio-learning", '<p class="empty-state portfolio-unavailable">Learning context is ' +
-        escapeHtml(availability) + '.</p>');
-      return;
-    }
-    setHtml("portfolio-learning", '<dl class="portfolio-counts"><div><dt>Trials</dt><dd>' +
-      countStatusItems(trialStatuses) + '</dd></div><div><dt>Playbooks</dt><dd>' +
-      countStatusItems(playbookStatuses) + '</dd></div></dl>');
-  }
-
   function renderPortfolio(portfolio) {
     if (!portfolio || typeof portfolio !== "object") {
       renderPortfolioUnavailable();
@@ -1135,266 +928,21 @@
       renderDailyDirection();
     }
     renderRiskLedger();
-    element("portfolio-status").textContent = "Actions updated just now.";
+    element("portfolio-status").textContent = t("updatedNow");
     renderHomeMetrics();
-  }
-
-  function renderPilotReadiness(readiness) {
-    var progress = readiness && readiness.progress ? readiness.progress : { completed: 0, total: 6 };
-    var stages = readiness && Array.isArray(readiness.stages) ? readiness.stages : [];
-    var nextStage = readiness && readiness.next_stage ? readiness.next_stage : null;
-    element("today-heading").textContent = interfaceLocale === "hi" ? "पहला खेत" : "First farm";
-    element("today-count").textContent = progress.completed + "/" + progress.total;
-    element("today-summary").textContent = nextStage ?
-      "Start with " + nextStage.title.toLowerCase() + "." :
-      "The minimum field loop is ready.";
-    setHtml("today-list", stages.slice(0, 3).map(function (stage) {
-      var ready = stage.status === "ready";
-      return '<button class="queue-item foundation-item foundation-action" type="button" data-first-farm="true"><span class="item-title"><h3>' +
-        escapeHtml(stage.title) + '</h3><span class="status">' +
-        (ready ? "ready" : "next") + '</span></span><span>' +
-        escapeHtml(ready ? "Recorded and ready for the field loop." : stage.next_action) +
-        '</span></button>';
-    }).join("") || '<p class="empty-state">The first farm has not been prepared yet.</p>');
-    element("active-work-count").textContent = progress.completed;
-    element("submitted-work-count").textContent = progress.total;
-    setHtml("active-work-summary", "<span>Foundations ready</span>");
-    setHtml("submitted-work-summary", "<span>Minimum needed</span>");
-  }
-
-  function loadPilotReadiness() {
-    fetch(pilotReadinessUrl)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load first-farm readiness.");
-        }
-        return response.json();
-      })
-      .then(renderPilotReadiness)
-      .catch(function () {
-        element("today-heading").textContent = interfaceLocale === "hi" ? "पहला खेत" : "First farm";
-        element("today-count").textContent = "0/6";
-        element("today-summary").textContent = "Prepare one real farm before external data can help.";
-        setHtml("today-list", '<p class="empty-state">Farm, field, people, place, soil report, then the first work loop.</p>');
-      });
-  }
-
-  function allocationLabel(allocation) {
-    if (!allocation) {
-      return "No active crop allocation";
-    }
-    return (allocation.operational_block_name || "Field") + " · " + allocation.crop_name +
-      (allocation.cultivar ? " · " + allocation.cultivar : "");
-  }
-
-  function activeAllocation(runtime) {
-    var source = runtime || currentRuntime || {};
-    var allocations = Array.isArray(source.allocations) ? source.allocations : [];
-    var focused = allocations.filter(function (allocation) { return allocation.id === focusedAllocationId; })[0] || null;
-    if (!focused && allocations.length) {
-      focused = allocations[0];
-      focusedAllocationId = focused.id;
-    }
-    if (!allocations.length) {
-      focusedAllocationId = null;
-    }
-    return focused;
-  }
-
-  function allocationCalendarFor(allocationId) {
-    var record = allocationCalendars[allocationId];
-    return record && record.state === "ready" ? record.data : null;
-  }
-
-  function scheduleValue(value) {
-    var parsed = new Date(value || "");
-    return isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
-  }
-
-  function nextOpenWork(allocationId, runtime) {
-    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
-    return workItems.filter(function (item) {
-      return item.allocation_id === allocationId && isOpenWork(item);
-    }).sort(function (left, right) {
-      return scheduleValue(left.due_at) - scheduleValue(right.due_at);
-    })[0] || null;
-  }
-
-  function latestUpdateForAllocation(allocation, runtime) {
-    var update = latestFieldUpdate(runtime);
-    if (!update || !allocation) {
-      return null;
-    }
-    var matchingAllocations = (runtime.allocations || []).filter(function (candidate) {
-      return candidate.operational_block_name === update.operational_block_name && candidate.crop_name === update.crop_name;
-    });
-    return matchingAllocations.length === 1 && matchingAllocations[0].id === allocation.id ? update : null;
-  }
-
-  function reviewableEvidenceForAllocation(allocationId) {
-    var signals = currentPortfolio && currentPortfolio.field_signals && currentPortfolio.field_signals.open;
-    var items = signals && Array.isArray(signals.items) ? signals.items : [];
-    return items.filter(function (item) {
-      return item.allocation_id === allocationId;
-    }).sort(function (left, right) {
-      return scheduleValue(right.received_at || right.observed_at) - scheduleValue(left.received_at || left.observed_at);
-    })[0] || null;
-  }
-
-  function allocationSnapshot(allocation, runtime) {
-    var calendarRecord = allocationCalendars[allocation.id];
-    var calendar = allocationCalendarFor(allocation.id);
-    var work = nextOpenWork(allocation.id, runtime);
-    var update = latestUpdateForAllocation(allocation, runtime);
-    var reviewableEvidence = reviewableEvidenceForAllocation(allocation.id);
-    var missing = [];
-    var stage;
-    var stageMissing = false;
-    var stageGap = null;
-
-    if (calendarRecord && calendarRecord.state === "loading") {
-      stage = "Loading stage plan…";
-    } else if (!calendar) {
-      stage = "Stage plan unavailable";
-      stageMissing = true;
-      stageGap = "stage plan";
-    } else if (calendar.current_stage) {
-      stage = "Confirmed: " + calendar.current_stage.stage_name;
-    } else if (calendar.next_checkpoint) {
-      stage = "Next check: " + calendar.next_checkpoint.stage_name + " · " + formatTime(calendar.next_checkpoint.planned_for);
-      stageMissing = true;
-      stageGap = "stage confirmation";
-    } else {
-      stage = "No stage check planned";
-      stageMissing = true;
-      stageGap = "stage check";
-    }
-    if (stageGap) {
-      missing.push(stageGap);
-    }
-
-    if (!work) {
-      missing.push("next work");
-    }
-    if (!update) {
-      missing.push("field record");
-    }
-    if (reviewableEvidence && reviewableEvidence.evidence_attached === false) {
-      missing.push("retained evidence");
-    }
-    return {
-      stage: stage,
-      stageMissing: stageMissing,
-      nextWork: work ? work.title + " · " + formatTime(work.due_at) : "No open work planned",
-      workMissing: !work,
-      owner: work ? personName(work.owner_id) : "No work owner set",
-      ownerMissing: !work || personName(work.owner_id) === "Unassigned",
-      fieldRecord: reviewableEvidence ?
-        (reviewableEvidence.evidence_attached ? "Evidence attached · observed " + formatTime(reviewableEvidence.observed_at) :
-          "Field signal has no attached evidence") :
-        (update ? "Field record observed " + formatTime(update.observed_at) + " · evidence detail unavailable" :
-          "No field update recorded"),
-      fieldRecordMissing: !update || Boolean(reviewableEvidence && reviewableEvidence.evidence_attached === false),
-      missing: missing
-    };
-  }
-
-  function boardStatusLabel(status) {
-    var labels = {
-      ready: "recorded",
-      attention: "attention",
-      missing: "needs record",
-      private: "private",
-      unavailable: "unavailable"
-    };
-    return labels[status] || "review";
-  }
-
-  function boardPiece(view, icon, label, status, count, detail, action) {
-    return '<button class="board-piece is-' + escapeHtml(status) + '" type="button" data-board-view="' +
-      escapeHtml(view) + '"><span class="board-piece-top"><span class="board-piece-icon material-symbols-outlined" aria-hidden="true">' +
-      escapeHtml(icon) + '</span><span class="status">' + escapeHtml(boardStatusLabel(status)) +
-      '</span></span><span class="board-piece-label">' + escapeHtml(label) + '</span><strong>' +
-      escapeHtml(count) + '</strong><span class="board-piece-detail">' + escapeHtml(detail) +
-      '</span><span class="board-piece-action">' + escapeHtml(action) +
-      ' <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></span></button>';
-  }
-
-  function renderOperationsBoard(runtime) {
-    var source = runtime || currentRuntime;
-    if (!source) {
-      setHtml("operations-board", '<p class="empty-state">Set up one reviewed field to begin the operations board.</p>');
-      return;
-    }
-    var allocations = Array.isArray(source.allocations) ? source.allocations : [];
-    var workItems = Array.isArray(source.work_items) ? source.work_items : [];
-    var exceptions = Array.isArray(source.exceptions) ? source.exceptions.filter(isOpenException) : [];
-    var people = Array.isArray(source.people) ? source.people : [];
-    var relationships = source.person_operating_relationships && Array.isArray(source.person_operating_relationships.items) ?
-      source.person_operating_relationships.items : [];
-    var snapshots = allocations.map(function (allocation) { return allocationSnapshot(allocation, source); });
-    var fieldNames = allocations.map(function (allocation) { return allocation.operational_block_name || "Field"; })
-      .filter(function (name, index, values) { return values.indexOf(name) === index; });
-    var fieldEvidenceGaps = snapshots.filter(function (snapshot) { return snapshot.fieldRecordMissing; }).length;
-    var cropPlanGaps = snapshots.filter(function (snapshot) { return snapshot.stageMissing || snapshot.workMissing; }).length;
-    var unownedWork = workItems.filter(function (item) { return isOpenWork(item) && !item.owner_id; }).length;
-    var fieldTeam = people.filter(isFieldWorker);
-    var fieldStatus = !fieldNames.length ? "missing" : (exceptions.length ? "attention" :
-      (fieldEvidenceGaps ? "missing" : "ready"));
-    var fieldDetail = !fieldNames.length ? "No reviewed operating block yet." : exceptions.length ?
-      exceptions.length + (exceptions.length === 1 ? " open field issue." : " open field issues.") : fieldEvidenceGaps ?
-      fieldEvidenceGaps + (fieldEvidenceGaps === 1 ? " field needs a record." : " fields need records.") :
-      "Reviewed field record is present.";
-    var cropStatus = !allocations.length ? "missing" : (cropPlanGaps ? "attention" : "ready");
-    var cropDetail = !allocations.length ? "No active crop allocation yet." : cropPlanGaps ?
-      cropPlanGaps + (cropPlanGaps === 1 ? " crop needs a stage or work plan." : " crops need a stage or work plan.") :
-      "Stage and next work are in place.";
-    var teamStatus = !fieldTeam.length ? "missing" : (unownedWork || !relationships.length ? "attention" : "ready");
-    var teamDetail = !fieldTeam.length ? "No canonical field team yet." : unownedWork ?
-      unownedWork + (unownedWork === 1 ? " open item has no owner." : " open items have no owner.") : !relationships.length ?
-      "Reviewed team scope is still needed." : "Roles and scopes are recorded.";
-    var inboxItems = exceptions.length + workItems.filter(isOpenWork).length;
-    var inboxStatus = !inboxItems ? "ready" : (exceptions.length || unownedWork || workItems.some(isOverdue) ? "attention" : "ready");
-    var inboxDetail = !inboxItems ? "No open issues or work items." :
-      inboxItems + (inboxItems === 1 ? " item needs a decision or next step." : " items need a decision or next step.");
-    var farmerStatus = "private";
-    var farmerCount = "Private programme";
-    var farmerDetail = "Unlock manager actions to read source coverage.";
-    if (managerSessionAuthenticated && currentProgramme && currentProgramme.metrics) {
-      var coverage = currentProgramme.metrics.coverage || {};
-      var takenKit = Number(coverage.taken_kit) || 0;
-      var recent = Number(coverage.recent) || 0;
-      var neverVisited = Number(coverage.never_visited) || 0;
-      var recentShare = takenKit ? recent / takenKit : 0;
-      farmerStatus = !takenKit ? "unavailable" : (recentShare >= 0.75 ? "ready" : "attention");
-      farmerCount = takenKit ? formatCount(takenKit) + " programme members" : "No published members";
-      farmerDetail = takenKit ? formatCount(recent) + " reached in 14 days · " + formatCount(neverVisited) + " never visited." :
-        "No published TrackWick programme context.";
-    }
-    setHtml("operations-board",
-      boardPiece("farms", "landscape", "Farms", fieldStatus, fieldNames.length + (fieldNames.length === 1 ? " operating block" : " operating blocks"), fieldDetail + " " + cropDetail, "Open farms") +
-      boardPiece("farmers", "diversity_3", "Farmers", farmerStatus, farmerCount, farmerDetail + " Source coverage is not a named farmer record.", "Open farmers") +
-      boardPiece("workers", "groups", "Field workers", teamStatus, fieldTeam.length + (fieldTeam.length === 1 ? " field worker" : " field workers"), teamDetail, "Open field workers") +
-      boardPiece("inbox", "inbox", "Inbox", inboxStatus, inboxItems + (inboxItems === 1 ? " open item" : " open items"), inboxDetail, "Open inbox")
-    );
-  }
-
-  function allocationFact(label, value, missing) {
-    return '<div><dt>' + escapeHtml(label) + '</dt><dd' + (missing ? ' class="is-missing"' : '') + '>' +
-      escapeHtml(value) + '</dd></div>';
   }
 
   function renderAllocationCards(runtime) {
     var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
     if (!allocations.length) {
-      element("allocation-summary").textContent = "No active crop allocation has been recorded yet.";
-      setHtml("allocation-list", '<p class="empty-state">Add a verified field and a crop allocation to start the operating loop.</p>');
-      setHtml("farm-table-body", '<tr><td colspan="4" class="table-empty">No verified fields yet.</td></tr>');
+      element("allocation-summary").textContent = t("noActiveCrop");
+      setHtml("allocation-list", '<p class="empty-state">' + escapeHtml(t("addFieldAndCrop")) + "</p>");
+      setHtml("farm-table-body", '<tr><td colspan="4" class="table-empty">' + escapeHtml(t("noVerifiedFields")) + "</td></tr>");
       return;
     }
     element("allocation-summary").textContent = allocations.length === 1 ?
-      "1 " + t("reviewedField") + " · " + t("sampleLocationShort") :
-      formatCount(allocations.length) + " " + t("reviewedFields");
+      message("farmsSummarySingle", { location: t("sampleLocationShort") }) :
+      message("farmsSummaryMultiple", { count: formatCount(allocations.length) });
     setHtml("allocation-list", allocations.map(function (allocation) {
       var assignedWork = (runtime.work_items || []).filter(function (item) {
         return item.allocation_id === allocation.id && isOpenWork(item);
@@ -1455,12 +1003,12 @@
   function renderMapCanvas(containerId, featureCollection) {
     var features = featureCollection && Array.isArray(featureCollection.features) ? featureCollection.features : [];
     if (!features.length) {
-      clearLeafletMap(containerId, "No reviewed field geometry is available yet. A programme village or coverage count is never placed on this map.");
+      clearLeafletMap(containerId, t("mapEmpty"));
       return;
     }
     var container = element(containerId);
     if (!window.L) {
-      clearLeafletMap(containerId, "The map library is unavailable. Reviewed field geometry remains protected until the map can load.");
+      clearLeafletMap(containerId, t("mapLibraryUnavailable"));
       return;
     }
     if (leafletMaps[containerId]) {
@@ -1504,11 +1052,9 @@
     element("home-map-status").textContent = sampleMode ? t("sampleLocation") :
       (count ? formatCount(count) + " " + (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry"));
     element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
-      "Map detail comes only from the latest published, reviewed farm manifest." :
-      "Only manager-reviewed points and boundaries appear here. Programme coverage never becomes a farm pin.");
+      t("mapManifestNote") : t("mapPrivacyNote"));
     element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
-      "The map uses the same reviewed farm geometry as Home." :
-      "Only reviewed field geometry is shown. No source village is treated as a farm point.");
+      t("farmMapNote") : t("farmMapPrivacyNote"));
     renderMapCanvas("home-map-canvas", currentFortuneMap);
     renderMapCanvas("farm-map-canvas", currentFortuneMap);
   }
@@ -1519,10 +1065,9 @@
       return;
     }
     currentFortuneMap = { type: "FeatureCollection", features: [] };
-    element("home-map-status").textContent = managerSessionAuthenticated ? "Map unavailable" : "Unlock to reveal map";
+    element("home-map-status").textContent = managerSessionAuthenticated ? t("mapUnavailable") : t("unlockMap");
     element("home-map-note").textContent = managerSessionAuthenticated ?
-      "Reviewed field geometry could not be loaded right now." :
-      "Manager access is required before private reviewed field geometry can be shown.";
+      t("mapLoadFailed") : t("mapAccessRequired");
     element("farm-map-note").textContent = element("home-map-note").textContent;
     clearLeafletMap("home-map-canvas", element("home-map-note").textContent);
     clearLeafletMap("farm-map-canvas", element("farm-map-note").textContent);
@@ -1551,12 +1096,7 @@
 
   function personName(personId) {
     var person = personFor(personId);
-    return person ? person.name : "Unassigned";
-  }
-
-  function workFor(workId) {
-    var workItems = currentRuntime && Array.isArray(currentRuntime.work_items) ? currentRuntime.work_items : [];
-    return workItems.filter(function (item) { return item.id === workId; })[0] || null;
+    return person ? person.name : t("unassigned");
   }
 
   function allocationFor(allocationId) {
@@ -1569,14 +1109,8 @@
     return allocation && allocation.operational_block_name ? fieldLabel(allocation.operational_block_name) : t("field");
   }
 
-  function exceptionFor(exceptionId) {
-    var exceptions = currentRuntime && Array.isArray(currentRuntime.exceptions) ? currentRuntime.exceptions : [];
-    return exceptions.filter(function (item) { return item.id === exceptionId; })[0] || null;
-  }
-
-  function setFocusAction(label, targetView, exceptionId) {
+  function setFocusAction(label, targetView) {
     focusTargetView = targetView;
-    focusExceptionId = exceptionId || null;
     element("focus-action-label").textContent = label;
   }
 
@@ -1600,8 +1134,8 @@
     });
     var assignmentCopy = assignments.length ? assignments.map(function (relationship) {
       return readable(relationship.role) + (relationship.scope_name ? " · " + fieldLabel(relationship.scope_name) : "");
-    }).join(" · ") : (relationshipAvailability === "available" ? "No field relationship recorded." :
-      (relationshipAvailability === "not_configured" ? "Field relationship setup is pending." : "Field relationship summary unavailable."));
+    }).join(" · ") : (relationshipAvailability === "available" ? t("noFieldRelationship") :
+      (relationshipAvailability === "not_configured" ? t("fieldRelationshipPending") : t("fieldRelationshipUnavailable")));
     return {
       id: person.id,
       name: person.name,
@@ -1630,7 +1164,7 @@
 
   function peopleTableMarkup(people) {
     if (!people.length) {
-      return '<tr><td colspan="4" class="table-empty">No reviewed people records are available yet.</td></tr>';
+      return '<tr><td colspan="4" class="table-empty">' + escapeHtml(t("noReviewedPeople")) + "</td></tr>";
     }
     return people.map(function (person) {
       return '<tr><th scope="row">' + escapeHtml(person.name) + '</th><td>' + escapeHtml(person.role) +
@@ -1651,9 +1185,9 @@
       return personDirectoryData(person, runtime, relationships, relationshipAvailability);
     });
     setHtml("farmer-list", farmers.length ? farmers.map(personCardMarkup).join("") :
-      '<p class="empty-state">No reviewed farmer record is available yet. Programme coverage stays separate.</p>');
+      '<p class="empty-state">' + escapeHtml(t("noReviewedFarmer")) + "</p>");
     setHtml("worker-list", workers.length ? workers.map(personCardMarkup).join("") :
-      '<p class="empty-state">No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.</p>');
+      '<p class="empty-state">' + escapeHtml(t("noReviewedWorker")) + "</p>");
     setHtml("farmer-table-body", peopleTableMarkup(farmers));
     setHtml("worker-table-body", peopleTableMarkup(workers));
   }
@@ -1723,34 +1257,7 @@
     }
   }
 
-  function renderInboxWork(runtime) {
-    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
-    var openItems = workItems.filter(isOpenWork);
-    var selectedOwner = inboxOwnerId ? personFor(inboxOwnerId) : null;
-    if (inboxOwnerId) {
-      openItems = openItems.filter(function (item) { return item.owner_id === inboxOwnerId; });
-    }
-    element("inbox-clear-filter").hidden = !inboxOwnerId;
-    element("inbox-clear-filter").textContent = selectedOwner ? "Show all work" : "Clear worker filter";
-    if (!openItems.length) {
-      setHtml("inbox-work-list", '<p class="empty-state">' + (selectedOwner ?
-        escapeHtml(selectedOwner.name) + ' has no open reviewed work.' : "No open reviewed work is recorded.") + "</p>");
-      return;
-    }
-    setHtml("inbox-work-list", openItems.slice(0, 8).map(function (item) {
-      var owner = item.owner_id ? personName(item.owner_id) : "No owner";
-      return '<article class="inbox-work-item"><div class="item-title"><h4>' + escapeHtml(item.title) + '</h4><span class="status">' +
-        escapeHtml(readable(item.status)) + '</span></div><p class="work-field">' + escapeHtml(fieldNameFor(item.allocation_id)) +
-        '</p><p class="today-item-detail">Owner · ' + escapeHtml(owner) + ' · due ' + escapeHtml(formatTime(item.due_at)) + '</p></article>';
-    }).join(""));
-  }
-
-  function latestFieldUpdate(runtime) {
-    return runtime && runtime.latest_field_update && typeof runtime.latest_field_update === "object" ?
-      runtime.latest_field_update : null;
-  }
-
-  function setDailyDirection(status, title, note, officerActivity, visitGap, nextMove, confidence, targetView) {
+  function setDailyDirection(status, title, note, targetView) {
     element("field-title").textContent = title;
     element("field-note").textContent = note;
     element("field-status").textContent = status;
@@ -1762,7 +1269,7 @@
       inbox: t("openInbox"),
       settings: t("openSettings")
     };
-    setFocusAction(labels[targetView] || "Open today", targetView, null);
+    setFocusAction(labels[targetView] || t("navHome"), targetView);
   }
 
   function renderDailyDirection() {
@@ -1770,34 +1277,27 @@
     if (!programme) {
       setDailyDirection(
         "reading", t("directionLoadingTitle"),
-        t("directionLoadingNote"),
-        t("dailyActivityLoading"), t("coverageLoadingShort"), t("openWorkers"), t("awaitingSignal"), "workers"
+        t("directionLoadingNote"), "workers"
       );
       return;
     }
     var visits = programme.visits || {};
     var coverage = programme.coverage || {};
     var issues = programme.issues || {};
-    var freshness = programme.freshness || {};
     var issueRows = Array.isArray(issues.by_issue) ? issues.by_issue : [];
     var officersWithoutVisit = Number(visits.active_officers_without_filed_visit) || 0;
     var activeOfficers = Number(visits.active_officers) || 0;
     var filedToday = Number(visits.filed_on_reporting_day) || 0;
     var filingOfficers = Number(visits.filing_officers) || 0;
     var overdue = Number(coverage.overdue) || 0;
-    var neverVisited = Number(coverage.never_visited) || 0;
     var urgentIssue = issueRows.filter(function (issue) {
       return ["critical", "high"].indexOf(issue.highest_severity) !== -1;
     })[0] || null;
-    var confidence = freshness.status === "available" ?
-      "· " + formatAgeHours(freshness.age_hours) : "";
-
     if (urgentIssue) {
       setDailyDirection(
         "attention", message("cropInterventionTitle", { issue: readable(urgentIssue.issue_code) }),
         message("cropInterventionNote", { count: formatCount(urgentIssue.count), days: formatCount(issues.window_days || 7) }),
-        message("visitsFiledMetric", { count: formatCount(filedToday) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
-        t("reviewDecisionQueue"), confidence, "inbox"
+        "inbox"
       );
       return;
     }
@@ -1805,223 +1305,21 @@
       setDailyDirection(
         "attention", t("coverageRiskTitle"),
         message("coverageRiskNote", { filed: formatCount(filedToday), filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }),
-        message("officersFiled", { filing: formatCount(filingOfficers), active: formatCount(activeOfficers) }), message("farmersOverdueMetric", { count: formatCount(overdue) }),
-        t("reviewWorkerFollowUp"), confidence, "workers"
+        "workers"
       );
       return;
     }
     setDailyDirection(
       overdue ? "attention" : "reported", overdue ? t("coverageRepairTitle") : t("farmerCoverageCurrent"),
       overdue ? t("farmerOverdueNote") : t("noOverdueNote"),
-      message("visitsFiledMetric", { count: formatCount(filedToday) }), message("neverVisitedMetric", { count: formatCount(neverVisited) }),
-      t("reviewFarmerCoverage"), confidence, "farmers"
+      "farmers"
     );
-  }
-
-  function renderMorningBrief(brief) {
-    var attention = brief && Array.isArray(brief.attention) ? brief.attention : [];
-    renderToday(attention);
-  }
-
-  function todayDetail(item) {
-    var entity = item && item.entity ? item.entity : {};
-    var exception = entity.type === "exception_record" ? exceptionFor(entity.id) : null;
-    var work = entity.type === "work_item" ? workFor(entity.id) : null;
-    if (exception) {
-      return "Owner · " + personName(exception.owner_id) + " · " + readable(exception.status);
-    }
-    if (work) {
-      return fieldNameFor(work.allocation_id) + " · " + personName(work.owner_id) + " · due " + formatTime(work.due_at);
-    }
-    if (entity.type === "crop_stage_checkpoint") {
-      return "Field check due.";
-    }
-    if (entity.type === "field_information_request") {
-      var requestOwner = item.owner_id ? personName(item.owner_id) : t("noFieldPerson");
-      var requestDue = item.due_at ? " · " + t("due") + " " + formatTime(item.due_at) : "";
-      var proof = item.proof_required ? " · " + t("fieldProofRequired") : " · " + t("fieldUpdateRequested");
-      return t("fieldAsk") + " · " + requestOwner + requestDue + proof;
-    }
-    if (entity.type === "regional_signal" || entity.type === "source_registry") {
-      return "District context only. Check it against the field.";
-    }
-    return item && item.detail ? item.detail : "Needs a manager check.";
-  }
-
-  function todayNext(item) {
-    var entity = item && item.entity ? item.entity : {};
-    if (entity.type === "exception_record") {
-      return "Review and assign the next step.";
-    }
-    if (entity.type === "work_item") {
-      return "Complete it, replan it, or record why it is blocked.";
-    }
-    if (entity.type === "crop_stage_checkpoint") {
-      return "Confirm the stage in the field.";
-    }
-    if (entity.type === "field_information_request") {
-      return entity && item.action === "review_delivery_eligibility" ?
-        t("checkDelivery") : t("reviewFieldAnswer");
-    }
-    if (entity.type === "regional_signal" || entity.type === "source_registry") {
-      return "Check the source before changing field work.";
-    }
-    return "Check the farm record.";
-  }
-
-  function renderToday(items) {
-    var currentItems = Array.isArray(items) ? items.slice(0, 3) : [];
-    currentAttention = currentItems;
-    element("today-count").textContent = currentItems.length;
-    element("today-summary").textContent = currentItems.length ?
-      (currentItems.length === 1 ? "One item needs a look." : currentItems.length + " items need a look.") :
-      "Nothing needs a look right now.";
-    if (!currentItems.length) {
-      setHtml("today-list", '<p class="empty-state">No due work or open issue.</p>');
-      return;
-    }
-    setHtml("today-list", currentItems.map(function (item, index) {
-      var entity = item.entity || {};
-      return '<button class="queue-item today-item today-action" type="button" data-today-index="' + index + '">' +
-        '<div class="item-title"><h3>' + escapeHtml(item.title) + '</h3><span class="severity severity-' +
-        safeSeverity(item.priority) + '">' + escapeHtml(item.priority) + '</span></div>' +
-        '<p class="today-item-detail">' + escapeHtml(todayDetail(item)) + '</p>' +
-        '<p class="today-item-next"><strong>Next</strong> ' + escapeHtml(todayNext(item)) + '</p>' +
-        '<span class="detail-button">Open</span>' +
-        '</button>';
-    }).join(""));
-  }
-
-  function renderTodayFallback(runtime) {
-    var exceptions = (runtime.exceptions || []).filter(isOpenException).map(function (item) {
-      return { priority: item.severity === "critical" ? "critical" : "high", title: item.title,
-        entity: { type: "exception_record", id: item.id } };
-    });
-    var work = (runtime.work_items || []).filter(function (item) {
-      return item.status === "submitted" || (isOpenWork(item) && isOverdue(item));
-    }).map(function (item) {
-      return { priority: item.status === "submitted" ? "medium" : "high", title: item.title,
-        entity: { type: "work_item", id: item.id } };
-    });
-    renderToday(exceptions.concat(work));
-  }
-
-  function loadMorningBrief(runtime) {
-    if (!runtime || !runtime.operating_unit || !runtime.operating_unit.id) {
-      return;
-    }
-    fetch("/api/v1/operating-units/" + encodeURIComponent(runtime.operating_unit.id) + "/morning-brief")
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load the operating brief.");
-        }
-        return response.json();
-      })
-      .then(renderMorningBrief)
-      .catch(function () {
-        // The Home view remains fully useful from runtime data when the brief
-        // cannot be composed. It is a read-only summary, never a source of record.
-      });
-  }
-
-  function renderWork(runtime) {
-    var allocation = activeAllocation(runtime);
-    var workItems = runtime && Array.isArray(runtime.work_items) ? runtime.work_items : [];
-    var openWork = allocation ? workItems.filter(function (item) {
-      return item.allocation_id === allocation.id && isOpenWork(item);
-    }) : [];
-    element("work-context").textContent = allocation ? allocationLabel(allocation) : "No active crop allocation";
-    if (!openWork.length) {
-      setHtml("work-list", '<p class="empty-state">' + (allocation ?
-        'No open work is linked to this crop allocation.' :
-        'No farm work is shown until an active allocation exists.') + '</p>');
-      return;
-    }
-    setHtml("work-list", openWork.map(function (item) {
-      var overdue = isOverdue(item);
-      return "<article class=\"queue-item\">" +
-        "<p class=\"work-field\">" + escapeHtml(fieldNameFor(item.allocation_id)) + "</p>" +
-        "<div class=\"item-title\"><h3>" + escapeHtml(item.title) + "</h3>" +
-        "<span class=\"status status-" + escapeHtml(item.status) + "\">" + escapeHtml(item.status) + "</span></div>" +
-        "<dl class=\"facts\"><div><dt>Owner</dt><dd>" + escapeHtml(personName(item.owner_id)) + "</dd></div>" +
-        "<div><dt>Due</dt><dd>" + escapeHtml(formatTime(item.due_at)) + "</dd></div>" +
-        "<div><dt>Timing</dt><dd class=\"" + (overdue ? "overdue" : "") + "\">" + (overdue ? "Overdue" : "On schedule") + "</dd></div></dl>" +
-        "</article>";
-    }).join(""));
-  }
-
-  function renderActionAllocationContext(runtime) {
-    var allocation = activeAllocation(runtime);
-    var context = element("actions-allocation-context");
-    if (!allocation) {
-      context.hidden = true;
-      return;
-    }
-    context.hidden = false;
-    element("actions-allocation-name").textContent = allocationLabel(allocation);
-    element("actions-allocation-note").textContent =
-      "Only risks and actions explicitly linked to this crop allocation are shown below. Operating-wide context stays in Home.";
-  }
-
-  function refreshFocusedAllocationExperience() {
-    if (!currentRuntime) {
-      return;
-    }
-    renderCards(currentRuntime);
-    renderDailyDirection();
-    renderOperationsBoard(currentRuntime);
-    renderWork(currentRuntime);
-    renderActionAllocationContext(currentRuntime);
-    if (currentPortfolio) {
-      renderRiskLedger(currentPortfolio);
-    }
-  }
-
-  function loadAllocationCalendars(runtime) {
-    var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
-    var requestId = allocationCalendarRequest + 1;
-    allocationCalendarRequest = requestId;
-    allocationCalendars = {};
-    allocations.forEach(function (allocation) {
-      allocationCalendars[allocation.id] = { state: "loading" };
-    });
-    refreshFocusedAllocationExperience();
-    if (!allocations.length) {
-      return;
-    }
-    Promise.all(allocations.map(function (allocation) {
-      return fetch(allocationCalendarUrl + encodeURIComponent(allocation.id) + "/calendar")
-        .then(function (response) {
-          if (!response.ok) {
-            throw new Error("Unable to load allocation calendar.");
-          }
-          return response.json();
-        })
-        .then(function (calendar) {
-          allocationCalendars[allocation.id] = { state: "ready", data: calendar };
-        })
-        .catch(function () {
-          allocationCalendars[allocation.id] = { state: "unavailable" };
-        });
-    })).then(function () {
-      if (requestId === allocationCalendarRequest && currentRuntime === runtime) {
-        refreshFocusedAllocationExperience();
-      }
-    });
-  }
-
-  function selectAllocation(allocationId) {
-    if (!currentRuntime || !allocationFor(allocationId)) {
-      return;
-    }
-    focusedAllocationId = allocationId;
-    refreshFocusedAllocationExperience();
   }
 
   function renderRuntime(runtime) {
     setSampleMode(false);
     currentRuntime = runtime;
-    currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : "Current field operations";
+    currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : t("currentFieldOperations");
     renderPageIntro();
     renderCards(runtime);
     renderPeople(runtime);
@@ -2036,8 +1334,6 @@
     currentRuntime = sampleRuntime();
     currentPortfolio = samplePortfolio();
     currentOperatingUnitName = "Fortune Rice · Dargava, Gabhana, Aligarh";
-    focusedAllocationId = null;
-    allocationCalendars = {};
     renderPageIntro();
     renderCards(currentRuntime);
     renderPeople(currentRuntime);
@@ -2049,84 +1345,9 @@
     restoreConnectedRecord();
   }
 
-  function renderAudit(detail) {
-    var audit = detail.audit_events || [];
-    var history = audit.length ? "<ol class=\"audit-list\">" + audit.map(function (event) {
-      return "<li><strong>" + escapeHtml(event.from_status) + " → " + escapeHtml(event.to_status) + "</strong>" +
-        "<span>" + escapeHtml(event.actor_id) + " · " + escapeHtml(formatTime(event.created_at)) + "</span>" +
-        "<span>" + escapeHtml(event.reason) + "</span></li>";
-    }).join("") + "</ol>" : "<p class=\"empty-state\">No audit events recorded yet.</p>";
-    setHtml("exception-detail", "<div class=\"detail-heading\"><h3>" + escapeHtml(detail.title) + "</h3>" +
-      "<span class=\"status\">" + escapeHtml(detail.status) + "</span></div>" + history);
-  }
-
-  function loadException(exceptionId) {
-    element("exception-detail").textContent = "Loading audit history…";
-    fetch("/api/v1/exceptions/" + encodeURIComponent(exceptionId))
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("Unable to load exception detail.");
-        }
-        return response.json();
-      })
-      .then(renderAudit)
-      .catch(function (error) {
-        element("exception-detail").textContent = error.message;
-      });
-  }
-
-  function actionDestination(item) {
-    var entity = item && item.entity ? item.entity : {};
-    if (entity.type === "exception_record") {
-      return { view: "farms", exceptionId: entity.id, label: "Open farm issue" };
-    }
-    if (entity.type === "regional_signal" || entity.type === "source_registry") {
-      return { view: "settings", exceptionId: null, label: "Open data connections" };
-    }
-    if (entity.type === "field_information_request") {
-      return { view: "inbox", exceptionId: null, label: t("openFieldAsks") };
-    }
-    return { view: "farms", exceptionId: null, label: "Open farm work" };
-  }
-
-  function openActionDetail(item) {
-    if (!item) {
-      return;
-    }
-    pendingAction = actionDestination(item);
-    element("action-dialog-title").textContent = text(item.title);
-    element("action-dialog-detail").textContent = todayDetail(item);
-    element("action-dialog-next").textContent = "Next: " + todayNext(item);
-    element("action-go").innerHTML = escapeHtml(pendingAction.label) +
-      ' <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>';
-    var dialog = element("action-dialog");
-    if (!dialog.open) {
-      dialog.showModal();
-    }
-  }
-
-  function followActionDetail() {
-    if (!pendingAction) {
-      return;
-    }
-    var action = pendingAction;
-    element("action-dialog").close();
-    showView(action.view);
-    if (action.exceptionId) {
-      loadException(action.exceptionId);
-      element("audit").scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    var target = action.view === "settings" ? element("context-heading") :
-      (action.view === "inbox" ? element("inbox-work-heading") : element("work-heading"));
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-
   function loadActionCentre() {
-    element("load-status").textContent = "Loading…";
-    element("portfolio-status").textContent = "Loading actions…";
+    element("load-status").textContent = t("loadingStatus");
+    element("portfolio-status").textContent = t("loadingActions");
     renderTodayClock();
     loadProgramme();
     fetch(dataLanesUrl, { credentials: "same-origin" })
@@ -2148,7 +1369,7 @@
       })
       .then(function (runtime) {
         renderRuntime(runtime);
-        element("load-status").textContent = "Updated just now.";
+        element("load-status").textContent = t("updatedNow");
       })
       .catch(function () {
         renderRuntimeUnavailable();
@@ -2174,7 +1395,7 @@
     }
     var button = element("refresh");
     button.disabled = true;
-    element("load-status").textContent = "Refreshing field context…";
+    element("load-status").textContent = t("refreshingField");
     fetch(trackwickRefreshUrl, { method: "POST", credentials: "same-origin" })
       .then(function (response) {
         if (!response.ok) {

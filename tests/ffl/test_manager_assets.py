@@ -45,6 +45,8 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'data-inbox-mode="all"' in index_html
     assert 'id="portfolio-ledger"' in index_html
     assert "Operations board" not in index_html
+    assert "renderOperationsBoard" not in app_js
+    assert "loadPilotReadiness" not in app_js
     assert 'id="action-dialog"' not in index_html
     assert "Data connections" not in index_html
 
@@ -92,6 +94,9 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "data-record-kind" in app_js
     assert "directory-card-metric" in app_js
     assert "sampleWeather" in app_js
+    assert "mapPrivacyNote" in app_js
+    assert "noReviewedFarmer" in app_js
+    assert "noReviewedWorker" in app_js
     assert "नमूना दृश्य" not in index_html
     assert "Map detail comes only from the latest published, reviewed farm manifest." in app_js
     assert "Programme coverage never becomes a farm pin." in app_js

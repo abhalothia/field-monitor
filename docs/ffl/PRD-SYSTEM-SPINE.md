@@ -153,21 +153,26 @@ simple layer switch: **Fields · Observations · Conditions · Network**. No
 heatmap, opaque health score, or dense national map belongs in the first
 experience.
 
-## What each surface is for
+## What each manager surface is for
+
+The manager navigation is deliberately fixed at six views: **Home, Farms,
+Farmers, Field workers, Inbox, Settings**. Crop is a field-and-season record,
+not a seventh tab; Map is the Farm default view, not a separate place to get
+lost.
 
 | Surface | One job | Show first | Never become |
 |---|---|---|---|
-| **Home** | Direct attention. | The few allocations with due work, unresolved exceptions, missing evidence, or a fresh conditions watch. | An executive KPI wall. |
-| **Fields** | Understand and operate one allocation. | Crop/stage, next work, latest observation, responsible people, and evidence freshness. | A static land registry. |
-| **Farmers** | Understand the operating network. | Scoped people, relationship role, active assignments, and callback/field-work context. | A public farmer directory or contact dump. |
-| **Map** | Place a decision in physical and source context. | Selected field and its truth-labelled layers. | A false precision story about Fortune’s whole network. |
-| **Actions** | Resolve what needs a human move. | Work, candidate evidence, exceptions, decisions, and stale/no-response fallbacks. | A task list that hides unfinished operational risk. |
-| **Settings** | Govern the system. | Operating profile, data connections, source health, language, and access. | A place to edit source facts without provenance. |
+| **Home** | Direct the manager to the single most material next move. | India time/weather context, three qualified operating truths, and reviewed-field map context. | An executive KPI wall or a health score. |
+| **Farms** | Understand a reviewed field and its crop season. | Map, then Cards/Table; crop, area or open work, and the characteristics behind the metric. | A static land registry or source-village map. |
+| **Farmers** | Understand a reviewed operating relationship. | Cards/Table with scoped fields and relationship context. | A public farmer directory or a copied TrackWick roster. |
+| **Field workers** | Understand scoped execution capacity. | Cards/Table with open work and separately labelled filing activity. | A leaderboard or inferred people database. |
+| **Inbox** | Resolve what needs a human move. | Priority decisions, owner, due time, field, and state; All is the only expanded view. | A task/activity stream that hides operational risk. |
+| **Settings** | Govern private access. | Manager access and the boundary around private source actions. | A place to edit source facts or reveal credentials. |
 
 Hindi is the default working language for field capture and field-agent prompts;
-English is the management/admin language. The underlying records, units,
-identifiers, and evidence links are shared, so translation changes the surface
-and never changes the fact.
+the manager surface is English-first and fully Hindi-capable. The underlying
+records, units, identifiers, and evidence links are shared, so translation
+changes the interface and never changes a source-entered fact.
 
 ## Data admission gates
 

@@ -1,6 +1,16 @@
-# Field Monitor
+# AGRO CEO / Field Monitor
 
-Satellite-based pest, disease, and crop stress monitoring tool for agricultural fields. Uses Sentinel-2 imagery via Sentinel Hub to track vegetation health indices over time, detect anomalies, and score risk.
+This repository contains AGRO CEO: Fortune Rice's private operating system for
+field execution, supply capture, chemical-record proof, and early field
+intervention. The active product is a calm manager and field experience built
+around reviewed farms, crop seasons, people, evidence, and owned follow-up.
+
+The original satellite experiment remains here as a legacy prototype. It is
+not the Fortune product's source of truth and it does not determine a farm
+health score or diagnose crop issues.
+
+For the product, data, and manager-experience contract, start with the
+[AGRO CEO documentation](docs/ffl/README.md).
 
 ## Setup
 
@@ -11,7 +21,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Configure credentials
+### Configure legacy satellite credentials
 
 Copy `.env.example` to `.env` and fill in your Sentinel Hub credentials:
 
@@ -24,7 +34,7 @@ The tool supports two endpoints:
 - **Sentinel Hub** (default): Register at [sentinel-hub.com](https://www.sentinel-hub.com/)
 - **Copernicus Data Space (CDSE)** (free): Register at [dataspace.copernicus.eu](https://dataspace.copernicus.eu/), create OAuth credentials in the dashboard, and set `SENTINEL_HUB_ENDPOINT=cdse` in `.env`
 
-### Initialize the database
+### Initialize the legacy satellite database
 
 ```bash
 python scripts/setup_db.py
@@ -39,7 +49,7 @@ This parses the KML file, extracts the field polygon, and registers it in SQLite
 The FastAPI-based FFL operating kernel provides field reporting and manager
 action surfaces. See [the local run guide](docs/ffl/LOCAL-RUN.md) to start it.
 
-### Fetch satellite data
+### Fetch legacy satellite data
 
 ```bash
 # Fetch last 90 days of data
@@ -49,7 +59,7 @@ python scripts/fetch_data.py --lookback 90
 python scripts/fetch_data.py --lookback 180 -v
 ```
 
-### Launch the dashboard
+### Launch the legacy dashboard
 
 ```bash
 streamlit run dashboard/app.py
@@ -99,7 +109,7 @@ Three complementary methods run on each index time series:
 2. **Absolute threshold breach** -- per-index stress/severe thresholds from agronomic literature
 3. **Trend decline** -- linear regression over last 10 readings; flags if projected to cross stress threshold within 14 days
 
-### Risk scoring
+### Legacy satellite risk scoring
 
 Four categories (pest, disease, water stress, nutrient stress), each a weighted combination of index stress scores. Overall risk = max of the four categories. Ground-truth observations boost the relevant category.
 
