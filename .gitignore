@@ -50,3 +50,4 @@ CLAUDE.local.md
 .env
 .env.local
 .env.*.local
+.vercel
