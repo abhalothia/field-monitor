@@ -1674,7 +1674,7 @@ def create_source_registry(
             """INSERT INTO source_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (identifier, source_key, display_name, source_type, purpose, authority_level, owner_id,
              credentials_reference, endpoint, _json_value(permitted_data_classes), freshness_target_hours,
-             license_notes, schema_version, mapping_version, _json_value(default_coverage), int(enabled), created_at),
+             license_notes, schema_version, mapping_version, _json_value(default_coverage), bool(enabled), created_at),
         )
         if commit:
             conn.commit()

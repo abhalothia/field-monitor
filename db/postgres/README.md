@@ -27,3 +27,11 @@ schema and stores only source points—not farm polygons. Apply it with the
 direct migration connection, never the Vercel transaction pooler. Its tables
 remain outside Supabase's Data API and require an accountable Fortune manager
 before the source refresh can run.
+
+`0010_agro_named_access.sql` adds application owners/admins independently of
+operational roles or Supabase user metadata. Pending memberships have no email
+or Auth subject and cannot authenticate merely because their name is present.
+
+`0011_agro_trackwick_media_origin_check.sql` repairs the original TrackWick
+media-host constraint to accept the one explicitly approved S3 prefix. Apply
+it after `0009`; it does not broaden the origin allow-list or copy any image.

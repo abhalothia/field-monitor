@@ -1,8 +1,9 @@
 """Manager-only TrackWick source endpoints.
 
-The browser sees aggregate metrics and source health only.  It never receives
-the TrackWick customer id, API key, task identifiers, raw task payloads, mobile
-numbers, names, photos, or GPS.
+The manager board exposes a deliberately small working view: names, reported
+farm candidates, open work, and source evidence points. It never receives the
+TrackWick customer id, API key, provider identifiers, raw task payloads,
+mobile numbers, remote media URLs, or addresses.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from ffl.communications.auth import require_manager
 from ffl.persistence import repository
-from ffl.services import trackolap_metrics, trackwick_ingest
+from ffl.services import trackolap_metrics, trackwick_board, trackwick_ingest
 
 
 router = APIRouter(prefix="/api/v1/trackwick")
@@ -60,6 +61,14 @@ def get_trackwick_health(request: Request, _manager_id: str = Depends(require_ma
             }
         ),
     }
+
+
+@router.get("/board")
+def get_trackwick_board(request: Request, _manager_id: str = Depends(require_manager)) -> dict:
+    """Return manager-only TrackWick work and spatial evidence primitives."""
+    return trackwick_board.manager_board_for_source(
+        _connection(request), source_key=trackwick_ingest.SOURCE_KEY
+    )
 
 
 @router.post("/refresh")

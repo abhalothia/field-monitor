@@ -13,15 +13,20 @@ def test_trackwick_routes_are_manager_only_and_never_return_connection_details(t
         app.state.manager_person_id = manager.id
 
         denied = client.get("/api/v1/trackwick/health")
+        board_denied = client.get("/api/v1/trackwick/board")
         metrics = client.get("/api/v1/trackwick/metrics", headers={"X-FFL-Manager-Token": "manager-secret"})
         health = client.get("/api/v1/trackwick/health", headers={"X-FFL-Manager-Token": "manager-secret"})
+        board = client.get("/api/v1/trackwick/board", headers={"X-FFL-Manager-Token": "manager-secret"})
 
     assert denied.status_code == 403
+    assert board_denied.status_code == 403
     assert metrics.status_code == 200
     assert health.status_code == 200
+    assert board.status_code == 200
     assert health.json() == {"source_key": "trackwick-fortune-paddy", "state": "not_configured"}
     assert "api-key" not in repr(metrics.json()).lower()
     assert "customer" not in repr(health.json()).lower()
+    assert board.json()["source"] == {"state": "not_configured", "last_synced_at": None}
 
 
 def test_trackwick_refresh_without_server_configuration_is_safe(tmp_path):

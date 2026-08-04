@@ -18,7 +18,7 @@ import re
 import time as clock
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Sequence
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -1183,9 +1183,25 @@ def _safe_remote_trackwick_url(value: Any) -> Optional[str]:
     if url is None:
         return None
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname != _TRACKWICK_MEDIA_HOST:
+    try:
+        port = parsed.port
+    except ValueError:
         return None
-    return url
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != _TRACKWICK_MEDIA_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in {None, 443}
+        or not parsed.path.startswith("/")
+    ):
+        return None
+    # The private database constraint permits exactly this origin.  TrackWick
+    # occasionally spells the same HTTPS authority with an explicit default
+    # port or different host casing; canonicalising only those equivalent
+    # forms keeps the signed S3 path/query usable without broadening the
+    # remote-media allow-list.
+    return urlunparse(("https", _TRACKWICK_MEDIA_HOST, parsed.path, parsed.params, parsed.query, ""))
 
 
 def _private_location(value: Any) -> Optional[tuple[float, float, Optional[str], Optional[str], Optional[float]]]:

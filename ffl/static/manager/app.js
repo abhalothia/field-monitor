@@ -10,10 +10,12 @@
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
   var trackwickMetricsUrl = "/api/v1/trackwick/metrics";
   var trackwickHealthUrl = "/api/v1/trackwick/health";
+  var trackwickBoardUrl = "/api/v1/trackwick/board";
   var trackwickRefreshUrl = "/api/v1/trackwick/refresh";
   var currentRuntime = null;
   var currentPortfolio = null;
   var currentProgramme = null;
+  var currentSourceBoard = null;
   var currentFortuneMap = null;
   var currentView = "home";
   var currentOperatingUnitName = "";
@@ -551,6 +553,12 @@
       return;
     }
     currentProgramme = null;
+    currentSourceBoard = null;
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderPeople(currentRuntime);
+      renderRiskLedger();
+    }
     element("farmer-boundary").textContent = "";
     element("farmer-coverage").textContent = t("coverageLoading");
     renderWorkerActivity();
@@ -564,6 +572,12 @@
       return;
     }
     currentProgramme = null;
+    currentSourceBoard = null;
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderPeople(currentRuntime);
+      renderRiskLedger();
+    }
     element("farmer-boundary").textContent = "";
     element("farmer-coverage").textContent = t("coverageUnavailable");
     renderWorkerActivity();
@@ -591,16 +605,18 @@
     }
     return Promise.all([
       fetch(trackwickMetricsUrl, { credentials: "same-origin" }),
-      fetch(trackwickHealthUrl, { credentials: "same-origin" })
+      fetch(trackwickHealthUrl, { credentials: "same-origin" }),
+      fetch(trackwickBoardUrl, { credentials: "same-origin" })
     ])
       .then(function (responses) {
-        if (!responses[0].ok || !responses[1].ok) {
+        if (!responses[0].ok || !responses[1].ok || !responses[2].ok) {
           throw new Error("Programme context is unavailable.");
         }
-        return Promise.all([responses[0].json(), responses[1].json()]);
+        return Promise.all([responses[0].json(), responses[1].json(), responses[2].json()]);
       })
       .then(function (payloads) {
         renderProgramme(payloads[0], payloads[1]);
+        renderSourceBoard(payloads[2]);
       })
       .catch(renderProgrammeUnavailable);
   }
@@ -853,6 +869,21 @@
   }
 
   function inboxRows() {
+    if (sourceBoardReady()) {
+      return sourceRows("inbox").slice(0, 250).map(function (item) {
+        return {
+          key: "source_work_item:" + item.id,
+          severity: item.status === "in_progress" ? "high" : "medium",
+          title: item.task_type,
+          allocationId: null,
+          fieldName: item.farmer_name || t("unassigned"),
+          ownerName: item.field_worker_name || t("unassigned"),
+          dueAt: item.follow_up_at || item.opened_at,
+          status: item.status,
+          action: "review TrackWick work"
+        };
+      });
+    }
     var ledger = currentPortfolio ? listedItems(currentPortfolio.risk_action_ledger) : [];
     var rows = ledger.map(function (item) {
       return {
@@ -886,7 +917,8 @@
 
   function renderRiskLedger() {
     var rows = inboxRows();
-    var selectedAllocation = connectedAllocationId ? allocationFor(connectedAllocationId) : null;
+    var sourceWork = sourceBoardReady();
+    var selectedAllocation = sourceWork ? null : (connectedAllocationId ? allocationFor(connectedAllocationId) : null);
     var filterClear = element("inbox-filter-clear");
     filterClear.hidden = !selectedAllocation;
     filterClear.textContent = t("showAllDecisions");
@@ -898,15 +930,15 @@
       renderHomeMetrics();
       return;
     }
-    var summary = currentInboxMode === "all" ?
+    var summary = sourceWork ? formatCount((currentSourceBoard.counts || {}).open_work || rows.length) + " open field items · highest-attention first." : (currentInboxMode === "all" ?
       message("allDecisions", { count: formatCount(rows.length) }) :
-      message(rows.length === 1 ? "priorityDecision" : "priorityDecisions", { count: formatCount(rows.length) });
+      message(rows.length === 1 ? "priorityDecision" : "priorityDecisions", { count: formatCount(rows.length) }));
     element("inbox-summary").textContent = selectedAllocation ?
       message("decisionsForField", { field: fieldLabel(selectedAllocation.operational_block_name) }) + " · " + summary : summary;
     setHtml("portfolio-ledger", rows.map(function (item) {
       return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(readable(item.severity)) +
-        '</span></td><th scope="row">' + escapeHtml(sampleText(item.title)) + '</th><td>' + escapeHtml(fieldNameFor(item.allocationId)) +
-        '</td><td>' + escapeHtml(personName(item.ownerId)) + '</td><td>' + escapeHtml(formatTime(item.dueAt)) +
+        '</span></td><th scope="row">' + escapeHtml(sampleText(item.title)) + '</th><td>' + escapeHtml(item.fieldName || fieldNameFor(item.allocationId)) +
+        '</td><td>' + escapeHtml(item.ownerName || personName(item.ownerId)) + '</td><td>' + escapeHtml(formatTime(item.dueAt)) +
         '</td><td><span class="status">' + escapeHtml(readable(item.status)) + '</span></td></tr>';
     }).join(""));
     renderHomeMetrics();
@@ -932,7 +964,69 @@
     renderHomeMetrics();
   }
 
+  function sourceBoardReady() {
+    return Boolean(currentSourceBoard && currentSourceBoard.source && currentSourceBoard.source.state === "succeeded");
+  }
+
+  function sourceRows(kind) {
+    return sourceBoardReady() && Array.isArray(currentSourceBoard[kind]) ? currentSourceBoard[kind] : [];
+  }
+
+  function sourceFarmFor(id) {
+    return sourceRows("farms").filter(function (farm) { return farm.id === id; })[0] || null;
+  }
+
+  function sourceFarmerFor(id) {
+    return sourceRows("farmers").filter(function (farmer) { return farmer.id === id; })[0] || null;
+  }
+
+  function sourceWorkerFor(id) {
+    return sourceRows("field_workers").filter(function (worker) { return worker.id === id; })[0] || null;
+  }
+
+  function sourceFarmCardMarkup(farm) {
+    var hasArea = Number(farm.reported_area_acres) > 0;
+    var traits = [
+      farm.place,
+      Number(farm.pb1_area_acres) > 0 ? "PB-1 · " + formatQuantity(farm.pb1_area_acres) + " ac" : "",
+      farm.open_work ? formatCount(farm.open_work) + " " + t("openWork") : "",
+      farm.crop_photo_references ? formatCount(farm.crop_photo_references) + " crop photo references" : ""
+    ].filter(Boolean);
+    return '<button class="directory-card allocation-card" type="button" data-record-kind="farm" data-record-id="' + escapeHtml(farm.id) + '">' +
+      '<div class="allocation-card-heading"><h3>' + escapeHtml(farm.farmer_name) + '</h3><span class="status">' + escapeHtml(t("reported")) + '</span></div>' +
+      '<p class="allocation-crop">' + escapeHtml(farm.place) + '</p>' +
+      '<div class="directory-card-metric"><strong>' + escapeHtml(hasArea ? formatQuantity(farm.reported_area_acres) + " ac" : formatCount(farm.open_work)) +
+      '</strong><span>' + escapeHtml(hasArea ? t("area") : t("openWork")) + '</span></div>' +
+      '<ul class="directory-characteristics">' + traits.map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul></button>';
+  }
+
+  function sourceFarmTableMarkup(farms) {
+    if (!farms.length) {
+      return '<tr><td colspan="4" class="table-empty">No reported farm candidates yet.</td></tr>';
+    }
+    return farms.map(function (farm) {
+      return '<tr><th scope="row">' + escapeHtml(farm.farmer_name) + '</th><td>' + escapeHtml(farm.place) +
+        '</td><td>' + escapeHtml(Number(farm.reported_area_acres) > 0 ? formatQuantity(farm.reported_area_acres) + " ac" : "—") +
+        '</td><td><span class="status">' + escapeHtml(t("reported")) + '</span></td></tr>';
+    }).join("");
+  }
+
+  function renderSourceFarms() {
+    var farms = sourceRows("farms").slice(0, 150);
+    if (!farms.length) {
+      return false;
+    }
+    var counts = currentSourceBoard.counts || {};
+    element("allocation-summary").textContent = formatCount(counts.farm_candidates) + " reported farm candidates · showing the highest-attention records first.";
+    setHtml("allocation-list", farms.map(sourceFarmCardMarkup).join(""));
+    setHtml("farm-table-body", sourceFarmTableMarkup(farms));
+    return true;
+  }
+
   function renderAllocationCards(runtime) {
+    if (renderSourceFarms()) {
+      return;
+    }
     var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
     if (!allocations.length) {
       element("allocation-summary").textContent = t("noActiveCrop");
@@ -987,6 +1081,16 @@
 
   function mapPopup(feature) {
     var properties = feature && feature.properties ? feature.properties : {};
+    if (properties.map_label) {
+      var sourceParts = [properties.map_label];
+      if (properties.location_kind) {
+        sourceParts.push(readable(properties.location_kind));
+      }
+      if (properties.location_confidence) {
+        sourceParts.push(readable(properties.location_confidence));
+      }
+      return escapeHtml(sourceParts.join(" · "));
+    }
     var parts = [sampleText(properties.plot_label || t("reviewedField"))];
     if (properties.crop_name) {
       parts.push(cropLabel(properties.crop_name) + (properties.cultivar ? " · " + properties.cultivar : ""));
@@ -1022,10 +1126,18 @@
       attribution: "© OpenStreetMap contributors"
     }).addTo(map);
     var layer = window.L.geoJSON(featureCollection, {
-      style: { color: "#bc7a1e", weight: 2, fillColor: "#d8b14d", fillOpacity: 0.28 },
-      pointToLayer: function (_feature, latlng) {
+      style: function (feature) {
+        var properties = feature && feature.properties ? feature.properties : {};
+        return properties.record_kind === "source_point" || properties.record_kind === "source_farm" ?
+          { color: "#214d3a", weight: 1.5, fillColor: "#d2a936", fillOpacity: 0.86 } :
+          { color: "#bc7a1e", weight: 2, fillColor: "#d8b14d", fillOpacity: 0.28 };
+      },
+      pointToLayer: function (feature, latlng) {
+        var properties = feature && feature.properties ? feature.properties : {};
         return window.L.circleMarker(latlng, {
-          radius: 7, color: "#173f2c", weight: 2, fillColor: "#d7aa3f", fillOpacity: 0.95
+          radius: properties.record_kind === "source_point" || properties.record_kind === "source_farm" ? 4 : 7,
+          color: "#173f2c", weight: properties.record_kind === "source_point" || properties.record_kind === "source_farm" ? 1 : 2,
+          fillColor: "#d7aa3f", fillOpacity: 0.95
         });
       },
       onEachFeature: function (feature, featureLayer) {
@@ -1034,6 +1146,11 @@
         if (properties.record_kind === "farm" && properties.record_id) {
           featureLayer.on("click", function () {
             connectFarm(properties.record_id);
+            openRecordDialog("farm", properties.record_id);
+          });
+        }
+        if (properties.record_kind === "source_farm" && properties.record_id) {
+          featureLayer.on("click", function () {
             openRecordDialog("farm", properties.record_id);
           });
         }
@@ -1047,16 +1164,53 @@
 
   function renderFortuneMap(featureCollection) {
     currentFortuneMap = featureCollection || { type: "FeatureCollection", features: [] };
-    var features = currentFortuneMap.features || [];
-    var count = features.length;
+    renderBestMap();
+  }
+
+  function sourceBoardFeatureCollection() {
+    var points = sourceBoardReady() && currentSourceBoard.map && Array.isArray(currentSourceBoard.map.points) ? currentSourceBoard.map.points : [];
+    return {
+      type: "FeatureCollection",
+      features: points.map(function (point) {
+        var isFarm = String(point.id || "").indexOf("registration_id:") === 0;
+        return {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [Number(point.longitude), Number(point.latitude)] },
+          properties: {
+            record_kind: isFarm ? "source_farm" : "source_point",
+            record_id: isFarm ? String(point.id).slice("registration_id:".length) : null,
+            map_label: point.label,
+            location_kind: point.kind,
+            location_confidence: point.confidence
+          }
+        };
+      }).filter(function (feature) {
+        return isFinite(feature.geometry.coordinates[0]) && isFinite(feature.geometry.coordinates[1]);
+      })
+    };
+  }
+
+  function renderBestMap() {
+    var reviewed = currentFortuneMap && Array.isArray(currentFortuneMap.features) ? currentFortuneMap.features : [];
+    var sourceMap = sourceBoardFeatureCollection();
+    var sourcePoints = sourceMap.features || [];
+    var features = reviewed.concat(sourcePoints);
+    if (sourcePoints.length) {
+      var counts = currentSourceBoard.counts || {};
+      element("home-map-status").textContent = formatCount(counts.source_points || sourcePoints.length) + " source points";
+      element("home-map-note").textContent = "Source evidence points guide field work. They are not farm boundaries.";
+      element("farm-map-note").textContent = element("home-map-note").textContent;
+      renderMapCanvas("home-map-canvas", { type: "FeatureCollection", features: features });
+      renderMapCanvas("farm-map-canvas", { type: "FeatureCollection", features: features });
+      return;
+    }
+    var count = reviewed.length;
     element("home-map-status").textContent = sampleMode ? t("sampleLocation") :
       (count ? formatCount(count) + " " + (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry"));
-    element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
-      t("mapManifestNote") : t("mapPrivacyNote"));
-    element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ?
-      t("farmMapNote") : t("farmMapPrivacyNote"));
-    renderMapCanvas("home-map-canvas", currentFortuneMap);
-    renderMapCanvas("farm-map-canvas", currentFortuneMap);
+    element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("mapManifestNote") : t("mapPrivacyNote"));
+    element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("farmMapNote") : t("farmMapPrivacyNote"));
+    renderMapCanvas("home-map-canvas", currentFortuneMap || { type: "FeatureCollection", features: [] });
+    renderMapCanvas("farm-map-canvas", currentFortuneMap || { type: "FeatureCollection", features: [] });
   }
 
   function renderFortuneMapUnavailable() {
@@ -1173,7 +1327,65 @@
     }).join("");
   }
 
+  function sourcePersonCardMarkup(person, kind) {
+    var isFarmer = kind === "farmer";
+    var hasArea = isFarmer && Number(person.reported_area_acres) > 0;
+    var metric = hasArea ? formatQuantity(person.reported_area_acres) + " ac" : formatCount(person.open_work || person.completed_work || 0);
+    var metricLabel = hasArea ? t("area") : (isFarmer ? t("openWork") : t("openWork"));
+    var characteristics = isFarmer ? [
+      person.crm_status ? readable(person.crm_status) : "",
+      person.tag ? person.tag : "",
+      formatCount(person.farm_candidates) + " reported farms",
+      person.crop_photo_references ? formatCount(person.crop_photo_references) + " crop photo references" : ""
+    ] : [
+      formatCount(person.completed_work) + " completed",
+      person.latest_attendance && person.latest_attendance.status ? readable(person.latest_attendance.status) : "",
+      person.latest_attendance && person.latest_attendance.observed_on ? person.latest_attendance.observed_on : ""
+    ];
+    return '<button class="directory-card person-card" type="button" data-record-kind="' + kind + '" data-record-id="' + escapeHtml(person.id) + '">' +
+      '<h3>' + escapeHtml(person.name) + '</h3><p class="person-role">' + escapeHtml(isFarmer ? t("farmer") : t("fieldWorker")) + '</p>' +
+      '<div class="directory-card-metric"><strong>' + escapeHtml(metric) + '</strong><span>' + escapeHtml(metricLabel) + '</span></div>' +
+      '<ul class="directory-characteristics">' + characteristics.filter(Boolean).map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul></button>';
+  }
+
+  function sourcePeopleTableMarkup(people, kind) {
+    if (!people.length) {
+      return '<tr><td colspan="4" class="table-empty">No source records yet.</td></tr>';
+    }
+    return people.map(function (person) {
+      var scope = kind === "farmer" ? formatCount(person.farm_candidates) + " reported farms" : formatCount(person.completed_work) + " completed";
+      return '<tr><th scope="row">' + escapeHtml(person.name) + '</th><td>' + escapeHtml(kind === "farmer" ? t("farmer") : t("fieldWorker")) +
+        '</td><td>' + escapeHtml(scope) + '</td><td>' + escapeHtml(formatCount(person.open_work || 0)) + '</td></tr>';
+    }).join("");
+  }
+
+  function renderSourcePeople() {
+    var farmers = sourceRows("farmers").slice(0, 150);
+    var workers = sourceRows("field_workers").slice(0, 150);
+    if (!farmers.length && !workers.length) {
+      return false;
+    }
+    setHtml("farmer-list", farmers.map(function (farmer) { return sourcePersonCardMarkup(farmer, "farmer"); }).join(""));
+    setHtml("worker-list", workers.map(function (worker) { return sourcePersonCardMarkup(worker, "worker"); }).join(""));
+    setHtml("farmer-table-body", sourcePeopleTableMarkup(farmers, "farmer"));
+    setHtml("worker-table-body", sourcePeopleTableMarkup(workers, "worker"));
+    return true;
+  }
+
+  function renderSourceBoard(board) {
+    currentSourceBoard = board && typeof board === "object" ? board : null;
+    if (currentRuntime) {
+      renderCards(currentRuntime);
+      renderPeople(currentRuntime);
+    }
+    renderRiskLedger();
+    renderBestMap();
+  }
+
   function renderPeople(runtime) {
+    if (renderSourcePeople()) {
+      return;
+    }
     var people = Array.isArray(runtime.people) ? runtime.people : [];
     var relationshipSummary = runtime.person_operating_relationships || {};
     var relationships = Array.isArray(relationshipSummary.items) ? relationshipSummary.items : [];
@@ -1205,6 +1417,20 @@
     var traits = [];
     var context = "";
     if (kind === "farm") {
+      var sourceFarm = sourceFarmFor(id);
+      if (sourceFarm) {
+        title = sourceFarm.farmer_name;
+        metric = Number(sourceFarm.reported_area_acres) > 0 ? formatQuantity(sourceFarm.reported_area_acres) + " ac" : formatCount(sourceFarm.open_work);
+        metricLabel = Number(sourceFarm.reported_area_acres) > 0 ? t("area") : t("openWork");
+        traits = [
+          sourceFarm.place,
+          sourceFarm.reported_plot_count ? formatCount(sourceFarm.reported_plot_count) + " reported plots" : "",
+          Number(sourceFarm.pb1_area_acres) > 0 ? "PB-1 · " + formatQuantity(sourceFarm.pb1_area_acres) + " ac" : "",
+          sourceFarm.open_work ? formatCount(sourceFarm.open_work) + " " + t("openWork") : "",
+          sourceFarm.crop_photo_references ? formatCount(sourceFarm.crop_photo_references) + " crop photo references" : ""
+        ];
+        context = "Reported farm candidate · requires Fortune review";
+      } else {
       var allocation = allocationFor(id);
       if (!allocation) {
         return;
@@ -1223,7 +1449,26 @@
         work ? t("risk") + " · " + formatCount(work) + " " + (work === 1 ? t("openAction") : t("openActions")) : ""
       ];
       context = t("reviewedRecord");
+      }
     } else {
+      var sourcePerson = kind === "farmer" ? sourceFarmerFor(id) : sourceWorkerFor(id);
+      if (sourcePerson) {
+        var sourceFarmer = kind === "farmer";
+        title = sourcePerson.name;
+        metric = sourceFarmer && Number(sourcePerson.reported_area_acres) > 0 ? formatQuantity(sourcePerson.reported_area_acres) + " ac" : formatCount(sourcePerson.open_work || sourcePerson.completed_work || 0);
+        metricLabel = sourceFarmer && Number(sourcePerson.reported_area_acres) > 0 ? t("area") : t("openWork");
+        traits = sourceFarmer ? [
+          sourcePerson.crm_status ? readable(sourcePerson.crm_status) : "",
+          sourcePerson.tag || "",
+          formatCount(sourcePerson.farm_candidates) + " reported farms",
+          sourcePerson.crop_photo_references ? formatCount(sourcePerson.crop_photo_references) + " crop photo references" : ""
+        ] : [
+          formatCount(sourcePerson.completed_work) + " completed",
+          sourcePerson.latest_attendance && sourcePerson.latest_attendance.status ? readable(sourcePerson.latest_attendance.status) : "",
+          sourcePerson.latest_attendance && sourcePerson.latest_attendance.observed_on ? sourcePerson.latest_attendance.observed_on : ""
+        ];
+        context = sourceFarmer ? "TrackWick farmer record" : "TrackWick field-worker record";
+      } else {
       var person = personFor(id);
       if (!person) {
         return;
@@ -1238,6 +1483,7 @@
         (data.openWork === 1 ? t("openAction") : t("openActions"));
       traits = data.characteristics.length ? data.characteristics : [data.scope];
       context = data.scope;
+      }
     }
     element("record-dialog-kind").textContent = kind === "farm" ? t("field") : (kind === "farmer" ? t("farmer") : t("fieldWorker"));
     element("record-dialog-title").textContent = title;
@@ -1246,8 +1492,8 @@
     element("record-dialog-context").textContent = context;
     recordTraits(traits);
     var action = element("record-dialog-action");
-    action.hidden = kind !== "farm";
-    action.textContent = kind === "farm" ? t("viewRelatedDecisions") : "";
+    action.hidden = kind !== "farm" || Boolean(sourceFarmFor(id));
+    action.textContent = kind === "farm" && !sourceFarmFor(id) ? t("viewRelatedDecisions") : "";
     if (syncRoute !== false) {
       updateRecordRoute(kind, id);
     }

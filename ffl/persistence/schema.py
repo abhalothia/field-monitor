@@ -621,6 +621,28 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (source_id, feed, source_identifier, source_updated_at)
         );
 
+        -- Named application access is independent from a person's field role.
+        -- A row without a verified Auth subject is intentionally pending and
+        -- cannot authenticate a browser merely because its display name exists.
+        CREATE TABLE IF NOT EXISTS access_memberships (
+            id TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL UNIQUE REFERENCES people(id),
+            auth_subject TEXT UNIQUE,
+            identity_email TEXT,
+            access_role TEXT NOT NULL CHECK (access_role IN ('owner', 'admin')),
+            identity_status TEXT NOT NULL CHECK (identity_status IN ('identity_pending', 'invited', 'active', 'suspended')),
+            invited_at TEXT,
+            activated_at TEXT,
+            last_authenticated_at TEXT,
+            created_at TEXT NOT NULL,
+            CHECK (
+                (identity_status = 'identity_pending' AND auth_subject IS NULL AND identity_email IS NULL)
+                OR (identity_status = 'invited' AND auth_subject IS NULL AND identity_email IS NOT NULL AND invited_at IS NOT NULL)
+                OR (identity_status = 'active' AND auth_subject IS NOT NULL AND identity_email IS NOT NULL AND activated_at IS NOT NULL)
+                OR identity_status = 'suspended'
+            )
+        );
+
         -- Private TrackWick CRM and spatial evidence.  This is a typed source
         -- lane, not a shortcut into Fortune's canonical farm graph.  SQLite
         -- mirrors the PostgreSQL shape for tests; production additionally
@@ -1005,6 +1027,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON import_batches (purpose, received_at);
         CREATE INDEX IF NOT EXISTS idx_trackolap_records_source_status_feed
             ON trackolap_records (source_id, status, feed, source_updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_access_memberships_email
+            ON access_memberships (lower(identity_email))
+            WHERE identity_email IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_access_memberships_role_status
+            ON access_memberships (access_role, identity_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_parties_source_kind
             ON trackwick_parties (source_id, party_kind, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_contacts_party

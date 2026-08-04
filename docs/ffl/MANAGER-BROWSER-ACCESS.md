@@ -5,6 +5,14 @@ AGRO CEO has two deliberately separate browser gates:
 1. `FFL_LAUNCH_PASSWORD` gates the Fortune pilot shell. It is not manager authority.
 2. `FFL_MANAGER_SESSION_SECRET` unlocks manager-only actions for the one configured manager person in a short-lived, server-signed cookie session.
 
+`agro_access_memberships` separately records the Fortune app team: owners and
+admins are not inferred from a person's field role. The initial three records
+are identity-pending until a verified email/Auth subject is attached; do not
+invent credentials from display names. The current session gate remains a
+single configured transitional manager binding, so choose one active approved
+person for `FFL_MANAGER_PERSON_ID` until the named Supabase Auth hand-off is
+enabled.
+
 Set these only as encrypted server environment variables:
 
 ```text

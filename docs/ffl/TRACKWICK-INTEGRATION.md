@@ -36,11 +36,14 @@ Optional bounds are `FFL_TRACKWICK_TASK_PAGE_SIZE` (1–250, default 100), `FFL_
 - `/cust/1/api/asset/productivity`, for the current India reporting date.
 
 Before the first refresh, apply the reviewed private migrations through
-`0009_agro_trackwick_private_spatial_evidence.sql` to the intended Supabase project and create the
-real accountable Fortune manager in `agro_people` with the role
-`farm_manager`, `operations_lead`, or `agronomist`. The refresh will fail
-closed if that owner is absent or has another role; it never creates a
-fictional person to make a dashboard look populated.
+`0011_agro_trackwick_media_origin_check.sql` to the intended Supabase project.
+Then provision the explicitly approved AGRO CEO staff through
+`provision_initial_fortune_team`: Aakash Bhalothia and Ajay Bhalothia are
+owners, and Daksh Bhatia is an admin. Each has the existing accountable
+`operations_lead` role for source operations, while app access lives in the
+separate `agro_access_memberships` table. A name alone does not create a login:
+each identity remains pending until Fortune supplies a verified email and Auth
+subject. The refresh fails closed if its owner is absent or has another role.
 
 ## What enters AGRO CEO
 
@@ -49,6 +52,7 @@ One task can safely become a farmer-task context row, completed visit, issue obs
 - `POST /api/v1/trackwick/refresh`
 - `GET /api/v1/trackwick/health`
 - `GET /api/v1/trackwick/metrics`
+- `GET /api/v1/trackwick/board`
 
 The refresh is manual and manager-authorized. Its published records are source context only; farmer, farm, and field-worker basics remain candidates until reviewed. They never create a canonical farm, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
 
@@ -59,6 +63,13 @@ and remote crop/plot-photo references from TrackWick's approved image host.
 It marks registration/CRM points as declared and task/visit/photo points as
 observed. Those pins are never farm boundaries, and a refresh never copies a
 photo or sends private evidence to the browser.
+
+`/board` is a manager-only working view, not a public data export. It permits
+only the current source graph needed to operate: named farmers and field
+workers, reported farm candidates, open TrackWick work, photo *counts*, and
+GPS source points. It never serialises contacts, source/provider IDs, raw
+forms, addresses, remote image URLs, or image bytes. A board point is visibly
+labelled source evidence—not a field boundary or a verified Fortune farm.
 
 Severity stays `unknown` unless Fortune explicitly adds a low/moderate/high/critical field to the Farmer Visit form and supplies its exact label in `FFL_TRACKWICK_SEVERITY_FORM_KEY`. AGRO CEO never infers severity from a pest or disease name. New submissions then carry the field worker's stated severity; existing source records remain unchanged.
 
@@ -71,11 +82,10 @@ two-India-day window. It is a visible server pull—not a hidden
 browser-to-provider connection—and every run carries its sync scope,
 received/accepted counts, and safe health state in the private database.
 
-The Vercel function allows 60 seconds for the initial baseline; the verified
-current baseline takes roughly 25 seconds upstream. Routine two-day pulls are
-materially smaller. If the tenant grows beyond that budget, run the same
-server-only refresh from a private worker instead of weakening the data model
-or exposing provider access to the browser.
+The initial historical baseline can take longer than a browser-facing function
+budget. Run it from a private worker or the reviewed direct operator path; do
+not shorten history, weaken the data model, or expose provider access to the
+browser. Routine two-day pulls are materially smaller.
 
 ## What is deliberately discarded
 

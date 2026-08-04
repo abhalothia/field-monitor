@@ -3,6 +3,7 @@ from datetime import datetime
 from ffl.integrations.trackolap.trackwick import (
     TrackwickApiConfig,
     TrackwickFetchResult,
+    _safe_remote_trackwick_url,
     normalise_trackwick_private_evidence,
 )
 
@@ -216,3 +217,15 @@ def test_private_evidence_normaliser_accepts_a_plot_photo_only_when_its_exact_la
     by_table = result.records_by_table()
     assert [row.values["media_kind"] for row in by_table["trackwick_media_references"]] == ["plot_photo"]
     assert "aadhaar.jpg" not in repr(result)
+
+
+def test_private_media_url_canonicalises_only_the_same_approved_s3_origin():
+    assert _safe_remote_trackwick_url(
+        "https://TRACKOLAP-IMAGES-PROD.s3.amazonaws.com:443/crop.jpg?signature=kept"
+    ) == "https://trackolap-images-prod.s3.amazonaws.com/crop.jpg?signature=kept"
+    assert _safe_remote_trackwick_url(
+        "https://trackolap-images-prod.s3.amazonaws.com:8443/crop.jpg"
+    ) is None
+    assert _safe_remote_trackwick_url(
+        "https://trackolap-images-prod.s3.amazonaws.com.evil.example/crop.jpg"
+    ) is None
