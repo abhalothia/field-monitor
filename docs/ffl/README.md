@@ -18,6 +18,7 @@ The product has one promise:
 | The durable domain model and evidence rules | [System spine](PRD-SYSTEM-SPINE.md) |
 | The minimum real farm data needed to begin | [Data foundation](DATA-FOUNDATION.md) and [Farm manifest import](FARM-MANIFEST-IMPORT.md) |
 | How TrackWick context is read, normalised, and kept private | [TrackWick integration](TRACKWICK-INTEGRATION.md) |
+| What is actually present in the live Fortune TrackWick tenant | [Live TrackWick inventory](TRACKWICK-LIVE-INVENTORY.md) |
 | How to measure Fortune purchase share without retaining grower identities | [Purchase capture](PURCHASE-CAPTURE.md) |
 | How to run or deploy the private application | [Local run](LOCAL-RUN.md) and [Deployment](DEPLOYMENT.md) |
 
