@@ -11,19 +11,36 @@ import hashlib
 import json
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any, Iterable, Mapping, Optional
 
 from ffl.persistence import repository
 
 
 _QUEUE_LIMIT = 50
-_INBOX_REASON_LABELS = {
-    "plot_area": "Confirm plot area",
-    "crop_season": "Confirm crop and season",
-    "right_to_operate": "Confirm right to operate",
-    "farmer_identity": "Confirm farmer identity",
-    "field_worker_assignment": "Confirm field worker assignment",
+_INBOX_REASON_CODES = {
+    "plot_area": "confirm_plot_area",
+    "crop_season": "confirm_crop_season",
+    "right_to_operate": "confirm_right_to_operate",
+    "farmer_identity": "confirm_farmer_identity",
+    "field_worker_assignment": "confirm_field_worker_assignment",
 }
+
+
+def list_current_farm_truth_contexts(conn) -> list[dict[str, str]]:
+    """Return real operating-unit/current-season pairs before any allocation."""
+    today = date.today().isoformat()
+    rows = conn.execute(
+        """SELECT unit.id AS operating_unit_id, unit.name AS operating_unit_name,
+                  season.id AS season_id, season.name AS season_name,
+                  season.starts_on, season.ends_on
+           FROM operating_units AS unit
+           JOIN seasons AS season ON season.operating_unit_id = unit.id
+           WHERE season.starts_on <= ? AND season.ends_on >= ?
+           ORDER BY unit.name, unit.id, season.starts_on, season.id""",
+        (today, today),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def refresh_farm_truth_cases(
@@ -34,13 +51,11 @@ def refresh_farm_truth_cases(
 ) -> list[dict[str, Any]]:
     """Persist all currently eligible cases and return the top safe 50.
 
-    A candidate is exactly one registration and one plot.  Visits and open
-    work are linked only by the registration's source/farmer pair; no spatial,
-    contact, media, provider, or heuristic identity join is permitted.
+    A candidate is exactly one registration and one plot. Visits and open
+    work count only through an explicit source task-to-plot association; no
+    farmer-wide, spatial, contact, media, or heuristic join is permitted.
     """
-    season = repository.get_season(conn, season_id)
-    if season is None or season.operating_unit_id != operating_unit_id:
-        raise ValueError("season does not belong to operating unit")
+    season = _require_season_context(conn, operating_unit_id, season_id)
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (actor_id,)).fetchone() is None:
         raise ValueError("actor does not exist")
 
@@ -54,7 +69,10 @@ def refresh_farm_truth_cases(
     tasks_by_farmer = _supporting_tasks(conn)
     current_cases = []
     for candidate in candidates:
-        key = (str(candidate["source_id"]), str(candidate["farmer_party_id"]))
+        key = (
+            str(candidate["source_id"]), str(candidate["registration_id"]),
+            str(candidate["plot_id"]),
+        )
         support = tasks_by_farmer.get(key, ())
         visits = [
             task for task in support
@@ -77,6 +95,7 @@ def refresh_farm_truth_cases(
                     "id": task["id"],
                     "source_fingerprint": task["source_fingerprint"],
                     "visit_source_fingerprint": task["visit_source_fingerprint"],
+                    "association_source_fingerprint": task["association_source_fingerprint"],
                     "status": task["task_status"],
                 }
                 for task in (*visits, *open_work)
@@ -115,6 +134,7 @@ def list_farm_truth_case_summaries(
     season_id: str,
     status: str = "open",
     limit: int = _QUEUE_LIMIT,
+    owner_person_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """List the newest receipt per plot as bounded, allowlisted summaries."""
     _validate_queue_limit(limit)
@@ -124,7 +144,10 @@ def list_farm_truth_case_summaries(
         for source_id in _trackwick_source_ids(conn)
     ]
     cases = repository.list_latest_farm_truth_cases(
-        conn, status=status, queue_context_keys=context_keys
+        conn,
+        status=status,
+        queue_context_keys=context_keys,
+        owner_person_id=owner_person_id,
     )
     cases.sort(key=_case_sort_key)
     return [_serialize_case(case) for case in cases[:limit]]
@@ -163,70 +186,15 @@ def list_farm_truth_inbox_items(
         items.append({
             "id": case.id,
             "status": case.status,
-            "title": "Farm Truth evidence needed",
+            "title_code": "farm_truth_evidence_needed",
             "missing_evidence_kind": case.missing_evidence_kind,
-            "reason": _INBOX_REASON_LABELS.get(
-                case.missing_evidence_kind, "Confirm required evidence"
+            "reason_code": _INBOX_REASON_CODES.get(
+                case.missing_evidence_kind, "confirm_required_evidence"
             ),
             "place": summary["place"],
             "farmer_display_name": summary["people"]["farmer_display_name"],
         })
     return items
-
-
-def selected_farm_truth_task_ids(
-    conn,
-    case_id: str,
-    operating_unit_id: str,
-    season_id: str,
-    field_worker_party_id: Optional[str] = None,
-) -> tuple[str, ...]:
-    """Resolve acceptance evidence IDs entirely inside the private boundary.
-
-    The browser may choose an optional source worker, but it cannot choose the
-    task receipts used to justify that assignment.  Those receipts are derived
-    from the same typed, valid visit/open-work rules used by candidate refresh.
-    """
-    season = repository.get_season(conn, season_id)
-    if season is None or season.operating_unit_id != operating_unit_id:
-        raise ValueError("season does not belong to operating unit")
-    case = repository.get_farm_truth_case(conn, case_id)
-    if case is None:
-        raise ValueError("farm truth review case does not exist")
-    if not _case_is_current(case, operating_unit_id, season_id):
-        raise ValueError("farm truth review case is stale")
-    farmer = conn.execute(
-        """SELECT farmer_party_id
-           FROM trackwick_registrations
-           WHERE id = ? AND source_id = ?""",
-        (case.registration_id, case.source_id),
-    ).fetchone()
-    if farmer is None or farmer["farmer_party_id"] is None:
-        raise ValueError("farm truth case no longer has a linked source farmer")
-    support = _supporting_tasks(conn).get(
-        (case.source_id, str(farmer["farmer_party_id"])), ()
-    )
-    eligible = [
-        task for task in support
-        if task["support_kind"] == "open_work"
-        or (
-            task["support_kind"] == "visit"
-            and _date_in_window(task["observed_at"], season.starts_on, season.ends_on)
-        )
-    ]
-    if field_worker_party_id is not None:
-        supported = any(
-            task["field_worker_party_id"] == field_worker_party_id for task in eligible
-        )
-        worker = conn.execute(
-            """SELECT 1 FROM trackwick_parties
-               WHERE id = ? AND source_id = ? AND party_kind = 'field_worker'
-                 AND data_quality_status = 'valid'""",
-            (field_worker_party_id, case.source_id),
-        ).fetchone()
-        if not supported or worker is None:
-            raise ValueError("field worker is not supported by the selected source evidence")
-    return tuple(sorted(str(task["id"]) for task in eligible))
 
 
 def _candidate_rows(conn) -> list[Mapping[str, Any]]:
@@ -293,15 +261,20 @@ def _trackwick_source_ids(conn) -> list[str]:
     return [str(row["id"]) for row in rows]
 
 
-def _supporting_tasks(conn) -> dict[tuple[str, str], tuple[Mapping[str, Any], ...]]:
+def _supporting_tasks(
+    conn,
+) -> dict[tuple[str, str, str], tuple[Mapping[str, Any], ...]]:
     rows = conn.execute(
         """SELECT
                task.id,
                task.source_id,
+               association.registration_id,
+               association.plot_id,
                task.farmer_party_id,
                task.field_worker_party_id,
                task.task_status,
                task.source_fingerprint,
+               association.source_fingerprint AS association_source_fingerprint,
                visit.source_fingerprint AS visit_source_fingerprint,
                visit.observed_at,
                visit.transplanted_on,
@@ -316,6 +289,19 @@ def _supporting_tasks(conn) -> dict[tuple[str, str], tuple[Mapping[str, Any], ..
                        THEN 'open_work'
                END AS support_kind
            FROM trackwick_tasks AS task
+           JOIN trackwick_task_plot_links AS association
+             ON association.task_id = task.id
+            AND association.source_id = task.source_id
+            AND association.data_quality_status = 'valid'
+            AND association.association_kind = 'source_explicit'
+           JOIN trackwick_registrations AS registration
+             ON registration.id = association.registration_id
+            AND registration.source_id = association.source_id
+            AND registration.farmer_party_id = task.farmer_party_id
+           JOIN trackwick_registration_plots AS plot
+             ON plot.id = association.plot_id
+            AND plot.registration_id = association.registration_id
+            AND plot.source_id = association.source_id
            LEFT JOIN trackwick_visits AS visit
              ON visit.task_id = task.id
             AND visit.source_id = task.source_id
@@ -331,24 +317,24 @@ def _supporting_tasks(conn) -> dict[tuple[str, str], tuple[Mapping[str, Any], ..
                   OR (lower(task.task_type) = 'farmer visit'
                       AND task.task_status = 'completed'
                       AND visit.task_id IS NOT NULL))
-           ORDER BY task.source_id, task.farmer_party_id, task.id"""
+           ORDER BY task.source_id, association.registration_id, association.plot_id, task.id"""
     ).fetchall()
-    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[(str(row["source_id"]), str(row["farmer_party_id"]))].append(row)
+        grouped[(
+            str(row["source_id"]), str(row["registration_id"]), str(row["plot_id"])
+        )].append(row)
     return {key: tuple(value) for key, value in grouped.items()}
 
 
 def _candidate_fingerprint(
     candidate: Mapping[str, Any], eligible_tasks: Iterable[Mapping[str, Any]]
 ) -> str:
-    material = {
-        "registration_source_fingerprint": candidate["registration_fingerprint"],
-        "plot_source_fingerprint": candidate["plot_fingerprint"],
-        "eligible_tasks": [dict(task) for task in eligible_tasks],
-    }
-    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return repository.farm_truth_candidate_fingerprint(
+        str(candidate["registration_fingerprint"]),
+        str(candidate["plot_fingerprint"]),
+        eligible_tasks,
+    )
 
 
 def _evidence_summary(
@@ -364,15 +350,12 @@ def _evidence_summary(
         for task in (*visits, *open_work)
         if task["field_worker_display_name"]
     })
-    reason_chips = [
-        "Registration",
-        "Recent visit" if visit_count == 1 else f"{visit_count} recent visits",
-    ]
+    reason_codes = ["registration", "recent_visits"]
     if open_count:
-        reason_chips.append("Open follow-up" if open_count == 1 else f"{open_count} open follow-ups")
-    labels = ["Farmer visit"]
+        reason_codes.append("open_follow_ups")
+    task_label_codes = ["farmer_visit"]
     if open_count:
-        labels.append("Open follow-up")
+        task_label_codes.append("open_follow_up")
     return {
         "place": {
             "village": candidate["plot_village_name"] or candidate["village_name"],
@@ -402,8 +385,8 @@ def _evidence_summary(
         "evidence": {
             "recent_visit_count": visit_count,
             "open_work_count": open_count,
-            "safe_task_labels": labels,
-            "reason_chips": reason_chips,
+            "task_label_codes": task_label_codes,
+            "reason_codes": reason_codes,
         },
     }
 
@@ -446,10 +429,14 @@ def _case_is_current(
     return _queue_contexts(case.evidence_summary).get(context_key) is True
 
 
-def _require_season_context(conn, operating_unit_id: str, season_id: str) -> None:
+def _require_season_context(conn, operating_unit_id: str, season_id: str):
     season = repository.get_season(conn, season_id)
     if season is None or season.operating_unit_id != operating_unit_id:
         raise ValueError("season does not belong to operating unit")
+    today = date.today()
+    if not date.fromisoformat(season.starts_on) <= today <= date.fromisoformat(season.ends_on):
+        raise ValueError("selected season is not current")
+    return season
 
 
 def _safe_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
@@ -489,8 +476,13 @@ def _safe_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
         "evidence": {
             "recent_visit_count": _integer(evidence.get("recent_visit_count")) or 0,
             "open_work_count": _integer(evidence.get("open_work_count")) or 0,
-            "safe_task_labels": _text_list(evidence.get("safe_task_labels")),
-            "reason_chips": _text_list(evidence.get("reason_chips")),
+            "task_label_codes": _code_list(
+                evidence.get("task_label_codes"), {"farmer_visit", "open_follow_up"}
+            ),
+            "reason_codes": _code_list(
+                evidence.get("reason_codes"),
+                {"registration", "recent_visits", "open_follow_ups"},
+            ),
         },
     }
 
@@ -547,7 +539,7 @@ def _text_list(value: Any) -> list[str]:
 
 
 def _number(value: Any) -> Optional[float]:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         return None
     return float(value)
 
@@ -556,6 +548,12 @@ def _integer(value: Any) -> Optional[int]:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+def _code_list(value: Any, allowed: set[str]) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item in allowed][:50]
 
 
 def _validate_queue_limit(limit: int) -> None:

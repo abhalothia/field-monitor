@@ -6,6 +6,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any, List, Mapping, Optional, Sequence, Tuple
 
 from ffl.domain.models import (
@@ -83,6 +84,10 @@ FARM_TRUTH_MISSING_EVIDENCE_KINDS = {
 }
 
 
+class FarmTruthConflict(ValueError):
+    """A Farm Truth decision lost an optimistic or uniqueness race."""
+
+
 @dataclass(frozen=True)
 class FarmTruthReviewCase:
     """Private review state joining one source registration to one source plot."""
@@ -117,7 +122,7 @@ _TRACKWICK_PRIVATE_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
         ("party_id", "contact_kind", "value_fingerprint"),
     ),
     "trackwick_tasks": (
-        ("id", "provider_task_id", "farmer_party_id", "field_worker_party_id", "provider_customer_identifier", "task_type", "task_status", "provider_created_at", "provider_started_at", "provider_completed_at", "provider_follow_up_at"),
+        ("id", "provider_task_id", "farmer_party_id", "field_worker_party_id", "provider_customer_identifier", "task_type", "task_status", "provider_created_at", "provider_started_at", "provider_completed_at", "provider_follow_up_at", "provider_plot_reference"),
         ("source_id", "provider_task_id"),
     ),
     "trackwick_visits": (
@@ -152,6 +157,12 @@ _TRACKWICK_PRIVATE_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
         ("id", "field_worker_party_id", "observed_on", "attendance_status", "reported_start_time", "reported_total_time"),
         ("field_worker_party_id", "observed_on"),
     ),
+    "trackwick_task_plot_links": (
+        (
+            "id", "task_id", "registration_id", "plot_id", "association_kind",
+        ),
+        ("task_id",),
+    ),
 }
 
 
@@ -161,9 +172,17 @@ def _new_identity() -> Tuple[str, str]:
 
 def _json_value(value: object) -> str:
     """Persist JSON columns consistently while accepting normal Python values."""
+    def primitive(item: object) -> float:
+        if isinstance(item, Decimal) and item.is_finite():
+            return float(item)
+        raise TypeError("JSON values must contain only finite primitive values")
+
     try:
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    except ValueError as exc:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False,
+            default=primitive,
+        )
+    except (TypeError, ValueError) as exc:
         raise ValueError("JSON values must not contain NaN or infinity") from exc
 
 
@@ -2052,6 +2071,138 @@ def _trackwick_private_fingerprint(values: Mapping[str, Any]) -> str:
     return hashlib.sha256(_json_value(dict(values)).encode("utf-8")).hexdigest()
 
 
+def _trackwick_plot_reference_key(value: object) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    canonical = " ".join(value.split()).casefold()
+    return canonical or None
+
+
+def reconcile_trackwick_task_plot_links(
+    conn,
+    source_id: str,
+    source_run_id: Optional[str],
+    mapping_version: str,
+    *,
+    references_enabled: bool,
+    observed_at: Optional[str] = None,
+    commit: bool = True,
+) -> int:
+    """Resolve configured task references to exactly one source plot.
+
+    The provider does not expose a relational task/plot foreign key.  A
+    tenant-configured form field may carry a plot's Gata reference, so this
+    reconciler admits only an exact canonical match within the same source and
+    farmer.  Missing and ambiguous matches remain non-evidence; any previously
+    managed association is quarantined before the current graph is rebuilt.
+    """
+    source_id = _required_text(source_id, "source_id", 128)
+    mapping_version = _required_text(mapping_version, "mapping_version", 128)
+    now = observed_at or datetime.now(timezone.utc).isoformat()
+    written = conn.execute(
+        """UPDATE trackwick_task_plot_links
+           SET source_run_id = ?, data_quality_status = 'quarantined',
+               last_seen_at = ?
+           WHERE source_id = ? AND mapping_version = ?
+             AND association_kind = 'source_explicit'
+             AND data_quality_status != 'quarantined'""",
+        (source_run_id, now, source_id, mapping_version),
+    ).rowcount
+    if not references_enabled:
+        if commit:
+            conn.commit()
+        return written
+
+    matches_by_farmer_and_reference: dict[
+        tuple[str, str], list[tuple[str, str]]
+    ] = {}
+    plot_rows = conn.execute(
+        """SELECT registration.id AS registration_id, plot.id AS plot_id,
+                  registration.farmer_party_id, plot.gata_number
+           FROM trackwick_registrations AS registration
+           JOIN trackwick_tasks AS registration_task
+             ON registration_task.id = registration.task_id
+            AND registration_task.source_id = registration.source_id
+            AND registration_task.task_status = 'completed'
+            AND registration_task.data_quality_status = 'valid'
+           JOIN trackwick_registration_plots AS plot
+             ON plot.registration_id = registration.id
+            AND plot.source_id = registration.source_id
+            AND plot.data_quality_status = 'valid'
+           WHERE registration.source_id = ?
+             AND registration.registration_status = 'completed'
+             AND registration.data_quality_status = 'valid'
+             AND registration.farmer_party_id IS NOT NULL
+             AND plot.gata_number IS NOT NULL""",
+        (source_id,),
+    ).fetchall()
+    for row in plot_rows:
+        reference = _trackwick_plot_reference_key(row["gata_number"])
+        if reference is None:
+            continue
+        matches_by_farmer_and_reference.setdefault(
+            (str(row["farmer_party_id"]), reference), []
+        ).append((str(row["registration_id"]), str(row["plot_id"])))
+
+    task_rows = conn.execute(
+        """SELECT id, farmer_party_id, provider_plot_reference
+           FROM trackwick_tasks
+           WHERE source_id = ? AND data_quality_status = 'valid'
+             AND farmer_party_id IS NOT NULL
+             AND provider_plot_reference IS NOT NULL
+           ORDER BY id""",
+        (source_id,),
+    ).fetchall()
+    for task in task_rows:
+        reference = _trackwick_plot_reference_key(task["provider_plot_reference"])
+        if reference is None:
+            continue
+        matches = matches_by_farmer_and_reference.get(
+            (str(task["farmer_party_id"]), reference), []
+        )
+        if len(matches) != 1:
+            continue
+        registration_id, plot_id = matches[0]
+        task_id = str(task["id"])
+        association_id = "tw:task-plot-link:" + hashlib.sha256(
+            (source_id + "\x1f" + task_id).encode("utf-8")
+        ).hexdigest()[:32]
+        values = {
+            "id": association_id,
+            "task_id": task_id,
+            "registration_id": registration_id,
+            "plot_id": plot_id,
+            "association_kind": "source_explicit",
+        }
+        fingerprint = _trackwick_private_fingerprint(values)
+        written += conn.execute(
+            """INSERT INTO trackwick_task_plot_links (
+                   id, source_id, source_run_id, task_id, registration_id, plot_id,
+                   association_kind, source_fingerprint, mapping_version,
+                   data_quality_status, first_seen_at, last_seen_at, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, ?, ?)
+               ON CONFLICT (task_id) DO UPDATE SET
+                   id = excluded.id,
+                   source_id = excluded.source_id,
+                   source_run_id = excluded.source_run_id,
+                   registration_id = excluded.registration_id,
+                   plot_id = excluded.plot_id,
+                   association_kind = excluded.association_kind,
+                   source_fingerprint = excluded.source_fingerprint,
+                   mapping_version = excluded.mapping_version,
+                   data_quality_status = excluded.data_quality_status,
+                   last_seen_at = excluded.last_seen_at""",
+            (
+                association_id, source_id, source_run_id, task_id,
+                registration_id, plot_id, "source_explicit", fingerprint,
+                mapping_version, now, now, now,
+            ),
+        ).rowcount
+    if commit:
+        conn.commit()
+    return written
+
+
 def get_farm_truth_case(
     conn: sqlite3.Connection, case_id: str,
 ) -> Optional[FarmTruthReviewCase]:
@@ -2409,6 +2560,37 @@ def farm_truth_acceptance_fingerprint(
     field_worker_party_id: Optional[str],
 ) -> str:
     """Fingerprint one normalized private acceptance decision request."""
+    material = _farm_truth_acceptance_contract(
+        operating_unit_id=operating_unit_id,
+        season_id=season_id,
+        field_name=field_name,
+        managed_area_hectares=managed_area_hectares,
+        crop_name=crop_name,
+        cultivar=cultivar,
+        grower_effective_on=grower_effective_on,
+        right_type=right_type,
+        right_starts_on=right_starts_on,
+        right_ends_on=right_ends_on,
+        field_worker_party_id=field_worker_party_id,
+    )
+    canonical = _json_value(material)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _farm_truth_acceptance_contract(
+    operating_unit_id: str,
+    season_id: str,
+    field_name: str,
+    managed_area_hectares: float,
+    crop_name: str,
+    cultivar: Optional[str],
+    grower_effective_on: str,
+    right_type: str,
+    right_starts_on: str,
+    right_ends_on: Optional[str],
+    field_worker_party_id: Optional[str],
+) -> dict[str, Any]:
+    """Normalize the complete replay contract before hashing or persisting it."""
     operating_unit_id = _required_text(operating_unit_id, "operating_unit_id", 128)
     season_id = _required_text(season_id, "season_id", 128)
     field_name = _required_text(field_name, "field_name", 160)
@@ -2430,7 +2612,7 @@ def farm_truth_acceptance_fingerprint(
         or managed_area_hectares <= 0
     ):
         raise ValueError("managed_area_hectares must be positive and finite")
-    material = {
+    return {
         "contract_version": 1,
         "operating_unit_id": operating_unit_id,
         "season_id": season_id,
@@ -2444,8 +2626,197 @@ def farm_truth_acceptance_fingerprint(
         "right_ends_on": right_ends_on,
         "field_worker_party_id": field_worker_party_id,
     }
-    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"))
+
+
+def farm_truth_candidate_fingerprint(
+    registration_source_fingerprint: str,
+    plot_source_fingerprint: str,
+    eligible_tasks: Sequence[Mapping[str, Any]],
+) -> str:
+    """Fingerprint the exact registration, plot, and associated task receipt."""
+    material = {
+        "registration_source_fingerprint": _required_text(
+            registration_source_fingerprint, "registration_source_fingerprint", 64
+        ),
+        "plot_source_fingerprint": _required_text(
+            plot_source_fingerprint, "plot_source_fingerprint", 64
+        ),
+        "eligible_tasks": [dict(task) for task in eligible_tasks],
+    }
+    canonical = _json_value(material)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _farm_truth_lock_suffix(conn, aliases: str = "") -> str:
+    if getattr(conn, "dialect", "sqlite") != "postgres":
+        return ""
+    return " FOR UPDATE" + (" OF " + aliases if aliases else "")
+
+
+def _locked_farm_truth_case(conn, case_id: str) -> Optional[FarmTruthReviewCase]:
+    row = conn.execute(
+        "SELECT * FROM farm_truth_review_cases WHERE id = ?"
+        + _farm_truth_lock_suffix(conn),
+        (case_id,),
+    ).fetchone()
+    return _farm_truth_review_case(row) if row is not None else None
+
+
+def _farm_truth_observed_in_season(value: object, starts_on: str, ends_on: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return False
+    return date.fromisoformat(starts_on) <= observed <= date.fromisoformat(ends_on)
+
+
+def _current_farm_truth_receipt(
+    conn,
+    review_case: FarmTruthReviewCase,
+    season: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...], list[dict[str, Any]]]:
+    """Lock and recompute the exact source receipt used by acceptance."""
+    base = conn.execute(
+        """SELECT registration.source_fingerprint AS registration_fingerprint,
+                  plot.source_fingerprint AS plot_fingerprint,
+                  farmer.id AS farmer_party_id,
+                  farmer.display_name AS farmer_display_name,
+                  registration_task.id AS registration_task_id,
+                  registration_task.source_fingerprint AS registration_task_fingerprint,
+                  registration_task.task_status AS registration_task_status
+           FROM trackwick_registrations AS registration
+           JOIN trackwick_registration_plots AS plot
+             ON plot.registration_id = registration.id
+            AND plot.source_id = registration.source_id
+            AND plot.data_quality_status = 'valid'
+           JOIN trackwick_parties AS farmer
+             ON farmer.id = registration.farmer_party_id
+            AND farmer.source_id = registration.source_id
+            AND farmer.party_kind = 'farmer'
+            AND farmer.data_quality_status = 'valid'
+           JOIN trackwick_tasks AS registration_task
+             ON registration_task.id = registration.task_id
+            AND registration_task.source_id = registration.source_id
+            AND registration_task.task_status = 'completed'
+            AND registration_task.data_quality_status = 'valid'
+           WHERE registration.id = ? AND plot.id = ?
+             AND registration.source_id = ?
+             AND registration.registration_status = 'completed'
+             AND registration.data_quality_status = 'valid'
+             AND (COALESCE(plot.reported_area_bigha, 0) > 0
+                  OR COALESCE(registration.reported_total_area_acres, 0) > 0)"""
+        + _farm_truth_lock_suffix(
+            conn, "registration, plot, farmer, registration_task"
+        ),
+        (review_case.registration_id, review_case.plot_id, review_case.source_id),
+    ).fetchone()
+    if base is None:
+        raise FarmTruthConflict("farm truth source candidate is no longer eligible")
+
+    task_rows = conn.execute(
+        """SELECT task.id, task.task_type, task.task_status,
+                  task.field_worker_party_id, task.source_fingerprint,
+                  association.source_fingerprint AS association_source_fingerprint
+           FROM trackwick_tasks AS task
+           JOIN trackwick_task_plot_links AS association
+             ON association.task_id = task.id
+            AND association.source_id = task.source_id
+            AND association.data_quality_status = 'valid'
+            AND association.association_kind = 'source_explicit'
+           JOIN trackwick_registrations AS registration
+             ON registration.id = association.registration_id
+            AND registration.source_id = association.source_id
+            AND registration.farmer_party_id = task.farmer_party_id
+           JOIN trackwick_registration_plots AS plot
+             ON plot.id = association.plot_id
+            AND plot.registration_id = association.registration_id
+            AND plot.source_id = association.source_id
+           WHERE task.source_id = ?
+             AND association.registration_id = ?
+             AND association.plot_id = ?
+             AND task.data_quality_status = 'valid'
+             AND task.farmer_party_id = ?
+             AND (task.task_status IN ('pending', 'in_progress')
+                  OR (lower(task.task_type) = 'farmer visit'
+                      AND task.task_status = 'completed'))
+           ORDER BY task.id"""
+        + _farm_truth_lock_suffix(conn, "task, association, registration, plot"),
+        (
+            review_case.source_id, review_case.registration_id, review_case.plot_id,
+            base["farmer_party_id"],
+        ),
+    ).fetchall()
+
+    eligible_tasks: list[Mapping[str, Any]] = []
+    task_receipt: list[dict[str, Any]] = [{
+        "id": base["registration_task_id"],
+        "source_fingerprint": base["registration_task_fingerprint"],
+        "status": base["registration_task_status"],
+    }]
+    current_visit_count = 0
+    for task in task_rows:
+        visit = conn.execute(
+            """SELECT source_fingerprint, observed_at
+               FROM trackwick_visits AS visit
+               WHERE task_id = ? AND source_id = ?
+                 AND data_quality_status = 'valid'"""
+            + _farm_truth_lock_suffix(conn, "visit"),
+            (task["id"], review_case.source_id),
+        ).fetchone()
+        is_visit = (
+            str(task["task_type"]).lower() == "farmer visit"
+            and task["task_status"] == "completed"
+        )
+        if is_visit and (
+            visit is None
+            or not _farm_truth_observed_in_season(
+                visit["observed_at"], season["starts_on"], season["ends_on"]
+            )
+        ):
+            continue
+        if is_visit:
+            current_visit_count += 1
+        eligible_tasks.append(task)
+        task_receipt.append({
+            "id": task["id"],
+            "source_fingerprint": task["source_fingerprint"],
+            "visit_source_fingerprint": (
+                visit["source_fingerprint"] if visit is not None else None
+            ),
+            "association_source_fingerprint": task["association_source_fingerprint"],
+            "status": task["task_status"],
+        })
+    if current_visit_count == 0:
+        raise FarmTruthConflict("farm truth source candidate no longer has a current visit")
+
+    task_receipt.sort(key=lambda item: str(item["id"]))
+    current_fingerprint = farm_truth_candidate_fingerprint(
+        str(base["registration_fingerprint"]),
+        str(base["plot_fingerprint"]),
+        task_receipt,
+    )
+    if current_fingerprint != review_case.candidate_fingerprint:
+        raise FarmTruthConflict("farm truth source evidence changed; refresh is required")
+    return base, tuple(eligible_tasks), task_receipt
+
+
+def _require_farm_truth_replay_match(
+    review_case: FarmTruthReviewCase,
+    contract: Mapping[str, Any],
+    fingerprint: str,
+) -> None:
+    established_contract = review_case.evidence_summary.get("_acceptance_contract")
+    established_fingerprint = review_case.evidence_summary.get("_acceptance_fingerprint")
+    if (
+        established_fingerprint != fingerprint
+        or (
+            established_contract is not None
+            and established_contract != contract
+        )
+    ):
+        raise FarmTruthConflict("accepted farm truth result does not match this request")
 
 
 def accept_farm_truth_case(
@@ -2482,6 +2853,7 @@ def accept_farm_truth_case(
     right_type = _required_text(right_type, "right_type", 160)
     grower_effective_on = _require_iso_date(grower_effective_on, "grower_effective_on")
     right_starts_on = _require_iso_date(right_starts_on, "right_starts_on")
+    supplied_right_ends_on = right_ends_on
     if right_ends_on is not None:
         right_ends_on = _require_iso_date(right_ends_on, "right_ends_on")
         if date.fromisoformat(right_ends_on) < date.fromisoformat(right_starts_on):
@@ -2493,51 +2865,85 @@ def accept_farm_truth_case(
         or managed_area_hectares <= 0
     ):
         raise ValueError("managed_area_hectares must be positive and finite")
-    task_ids = tuple(dict.fromkeys(
+    requested_task_ids = tuple(dict.fromkeys(
         _required_text(task_id, "selected_task_id", 128) for task_id in selected_task_ids
     ))
 
     with conn:
-        review_case = get_farm_truth_case(conn, case_id)
+        # SQLite takes a database write reservation before any source reads;
+        # PostgreSQL begins its transaction here and row-locks below.
+        conn.execute("BEGIN IMMEDIATE")
+        review_case = _locked_farm_truth_case(conn, case_id)
         if review_case is None:
             raise ValueError("farm truth review case does not exist")
         if review_case.status == "accepted":
+            replay_right_ends_on = right_ends_on
+            stored_contract = review_case.evidence_summary.get("_acceptance_contract")
+            if (
+                supplied_right_ends_on is None
+                and isinstance(stored_contract, Mapping)
+                and stored_contract.get("operating_unit_id") == operating_unit_id
+                and stored_contract.get("season_id") == season_id
+                and isinstance(stored_contract.get("right_ends_on"), str)
+            ):
+                replay_right_ends_on = str(stored_contract["right_ends_on"])
+            if replay_right_ends_on is None:
+                raise FarmTruthConflict(
+                    "accepted farm truth result is missing its replay contract"
+                )
+            acceptance_contract = _farm_truth_acceptance_contract(
+                operating_unit_id=operating_unit_id,
+                season_id=season_id,
+                field_name=field_name,
+                managed_area_hectares=managed_area_hectares,
+                crop_name=crop_name,
+                cultivar=cultivar,
+                grower_effective_on=grower_effective_on,
+                right_type=right_type,
+                right_starts_on=right_starts_on,
+                right_ends_on=replay_right_ends_on,
+                field_worker_party_id=field_worker_party_id,
+            )
+            acceptance_fingerprint = hashlib.sha256(
+                _json_value(acceptance_contract).encode("utf-8")
+            ).hexdigest()
+            _require_farm_truth_replay_match(
+                review_case, acceptance_contract, acceptance_fingerprint
+            )
             return review_case
-        if review_case.status != "open":
-            raise ValueError("farm truth review case is already claimed or resolved")
-        if (
-            expected_case_updated_at is not None
-            and review_case.updated_at != expected_case_updated_at
-        ):
-            raise ValueError("farm truth review case is stale, claimed, or resolved")
-        claimed = claim_farm_truth_case(
-            conn, case_id, expected_updated_at=expected_case_updated_at
-        )
-        if claimed is None:
-            established = get_farm_truth_case(conn, case_id)
-            if established is not None and established.status == "accepted":
-                return established
-            raise ValueError("farm truth review case is stale, claimed, or resolved")
 
-        if conn.execute(
-            """SELECT 1 FROM trackwick_plot_operating_links
-               WHERE plot_id = ? AND link_status = 'reviewed' LIMIT 1""",
-            (claimed.plot_id,),
-        ).fetchone() is not None:
-            raise ValueError("source plot already has a reviewed operating link")
-
-        reviewer = conn.execute("SELECT 1 FROM people WHERE id = ?", (reviewer_id,)).fetchone()
-        if reviewer is None:
-            raise ValueError("reviewer does not exist")
         season = conn.execute(
             "SELECT * FROM seasons WHERE id = ? AND operating_unit_id = ?",
             (season_id, operating_unit_id),
         ).fetchone()
         if season is None:
             raise ValueError("season does not belong to the operating unit")
+        season_starts_on = date.fromisoformat(season["starts_on"])
+        season_ends_on = date.fromisoformat(season["ends_on"])
+        if not season_starts_on <= date.today() <= season_ends_on:
+            raise ValueError("selected season is not current")
+        if review_case.status != "open":
+            raise FarmTruthConflict("farm truth review case is already claimed or resolved")
+        if (
+            expected_case_updated_at is not None
+            and review_case.updated_at != expected_case_updated_at
+        ):
+            raise FarmTruthConflict("farm truth review case is stale, claimed, or resolved")
+
         if right_ends_on is None:
             right_ends_on = season["ends_on"]
-        acceptance_fingerprint = farm_truth_acceptance_fingerprint(
+        grower_date = date.fromisoformat(grower_effective_on)
+        right_start_date = date.fromisoformat(right_starts_on)
+        right_end_date = date.fromisoformat(right_ends_on)
+        if not season_starts_on <= grower_date <= season_ends_on:
+            raise ValueError("grower_effective_on must fall within the selected season")
+        if not right_start_date <= grower_date <= right_end_date:
+            raise ValueError(
+                "grower_effective_on must fall within the right-to-operate interval"
+            )
+        if right_start_date > season_starts_on or right_end_date < season_ends_on:
+            raise ValueError("right-to-operate interval must cover the selected season")
+        acceptance_contract = _farm_truth_acceptance_contract(
             operating_unit_id=operating_unit_id,
             season_id=season_id,
             field_name=field_name,
@@ -2550,35 +2956,26 @@ def accept_farm_truth_case(
             right_ends_on=right_ends_on,
             field_worker_party_id=field_worker_party_id,
         )
+        acceptance_fingerprint = hashlib.sha256(
+            _json_value(acceptance_contract).encode("utf-8")
+        ).hexdigest()
 
-        farmer = conn.execute(
-            """SELECT party.id, party.display_name
-               FROM trackwick_registrations AS registration
-               JOIN trackwick_registration_plots AS plot
-                 ON plot.registration_id = registration.id
-               JOIN trackwick_parties AS party
-                 ON party.id = registration.farmer_party_id
-               WHERE registration.id = ? AND plot.id = ?
-                 AND registration.source_id = ? AND plot.source_id = ?
-                 AND party.source_id = ? AND party.party_kind = 'farmer'""",
-            (
-                claimed.registration_id, claimed.plot_id, claimed.source_id,
-                claimed.source_id, claimed.source_id,
-            ),
-        ).fetchone()
-        if farmer is None:
-            raise ValueError("farm truth case no longer has a linked source farmer")
+        if conn.execute(
+            """SELECT 1 FROM trackwick_plot_operating_links
+               WHERE plot_id = ? AND link_status = 'reviewed' LIMIT 1""",
+            (review_case.plot_id,),
+        ).fetchone() is not None:
+            raise FarmTruthConflict("source plot already has a reviewed operating link")
 
-        selected_tasks = []
-        for task_id in task_ids:
-            task = conn.execute(
-                """SELECT id, field_worker_party_id FROM trackwick_tasks
-                   WHERE id = ? AND source_id = ? AND farmer_party_id = ?""",
-                (task_id, claimed.source_id, farmer["id"]),
-            ).fetchone()
-            if task is None:
-                raise ValueError("selected task does not support this farm truth case")
-            selected_tasks.append(task)
+        reviewer = conn.execute("SELECT 1 FROM people WHERE id = ?", (reviewer_id,)).fetchone()
+        if reviewer is None:
+            raise ValueError("reviewer does not exist")
+        farmer, selected_tasks, _receipt = _current_farm_truth_receipt(
+            conn, review_case, season
+        )
+        task_ids = tuple(sorted(str(task["id"]) for task in selected_tasks))
+        if requested_task_ids and tuple(sorted(requested_task_ids)) != task_ids:
+            raise FarmTruthConflict("farm truth source evidence selection changed")
 
         field_worker = None
         if field_worker_party_id is not None:
@@ -2588,14 +2985,30 @@ def accept_farm_truth_case(
             if not any(
                 task["field_worker_party_id"] == field_worker_party_id for task in selected_tasks
             ):
-                raise ValueError("field worker is not supported by the selected source tasks")
+                raise ValueError(
+                    "field worker is not supported by the current source evidence"
+                )
             field_worker = conn.execute(
-                """SELECT id, display_name FROM trackwick_parties
-                   WHERE id = ? AND source_id = ? AND party_kind = 'field_worker'""",
-                (field_worker_party_id, claimed.source_id),
+                """SELECT id, display_name FROM trackwick_parties AS worker
+                   WHERE id = ? AND source_id = ? AND party_kind = 'field_worker'
+                     AND data_quality_status = 'valid'"""
+                + _farm_truth_lock_suffix(conn, "worker"),
+                (field_worker_party_id, review_case.source_id),
             ).fetchone()
             if field_worker is None:
                 raise ValueError("field worker source party does not exist")
+
+        claimed = claim_farm_truth_case(
+            conn, case_id, expected_updated_at=expected_case_updated_at
+        )
+        if claimed is None:
+            established = _locked_farm_truth_case(conn, case_id)
+            if established is not None and established.status == "accepted":
+                _require_farm_truth_replay_match(
+                    established, acceptance_contract, acceptance_fingerprint
+                )
+                return established
+            raise FarmTruthConflict("farm truth review case is stale, claimed, or resolved")
 
         land_parcel_id, land_created_at = _new_identity()
         conn.execute(
@@ -2632,7 +3045,7 @@ def accept_farm_truth_case(
         grower_person_id, grower_created_at = _new_identity()
         conn.execute(
             "INSERT INTO people VALUES (?, ?, 'grower', ?)",
-            (grower_person_id, farmer["display_name"], grower_created_at),
+            (grower_person_id, farmer["farmer_display_name"], grower_created_at),
         )
         _insert_farm_truth_relationship(
             conn, grower_person_id, crop_allocation_id, "grower",
@@ -2643,7 +3056,7 @@ def accept_farm_truth_case(
             """INSERT INTO trackwick_party_person_links
                VALUES (?, ?, ?, 'reviewed', ?, ?, ?)""",
             (
-                farmer_link_id, farmer["id"], grower_person_id, reviewer_id,
+                farmer_link_id, farmer["farmer_party_id"], grower_person_id, reviewer_id,
                 allocation_created_at, farmer_link_created_at,
             ),
         )
@@ -2707,6 +3120,7 @@ def accept_farm_truth_case(
         )
         accepted_evidence_summary = dict(claimed.evidence_summary)
         accepted_evidence_summary["_acceptance_fingerprint"] = acceptance_fingerprint
+        accepted_evidence_summary["_acceptance_contract"] = acceptance_contract
         updated = conn.execute(
             """UPDATE farm_truth_review_cases
                SET status = 'accepted', review_reason = ?, reviewed_by_person_id = ?,

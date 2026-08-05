@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 import hashlib
 import json
 
@@ -115,9 +116,13 @@ def _seed_candidate(
     visit_times: tuple[str, ...] = ("2026-07-20T10:00:00+00:00",),
     open_work: int = 0,
     linked_farmer: bool = True,
+    farmer_id_override: str | None = None,
+    associate_tasks: bool = True,
 ) -> tuple[str, str, str | None]:
-    farmer_id = "farmer-" + suffix if linked_farmer else None
-    if farmer_id:
+    farmer_id = farmer_id_override or ("farmer-" + suffix if linked_farmer else None)
+    if farmer_id and conn.execute(
+        "SELECT 1 FROM trackwick_parties WHERE id = ?", (farmer_id,)
+    ).fetchone() is None:
         _seed_party(conn, source_id, farmer_id, "farmer", "Farmer " + suffix)
     worker_id = "worker-" + suffix
     _seed_party(conn, source_id, worker_id, "field_worker", "Worker " + suffix)
@@ -206,11 +211,16 @@ def _seed_candidate(
                 NOW,
             ),
         )
+        if associate_tasks:
+            _seed_task_plot_association(
+                conn, source_id, task_id, registration_id, plot_id
+            )
     for index in range(open_work):
+        task_id = f"open-{suffix}-{index}"
         _seed_task(
             conn,
             source_id,
-            f"open-{suffix}-{index}",
+            task_id,
             farmer_id,
             task_type="CALL 9999999999 — raw provider follow-up",
             status="pending",
@@ -218,8 +228,35 @@ def _seed_candidate(
             created_at="2026-07-25T10:00:00+00:00",
             worker_id=worker_id,
         )
+        if associate_tasks:
+            _seed_task_plot_association(
+                conn, source_id, task_id, registration_id, plot_id
+            )
     conn.commit()
     return registration_id, plot_id, farmer_id
+
+
+def _seed_task_plot_association(
+    conn, source_id: str, task_id: str, registration_id: str, plot_id: str
+) -> None:
+    conn.execute(
+        """INSERT INTO trackwick_task_plot_links (
+               id, source_id, task_id, registration_id, plot_id, association_kind,
+               source_fingerprint, mapping_version, data_quality_status,
+               first_seen_at, last_seen_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, 'source_explicit', ?, 'v1', 'valid', ?, ?, ?)""",
+        (
+            "task-plot-link:" + task_id + ":" + plot_id,
+            source_id,
+            task_id,
+            registration_id,
+            plot_id,
+            _fingerprint("task-plot-link:" + task_id + ":" + plot_id),
+            NOW,
+            NOW,
+            NOW,
+        ),
+    )
 
 
 def _seed_sensitive_private_rows(conn, source_id: str, farmer_id: str, visit_task_id: str) -> None:
@@ -303,8 +340,9 @@ def test_refresh_discovers_one_safe_registration_plot_candidate(ffl_db, farm_tru
             "trackwick_parties",
             "trackwick_tasks",
             "trackwick_visits",
-            "trackwick_registrations",
-            "trackwick_registration_plots",
+                "trackwick_registrations",
+                "trackwick_registration_plots",
+                "trackwick_task_plot_links",
             "trackwick_contact_points",
             "trackwick_location_observations",
             "trackwick_media_references",
@@ -348,8 +386,8 @@ def test_refresh_discovers_one_safe_registration_plot_candidate(ffl_db, farm_tru
     assert queue[0]["evidence"] == {
         "recent_visit_count": 2,
         "open_work_count": 1,
-        "safe_task_labels": ["Farmer visit", "Open follow-up"],
-        "reason_chips": ["Registration", "2 recent visits", "Open follow-up"],
+        "task_label_codes": ["farmer_visit", "open_follow_up"],
+        "reason_codes": ["registration", "recent_visits", "open_follow_ups"],
     }
     assert set(_all_keys(queue)) & {
         "source_id",
@@ -522,14 +560,14 @@ def test_refresh_in_second_unit_season_does_not_hide_first_context_queue(
     )
     second_unit = repository.create_operating_unit(ffl_db, "Second Fortune Farm")
     second_season = repository.create_season(
-        ffl_db, second_unit.id, "Kharif 2027", "2027-06-01", "2027-11-30"
+        ffl_db, second_unit.id, "Kharif 2026", "2026-06-15", "2026-11-15"
     )
 
     second_queue = refresh_farm_truth_cases(
         ffl_db, second_unit.id, second_season.id, actor.id
     )
 
-    assert second_queue == []
+    assert second_queue == first_queue
     assert list_farm_truth_case_summaries(
         ffl_db, first_unit.id, first_season.id
     ) == first_queue
@@ -538,10 +576,10 @@ def test_refresh_in_second_unit_season_does_not_hide_first_context_queue(
     ) == first_queue[0]
     assert list_farm_truth_case_summaries(
         ffl_db, second_unit.id, second_season.id
-    ) == []
+    ) == second_queue
     assert get_farm_truth_case_detail(
         ffl_db, first_queue[0]["id"], second_unit.id, second_season.id
-    ) is None
+    ) == second_queue[0]
     assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 1
 
 
@@ -576,9 +614,9 @@ def test_owner_inbox_serializer_returns_only_owned_safe_needs_evidence_cases(
     assert inbox == [{
         "id": case_id,
         "status": "needs_evidence",
-        "title": "Farm Truth evidence needed",
+        "title_code": "farm_truth_evidence_needed",
         "missing_evidence_kind": "plot_area",
-        "reason": "Confirm plot area",
+        "reason_code": "confirm_plot_area",
         "place": {
             "village": "Village inbox",
             "block": "Gabhana",
@@ -589,3 +627,75 @@ def test_owner_inbox_serializer_returns_only_owned_safe_needs_evidence_cases(
     assert "9999999999" not in json.dumps(inbox)
     assert "raw source answer" not in json.dumps(inbox)
     assert list_farm_truth_inbox_items(ffl_db, other_owner.id) == []
+
+
+def test_refresh_accepts_postgres_decimal_rows_and_persists_json_safe_numbers(
+    ffl_db, farm_truth_context, monkeypatch
+):
+    actor, unit, season, source = farm_truth_context
+    _seed_candidate(ffl_db, source.id, "decimal")
+    from ffl.services import farm_truth as service
+
+    original = service._candidate_rows
+
+    def postgres_shaped_rows(conn):
+        rows = []
+        for row in original(conn):
+            values = dict(row)
+            values["reported_area_bigha"] = Decimal("2.500")
+            values["reported_total_area_acres"] = Decimal("1.250")
+            values["reported_pb1_area_acres"] = Decimal("0.750")
+            values["reported_1718_area_acres"] = Decimal("0.500")
+            rows.append(values)
+        return rows
+
+    monkeypatch.setattr(service, "_candidate_rows", postgres_shaped_rows)
+
+    queue = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
+
+    assert queue[0]["area"]["plot_bigha"] == 2.5
+    stored = repository.get_farm_truth_case(ffl_db, queue[0]["id"])
+    assert stored is not None
+    assert json.loads(json.dumps(stored.evidence_summary))["area"]["registration_acres"] == 1.25
+
+
+def test_refresh_never_applies_farmer_wide_tasks_to_an_unassociated_plot(
+    ffl_db, farm_truth_context
+):
+    actor, unit, season, source = farm_truth_context
+    _first_registration, first_plot, farmer_id = _seed_candidate(
+        ffl_db, source.id, "associated"
+    )
+    _second_registration, second_plot, _ = _seed_candidate(
+        ffl_db,
+        source.id,
+        "unassociated",
+        farmer_id_override=farmer_id,
+        associate_tasks=False,
+    )
+
+    queue = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
+
+    assert len(queue) == 1
+    stored = repository.get_farm_truth_case(ffl_db, queue[0]["id"])
+    assert stored is not None and stored.plot_id == first_plot
+    assert second_plot != first_plot
+
+
+def test_safe_candidate_contract_uses_codes_and_counts_not_server_english(
+    ffl_db, farm_truth_context
+):
+    actor, unit, season, source = farm_truth_context
+    _seed_candidate(ffl_db, source.id, "codes", open_work=2)
+
+    item = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)[0]
+
+    assert item["evidence"] == {
+        "recent_visit_count": 1,
+        "open_work_count": 2,
+        "task_label_codes": ["farmer_visit", "open_follow_up"],
+        "reason_codes": ["registration", "recent_visits", "open_follow_ups"],
+    }
+    rendered = json.dumps(item)
+    for english in ("Registration", "Recent visit", "Open follow-up", "Farmer visit"):
+        assert english not in rendered

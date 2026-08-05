@@ -116,6 +116,7 @@ class TrackwickApiConfig:
     delta_lookback_days: int = 2
     severity_form_key: Optional[str] = None
     plot_photo_form_key: Optional[str] = None
+    task_plot_reference_form_key: Optional[str] = None
 
     @classmethod
     def from_environment(
@@ -137,8 +138,18 @@ class TrackwickApiConfig:
             ZoneInfo(reporting_timezone)
         except Exception as error:
             raise TrackwickConfigurationError("FFL_TRACKWICK_REPORTING_TIMEZONE must be an IANA timezone") from error
-        severity_form_key = _optional_form_key(values.get("FFL_TRACKWICK_SEVERITY_FORM_KEY"))
-        plot_photo_form_key = _optional_form_key(values.get("FFL_TRACKWICK_PLOT_PHOTO_FORM_KEY"))
+        severity_form_key = _optional_form_key(
+            values.get("FFL_TRACKWICK_SEVERITY_FORM_KEY"),
+            "FFL_TRACKWICK_SEVERITY_FORM_KEY",
+        )
+        plot_photo_form_key = _optional_form_key(
+            values.get("FFL_TRACKWICK_PLOT_PHOTO_FORM_KEY"),
+            "FFL_TRACKWICK_PLOT_PHOTO_FORM_KEY",
+        )
+        task_plot_reference_form_key = _optional_form_key(
+            values.get("FFL_TRACKWICK_TASK_PLOT_REFERENCE_FORM_KEY"),
+            "FFL_TRACKWICK_TASK_PLOT_REFERENCE_FORM_KEY",
+        )
         return cls(
             customer_id=customer_id,
             tenant_id=tenant_id,
@@ -152,6 +163,7 @@ class TrackwickApiConfig:
             ),
             severity_form_key=severity_form_key,
             plot_photo_form_key=plot_photo_form_key,
+            task_plot_reference_form_key=task_plot_reference_form_key,
         )
 
 
@@ -480,6 +492,15 @@ def _normalise_private_task(
             _safe_text(task.get("assignedTo"), maximum=160) or "Field worker",
         )
     status = _private_status(task.get("status"))
+    form = task.get("formDetails")
+    form_details = form if isinstance(form, Mapping) else {}
+    provider_plot_reference = (
+        _safe_text(
+            form_details.get(config.task_plot_reference_form_key), maximum=120
+        )
+        if config.task_plot_reference_form_key
+        else None
+    )
     collector.add("trackwick_tasks", {
         "id": task_id,
         "provider_task_id": provider_task_id,
@@ -492,6 +513,7 @@ def _normalise_private_task(
         "provider_started_at": _timestamp_iso(task.get("started"), fallback_time),
         "provider_completed_at": _timestamp_iso(task.get("completed"), fallback_time),
         "provider_follow_up_at": _timestamp_iso(task.get("followUpDate"), fallback_time),
+        "provider_plot_reference": provider_plot_reference,
     })
     _add_private_location(
         collector,
@@ -504,8 +526,6 @@ def _normalise_private_task(
         accuracy=_safe_nonnegative_number(task.get("accuracy")),
     )
 
-    form = task.get("formDetails")
-    form_details = form if isinstance(form, Mapping) else {}
     type_key = task_type.casefold()
     if type_key == config.form_title.casefold() and status == "completed":
         _normalise_private_visit(
@@ -1466,12 +1486,12 @@ def _required_opaque(value: Optional[str], name: str) -> str:
     return candidate
 
 
-def _optional_form_key(value: Optional[str]) -> Optional[str]:
+def _optional_form_key(value: Optional[str], setting_name: str) -> Optional[str]:
     if value is None or not value.strip():
         return None
     candidate = value.strip()
     if len(candidate) > 256 or any(character in candidate for character in "\r\n\x00"):
-        raise TrackwickConfigurationError("FFL_TRACKWICK_SEVERITY_FORM_KEY is invalid")
+        raise TrackwickConfigurationError(setting_name + " is invalid")
     return candidate
 
 

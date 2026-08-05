@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 from typing import Literal, Optional
 
@@ -142,6 +143,8 @@ def _validate_acceptance_dates(conn, payload: FarmTruthAcceptanceRequest) -> Non
         raise ValueError("season does not belong to operating unit")
     starts_on = date.fromisoformat(season.starts_on)
     ends_on = date.fromisoformat(season.ends_on)
+    if not starts_on <= date.today() <= ends_on:
+        raise ValueError("selected season is not current")
     if not starts_on <= payload.grower_effective_on <= ends_on:
         raise ValueError("grower_effective_on must fall within the selected season")
     effective_right_end = payload.right_ends_on or ends_on
@@ -151,37 +154,6 @@ def _validate_acceptance_dates(conn, payload: FarmTruthAcceptanceRequest) -> Non
         raise ValueError("grower_effective_on must fall within the right-to-operate interval")
     if payload.right_starts_on > starts_on or effective_right_end < ends_on:
         raise ValueError("right-to-operate interval must cover the selected season")
-
-
-def _validate_accepted_replay(
-    conn,
-    case: repository.FarmTruthReviewCase,
-    payload: FarmTruthAcceptanceRequest,
-) -> None:
-    season = repository.get_season(conn, payload.season_id)
-    effective_right_end = payload.right_ends_on or (
-        season.ends_on if season is not None else None
-    )
-    supplied = repository.farm_truth_acceptance_fingerprint(
-        operating_unit_id=payload.operating_unit_id,
-        season_id=payload.season_id,
-        field_name=payload.field_name,
-        managed_area_hectares=payload.managed_area_hectares,
-        crop_name=payload.crop_name,
-        cultivar=payload.cultivar,
-        grower_effective_on=payload.grower_effective_on.isoformat(),
-        right_type=payload.right_type,
-        right_starts_on=payload.right_starts_on.isoformat(),
-        right_ends_on=(
-            effective_right_end.isoformat()
-            if isinstance(effective_right_end, date)
-            else effective_right_end
-        ),
-        field_worker_party_id=payload.field_worker_party_id,
-    )
-    established = case.evidence_summary.get("_acceptance_fingerprint")
-    if established != supplied:
-        raise _conflict("accepted farm truth result does not match this request")
 
 
 @router.post("/refresh")
@@ -198,6 +170,28 @@ def refresh_farm_truth_queue(
         raise _unprocessable(error)
 
 
+@router.get("/contexts")
+def list_farm_truth_contexts(
+    request: Request,
+    _manager_id: str = Depends(require_manager),
+) -> list[dict]:
+    return farm_truth.list_current_farm_truth_contexts(_connection(request))
+
+
+@router.get("/inbox")
+def list_farm_truth_inbox(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=50),
+    manager_id: str = Depends(require_manager),
+) -> list[dict]:
+    try:
+        return farm_truth.list_farm_truth_inbox_items(
+            _connection(request), manager_id, limit=limit
+        )
+    except ValueError as error:
+        raise _unprocessable(error)
+
+
 @router.get("/cases")
 def list_farm_truth_cases(
     request: Request,
@@ -207,11 +201,16 @@ def list_farm_truth_cases(
         default="open", alias="status"
     ),
     limit: int = Query(default=50, ge=1, le=50),
-    _manager_id: str = Depends(require_manager),
+    manager_id: str = Depends(require_manager),
 ) -> list[dict]:
     try:
         return farm_truth.list_farm_truth_case_summaries(
-            _connection(request), operating_unit_id, season_id, status=case_status, limit=limit
+            _connection(request),
+            operating_unit_id,
+            season_id,
+            status=case_status,
+            limit=limit,
+            owner_person_id=manager_id if case_status == "needs_evidence" else None,
         )
     except ValueError as error:
         raise _unprocessable(error)
@@ -247,24 +246,17 @@ def accept_farm_truth_case(
     established = repository.get_farm_truth_case(conn, case_id)
     if established is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="farm truth review case not found")
-    try:
-        _validate_acceptance_dates(conn, payload)
-    except ValueError as error:
-        raise _unprocessable(error)
-    if established.status == "accepted":
-        _validate_accepted_replay(conn, established, payload)
-        return _acceptance_result(established)
-    expected = _case_for_decision(
-        conn, case_id, payload.operating_unit_id, payload.season_id
-    )
-    try:
-        task_ids = farm_truth.selected_farm_truth_task_ids(
-            conn,
-            case_id,
-            payload.operating_unit_id,
-            payload.season_id,
-            payload.field_worker_party_id,
+    expected_updated_at = None
+    if established.status != "accepted":
+        try:
+            _validate_acceptance_dates(conn, payload)
+        except ValueError as error:
+            raise _unprocessable(error)
+        expected = _case_for_decision(
+            conn, case_id, payload.operating_unit_id, payload.season_id
         )
+        expected_updated_at = expected.updated_at
+    try:
         accepted = repository.accept_farm_truth_case(
             conn,
             case_id=case_id,
@@ -279,17 +271,20 @@ def accept_farm_truth_case(
             right_type=payload.right_type,
             right_starts_on=payload.right_starts_on.isoformat(),
             right_ends_on=payload.right_ends_on.isoformat() if payload.right_ends_on else None,
-            selected_task_ids=task_ids,
             field_worker_party_id=payload.field_worker_party_id,
-            expected_case_updated_at=expected.updated_at,
+            expected_case_updated_at=expected_updated_at,
         )
-    except ValueError as error:
+    except repository.FarmTruthConflict as error:
+        raise _conflict(str(error))
+    except sqlite3.IntegrityError as error:
+        message = str(error)
         if (
-            "stale" in str(error)
-            or "claimed or resolved" in str(error)
-            or "reviewed operating link" in str(error)
+            "trackwick_plot_operating_links.plot_id" in message
+            or "agro_idx_trackwick_plot_links_one_reviewed" in message
         ):
-            raise _conflict(str(error))
+            raise _conflict("source plot was accepted by another review")
+        raise
+    except ValueError as error:
         raise _unprocessable(error)
     return _acceptance_result(accepted)
 

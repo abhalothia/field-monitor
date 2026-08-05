@@ -175,6 +175,16 @@ def refresh_live_trackwick(
                 PRIVATE_EVIDENCE_MAPPING_VERSION,
                 commit=False,
             )
+            repository.reconcile_trackwick_task_plot_links(
+                conn,
+                source.id,
+                run.id,
+                PRIVATE_EVIDENCE_MAPPING_VERSION,
+                references_enabled=(
+                    resolved_config.task_plot_reference_form_key is not None
+                ),
+                commit=False,
+            )
             conn.commit()
         except Exception:
             conn.rollback()

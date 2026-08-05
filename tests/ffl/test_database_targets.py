@@ -1,4 +1,5 @@
 from pathlib import Path
+from decimal import Decimal
 import re
 
 import pytest
@@ -17,7 +18,11 @@ class _FakeCursor:
     rowcount = 1
 
     def fetchone(self):
-        return {"payload": {"stable": True}, "created_at": __import__("datetime").date(2026, 8, 1)}
+        return {
+            "payload": {"stable": True},
+            "created_at": __import__("datetime").date(2026, 8, 1),
+            "reported_area_bigha": Decimal("2.500"),
+        }
 
     def fetchall(self):
         return [self.fetchone()]
@@ -151,6 +156,8 @@ def test_postgres_connection_preserves_repository_row_contract_without_a_network
     assert raw.calls == [("SELECT * FROM agro_source_registry WHERE id = %s", ("source-1",))]
     assert row["payload"] == '{"stable":true}'
     assert row[1] == "2026-08-01"
+    assert row["reported_area_bigha"] == 2.5
+    assert isinstance(row["reported_area_bigha"], float)
 
 
 def test_postgres_batch_writes_translate_conflict_safe_repository_sql_without_a_network_call():

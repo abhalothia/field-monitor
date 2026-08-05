@@ -11,6 +11,16 @@ def create_schema(conn: sqlite3.Connection) -> None:
     }
     if existing_access_columns and "identity_phone" not in existing_access_columns:
         conn.execute("ALTER TABLE access_memberships ADD COLUMN identity_phone TEXT")
+    existing_trackwick_task_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(trackwick_tasks)").fetchall()
+    }
+    if (
+        existing_trackwick_task_columns
+        and "provider_plot_reference" not in existing_trackwick_task_columns
+    ):
+        conn.execute(
+            "ALTER TABLE trackwick_tasks ADD COLUMN provider_plot_reference TEXT"
+        )
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS operating_units (
@@ -759,6 +769,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             provider_started_at TEXT,
             provider_completed_at TEXT,
             provider_follow_up_at TEXT,
+            provider_plot_reference TEXT,
             source_fingerprint TEXT NOT NULL CHECK (length(source_fingerprint) = 64 AND source_fingerprint = lower(source_fingerprint)),
             mapping_version TEXT NOT NULL,
             data_quality_status TEXT NOT NULL CHECK (data_quality_status IN ('valid', 'incomplete', 'quarantined')),
@@ -863,6 +874,32 @@ def create_schema(conn: sqlite3.Connection) -> None:
             last_seen_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             UNIQUE (registration_id, ordinal)
+        );
+
+        -- A task may support a registration plot only when the private source
+        -- graph carries an explicit exact association.  Farmer-wide task
+        -- history is never promoted into a per-plot claim.
+        CREATE TABLE IF NOT EXISTS trackwick_task_plot_links (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            task_id TEXT NOT NULL REFERENCES trackwick_tasks(id),
+            registration_id TEXT NOT NULL REFERENCES trackwick_registrations(id),
+            plot_id TEXT NOT NULL REFERENCES trackwick_registration_plots(id),
+            association_kind TEXT NOT NULL CHECK (association_kind = 'source_explicit'),
+            source_fingerprint TEXT NOT NULL CHECK (
+                length(source_fingerprint) = 64
+                AND source_fingerprint = lower(source_fingerprint)
+                AND source_fingerprint NOT GLOB '*[^0-9a-f]*'
+            ),
+            mapping_version TEXT NOT NULL,
+            data_quality_status TEXT NOT NULL CHECK (
+                data_quality_status IN ('valid', 'incomplete', 'quarantined')
+            ),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (task_id)
         );
 
         CREATE TABLE IF NOT EXISTS trackwick_media_references (
@@ -1078,6 +1115,43 @@ def create_schema(conn: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'farm truth review cases are append-only');
         END;
 
+        CREATE TRIGGER IF NOT EXISTS trackwick_party_person_links_reviewed_update_guard
+        BEFORE UPDATE ON trackwick_party_person_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trackwick_party_person_links_reviewed_delete_guard
+        BEFORE DELETE ON trackwick_party_person_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trackwick_plot_operating_links_reviewed_update_guard
+        BEFORE UPDATE ON trackwick_plot_operating_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trackwick_plot_operating_links_reviewed_delete_guard
+        BEFORE DELETE ON trackwick_plot_operating_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trackwick_task_allocation_links_reviewed_update_guard
+        BEFORE UPDATE ON trackwick_task_allocation_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trackwick_task_allocation_links_reviewed_delete_guard
+        BEFORE DELETE ON trackwick_task_allocation_links
+        WHEN OLD.link_status = 'reviewed'
+        BEGIN
+            SELECT RAISE(ABORT, 'reviewed TrackWick links are immutable');
+        END;
+
         CREATE TABLE IF NOT EXISTS playbooks (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -1228,6 +1302,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trackwick_registrations (farmer_party_id, registration_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_plots_registration
             ON trackwick_registration_plots (registration_id, ordinal);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_task_plot_links_plot
+            ON trackwick_task_plot_links (plot_id, registration_id, data_quality_status);
+        CREATE INDEX IF NOT EXISTS idx_trackwick_task_plot_links_task
+            ON trackwick_task_plot_links (task_id, data_quality_status);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_trackwick_task_plot_links_one_plot_per_task
+            ON trackwick_task_plot_links (task_id);
         CREATE INDEX IF NOT EXISTS idx_trackwick_media_task
             ON trackwick_media_references (task_id, provider_created_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_locations_source_time

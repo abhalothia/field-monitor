@@ -8,6 +8,7 @@ migration.
 """
 
 from dataclasses import dataclass
+from decimal import Decimal
 import os
 from pathlib import Path
 import re
@@ -118,10 +119,19 @@ def _normalise_postgres_value(value: Any) -> Any:
     """Preserve the SQLite repository's stable primitive row contract."""
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("PostgreSQL numeric values must be finite")
+        return float(value)
     if isinstance(value, (dict, list)):
         import json
 
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        normalised = (
+            {key: _normalise_postgres_value(item) for key, item in value.items()}
+            if isinstance(value, dict)
+            else [_normalise_postgres_value(item) for item in value]
+        )
+        return json.dumps(normalised, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return value
 
 

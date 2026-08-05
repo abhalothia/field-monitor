@@ -111,6 +111,27 @@ class RecordingTransport(httpx.BaseTransport):
         return httpx.Response(404, request=request)
 
 
+class TaskPayloadTransport(httpx.BaseTransport):
+    def __init__(self, tasks):
+        self.tasks = tasks
+
+    def handle_request(self, request):
+        if request.url.path == "/cust/1/api/task/list":
+            return httpx.Response(
+                200,
+                json={"s": True, "data": self.tasks, "hm": False},
+                request=request,
+            )
+        if request.url.path in {
+            "/cust/1/api/customer/list",
+            "/cust/1/api/asset/productivity",
+        }:
+            return httpx.Response(
+                200, json={"s": True, "data": [], "hm": False}, request=request
+            )
+        return httpx.Response(404, request=request)
+
+
 def test_trackwick_adapter_uses_verified_get_contract_and_keeps_raw_rows_in_memory():
     transport = RecordingTransport()
 
@@ -258,6 +279,23 @@ def test_trackwick_rejects_an_unsafe_configured_severity_form_key():
         })
 
 
+def test_trackwick_reads_only_an_explicit_safe_task_plot_reference_form_key():
+    config = TrackwickApiConfig.from_environment({
+        "FFL_TRACKWICK_ENABLED": "true",
+        "FFL_TRACKWICK_CUSTOMER_ID": "trackwick-tenant",
+        "FFL_TRACKWICK_TASK_PLOT_REFERENCE_FORM_KEY": "Gata reference",
+    })
+
+    assert config is not None
+    assert config.task_plot_reference_form_key == "Gata reference"
+    with pytest.raises(ValueError, match="TASK_PLOT_REFERENCE_FORM_KEY"):
+        TrackwickApiConfig.from_environment({
+            "FFL_TRACKWICK_ENABLED": "true",
+            "FFL_TRACKWICK_CUSTOMER_ID": "trackwick-tenant",
+            "FFL_TRACKWICK_TASK_PLOT_REFERENCE_FORM_KEY": "unsafe\nvalue",
+        })
+
+
 def test_trackwick_refresh_publishes_only_safe_aggregate_context(ffl_db, owner):
     transport = RecordingTransport()
 
@@ -293,6 +331,156 @@ def test_trackwick_refresh_publishes_only_safe_aggregate_context(ffl_db, owner):
     }
     assert snapshot["visits"]["filed_on_reporting_day"] == 1
     assert snapshot["issues"]["observation_count"] == 1
+
+
+def test_delta_refresh_resolves_only_an_explicit_unique_task_plot_reference(
+    ffl_db, owner
+):
+    config = TrackwickApiConfig(
+        customer_id="trackwick-tenant",
+        tenant_id="fortune-paddy",
+        api_key_reference="env://FFL_TRACKWICK_API_KEY",
+        task_plot_reference_form_key="Gata reference",
+    )
+    registration = {
+        **REGISTRATION_TASK,
+        "formDetails": {
+            **REGISTRATION_TASK["formDetails"],
+            "Number of Plots": "1",
+            "Plot Details": [{
+                "Gata No.": "Gata-123",
+                "Plot Size (Bigha)": "2.5",
+                "Plot Type": "Irrigated",
+                "Village": "Dargava",
+            }],
+        },
+    }
+    visit = {
+        **TASK,
+        "formDetails": {**TASK["formDetails"], "Gata reference": "Gata-123"},
+    }
+
+    first = refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=config,
+        credential_resolver=lambda _: "runtime-key",
+        transport=TaskPayloadTransport([registration]),
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+    assert first.state == "succeeded"
+    assert ffl_db.execute(
+        "SELECT COUNT(*) FROM trackwick_task_plot_links"
+    ).fetchone()[0] == 0
+
+    second = refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=config,
+        credential_resolver=lambda _: "runtime-key",
+        transport=TaskPayloadTransport([visit]),
+        as_of=datetime.fromisoformat("2026-08-04T10:00:00+05:30"),
+    )
+
+    assert second.state == "succeeded"
+    association = ffl_db.execute(
+        """SELECT association.association_kind, association.data_quality_status,
+                  task.provider_task_id, task.provider_plot_reference,
+                  plot.gata_number
+           FROM trackwick_task_plot_links AS association
+           JOIN trackwick_tasks AS task ON task.id = association.task_id
+           JOIN trackwick_registration_plots AS plot ON plot.id = association.plot_id"""
+    ).fetchone()
+    assert dict(association) == {
+        "association_kind": "source_explicit",
+        "data_quality_status": "valid",
+        "provider_task_id": "task-1",
+        "provider_plot_reference": "Gata-123",
+        "gata_number": "Gata-123",
+    }
+
+    changed_visit = {
+        **visit,
+        "formDetails": {**visit["formDetails"], "Gata reference": "Gata-999"},
+    }
+    third = refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=config,
+        credential_resolver=lambda _: "runtime-key",
+        transport=TaskPayloadTransport([changed_visit]),
+        as_of=datetime.fromisoformat("2026-08-05T10:00:00+05:30"),
+    )
+    stale_association = ffl_db.execute(
+        """SELECT association.data_quality_status, task.provider_plot_reference
+           FROM trackwick_task_plot_links AS association
+           JOIN trackwick_tasks AS task ON task.id = association.task_id"""
+    ).fetchone()
+
+    assert third.state == "succeeded"
+    assert dict(stale_association) == {
+        "data_quality_status": "quarantined",
+        "provider_plot_reference": "Gata-999",
+    }
+
+
+def test_refresh_refuses_to_guess_when_a_task_plot_reference_is_ambiguous(
+    ffl_db, owner
+):
+    config = TrackwickApiConfig(
+        customer_id="trackwick-tenant",
+        tenant_id="fortune-paddy",
+        api_key_reference="env://FFL_TRACKWICK_API_KEY",
+        task_plot_reference_form_key="Gata reference",
+    )
+    registration = {
+        **REGISTRATION_TASK,
+        "formDetails": {
+            **REGISTRATION_TASK["formDetails"],
+            "Number of Plots": "2",
+            "Plot Details": [
+                {
+                    "Gata No.": "Gata-123",
+                    "Plot Size (Bigha)": "2.5",
+                    "Plot Type": "Irrigated",
+                    "Village": "Dargava",
+                },
+                {
+                    "Gata No.": " gata-123 ",
+                    "Plot Size (Bigha)": "1.5",
+                    "Plot Type": "Irrigated",
+                    "Village": "Dargava",
+                },
+            ],
+        },
+    }
+    visit = {
+        **TASK,
+        "formDetails": {**TASK["formDetails"], "Gata reference": "GATA-123"},
+    }
+
+    refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=config,
+        credential_resolver=lambda _: "runtime-key",
+        transport=TaskPayloadTransport([registration]),
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+    result = refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=config,
+        credential_resolver=lambda _: "runtime-key",
+        transport=TaskPayloadTransport([visit]),
+        as_of=datetime.fromisoformat("2026-08-04T10:00:00+05:30"),
+    )
+
+    assert result.state == "succeeded"
+    assert ffl_db.execute(
+        """SELECT COUNT(*) FROM trackwick_task_plot_links
+           WHERE data_quality_status = 'valid'"""
+    ).fetchone()[0] == 0
 
 
 def test_trackwick_replay_is_idempotent_with_an_overlapping_window(ffl_db, owner):
