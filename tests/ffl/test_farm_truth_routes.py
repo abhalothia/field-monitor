@@ -95,6 +95,7 @@ CANONICAL_CLAIM_TABLES = (
     "block_parcels",
     "rights_to_operate",
     "crop_allocations",
+    "people",
     "person_operating_relationships",
     "trackwick_party_person_links",
     "trackwick_plot_operating_links",
@@ -108,6 +109,25 @@ def _claim_counts(conn):
         table: conn.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
         for table in CANONICAL_CLAIM_TABLES
     }
+
+
+def _claim_row_ids(conn):
+    identifiers = {
+        table: tuple(
+            row["id"]
+            for row in conn.execute("SELECT id FROM " + table + " ORDER BY id")
+        )
+        for table in CANONICAL_CLAIM_TABLES
+        if table != "block_parcels"
+    }
+    identifiers["block_parcels"] = tuple(
+        (row["operational_block_id"], row["land_parcel_id"])
+        for row in conn.execute(
+            "SELECT operational_block_id, land_parcel_id FROM block_parcels "
+            "ORDER BY operational_block_id, land_parcel_id"
+        )
+    )
+    return identifiers
 
 
 @pytest.mark.parametrize(
@@ -252,22 +272,29 @@ def test_end_to_end_review_creates_one_linked_canonical_set_and_exact_retry(
         json=payload,
         headers=TOKEN,
     )
+    assert accepted.status_code == 200
+    canonical = accepted.json()
+    assert canonical["status"] == "accepted"
+    first_accept_counts = _claim_counts(app.state.conn)
+    first_accept_row_ids = _claim_row_ids(app.state.conn)
+
     retried = client.post(
         f"/api/v1/farm-truth/cases/{case_id}/accept",
         json=payload,
         headers=TOKEN,
     )
 
-    assert accepted.status_code == retried.status_code == 200
+    assert retried.status_code == 200
     assert retried.json() == accepted.json()
-    canonical = accepted.json()
-    assert canonical["status"] == "accepted"
-    assert _claim_counts(app.state.conn) == {
+    assert _claim_counts(app.state.conn) == first_accept_counts
+    assert _claim_row_ids(app.state.conn) == first_accept_row_ids
+    assert first_accept_counts == {
         "land_parcels": 1,
         "operational_blocks": 1,
         "block_parcels": 1,
         "rights_to_operate": 1,
         "crop_allocations": 1,
+        "people": 4,
         "person_operating_relationships": 2,
         "trackwick_party_person_links": 2,
         "trackwick_plot_operating_links": 1,
@@ -348,6 +375,11 @@ def test_end_to_end_review_creates_one_linked_canonical_set_and_exact_retry(
 def test_needs_evidence_writes_no_canonical_claims(farm_truth_api):
     app, client, manager, unit, season, _source = farm_truth_api
     case_id = _refresh(client, unit, season).json()[0]["id"]
+    claims_before = _claim_counts(app.state.conn)
+    assert claims_before == {
+        **dict.fromkeys(CANONICAL_CLAIM_TABLES, 0),
+        "people": 2,
+    }
 
     response = client.post(
         f"/api/v1/farm-truth/cases/{case_id}/needs-evidence",
@@ -365,7 +397,7 @@ def test_needs_evidence_writes_no_canonical_claims(farm_truth_api):
         "status": "needs_evidence",
         "missing_evidence_kind": "right_to_operate",
     }
-    assert _claim_counts(app.state.conn) == dict.fromkeys(CANONICAL_CLAIM_TABLES, 0)
+    assert _claim_counts(app.state.conn) == claims_before
     stored = repository.get_farm_truth_case(app.state.conn, case_id)
     assert stored.status == "needs_evidence"
     assert stored.owner_person_id == stored.reviewed_by_person_id == manager.id
@@ -374,6 +406,11 @@ def test_needs_evidence_writes_no_canonical_claims(farm_truth_api):
 def test_reject_writes_no_canonical_claims(farm_truth_api):
     app, client, manager, unit, season, _source = farm_truth_api
     case_id = _refresh(client, unit, season).json()[0]["id"]
+    claims_before = _claim_counts(app.state.conn)
+    assert claims_before == {
+        **dict.fromkeys(CANONICAL_CLAIM_TABLES, 0),
+        "people": 2,
+    }
 
     response = client.post(
         f"/api/v1/farm-truth/cases/{case_id}/reject",
@@ -383,7 +420,7 @@ def test_reject_writes_no_canonical_claims(farm_truth_api):
 
     assert response.status_code == 200
     assert response.json() == {"id": case_id, "status": "rejected"}
-    assert _claim_counts(app.state.conn) == dict.fromkeys(CANONICAL_CLAIM_TABLES, 0)
+    assert _claim_counts(app.state.conn) == claims_before
     stored = repository.get_farm_truth_case(app.state.conn, case_id)
     assert stored.status == "rejected"
     assert stored.reviewed_by_person_id == manager.id
