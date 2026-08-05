@@ -44,10 +44,18 @@ This parses the KML file, extracts the field polygon, and registers it in SQLite
 
 ## Usage
 
-### Run the FFL operating kernel
+### Run AGRO CEO locally
 
-The FastAPI-based FFL operating kernel provides field reporting and manager
-action surfaces. See [the local run guide](docs/ffl/LOCAL-RUN.md) to start it.
+AGRO CEO has two deliberately separate surfaces:
+
+- `apps/web`: the Next.js product experience for Home, Fields, Farmers,
+  Actions, and Settings.
+- `ffl`: the FastAPI operating kernel, which owns the private operating record,
+  signed launch and manager sessions, evidence lifecycle, imports, and field
+  capture.
+
+See [the local run guide](docs/ffl/LOCAL-RUN.md) for the kernel and
+[the Next.js web README](apps/web/README.md) for the product surface.
 
 ### Fetch legacy satellite data
 

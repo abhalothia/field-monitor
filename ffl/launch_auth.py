@@ -42,4 +42,10 @@ def password_matches(expected: Optional[str], presented: str) -> bool:
 
 def safe_next_path(value: Optional[str]) -> str:
     """Avoid turning the login form into an open redirect."""
-    return value if value in {"/manager", "/field"} else "/manager"
+    # These are fixed first-party Next.js command-centre routes. Keeping the
+    # allow-list here preserves the original open-redirect protection while
+    # letting the web shell complete the same signed launch flow as the legacy
+    # FastAPI manager surface.
+    return value if value in {
+        "/manager", "/field", "/home", "/fields", "/farmers", "/actions", "/settings",
+    } else "/home"

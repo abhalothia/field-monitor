@@ -24,6 +24,21 @@ def test_launch_password_protects_pilot_surfaces_and_creates_a_signed_session(tm
         assert client.get("/manager", follow_redirects=False).status_code == 303
 
 
+def test_launch_login_allows_only_known_next_command_routes(tmp_path):
+    with TestClient(create_app(str(tmp_path / "launch.db"), launch_password="test-fortune-password")) as client:
+        accepted = client.post(
+            "/api/v1/launch/login",
+            json={"password": "test-fortune-password", "next_path": "/fields"},
+        )
+        rejected = client.post(
+            "/api/v1/launch/login",
+            json={"password": "test-fortune-password", "next_path": "/outside"},
+        )
+
+    assert accepted.json()["next_path"] == "/fields"
+    assert rejected.json()["next_path"] == "/home"
+
+
 def test_launch_gate_stays_off_for_disposable_local_preview_without_a_password(tmp_path):
     with TestClient(create_app(str(tmp_path / "preview.db"), launch_password="")) as client:
         assert client.get("/manager").status_code == 200
