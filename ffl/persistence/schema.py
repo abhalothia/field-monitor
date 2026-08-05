@@ -971,6 +971,113 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (task_id, crop_allocation_id)
         );
 
+        -- Private manager review state.  This relation records only a safe,
+        -- server-generated evidence summary and durable source/canonical IDs;
+        -- raw TrackWick contacts, locations, media, and provider identifiers
+        -- remain in their typed source tables.
+        CREATE TABLE IF NOT EXISTS farm_truth_review_cases (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            registration_id TEXT NOT NULL REFERENCES trackwick_registrations(id),
+            plot_id TEXT NOT NULL REFERENCES trackwick_registration_plots(id),
+            candidate_fingerprint TEXT NOT NULL CHECK (
+                length(candidate_fingerprint) = 64
+                AND candidate_fingerprint = lower(candidate_fingerprint)
+                AND candidate_fingerprint NOT GLOB '*[^0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN (
+                'open', 'accepting', 'needs_evidence', 'accepted', 'rejected'
+            )),
+            evidence_summary_json TEXT NOT NULL CHECK (
+                json_valid(evidence_summary_json) AND json_type(evidence_summary_json) = 'object'
+            ),
+            review_reason TEXT,
+            missing_evidence_kind TEXT CHECK (missing_evidence_kind IS NULL OR missing_evidence_kind IN (
+                'plot_area', 'crop_season', 'right_to_operate', 'farmer_identity',
+                'field_worker_assignment'
+            )),
+            owner_person_id TEXT REFERENCES people(id),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            accepted_land_parcel_id TEXT REFERENCES land_parcels(id),
+            accepted_operational_block_id TEXT REFERENCES operational_blocks(id),
+            accepted_crop_allocation_id TEXT REFERENCES crop_allocations(id),
+            accepted_grower_person_id TEXT REFERENCES people(id),
+            accepted_field_worker_person_id TEXT REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (plot_id, candidate_fingerprint),
+            CHECK (
+                (status IN ('open', 'accepting')
+                    AND review_reason IS NULL AND missing_evidence_kind IS NULL
+                    AND owner_person_id IS NULL AND reviewed_by_person_id IS NULL
+                    AND reviewed_at IS NULL AND accepted_land_parcel_id IS NULL
+                    AND accepted_operational_block_id IS NULL
+                    AND accepted_crop_allocation_id IS NULL
+                    AND accepted_grower_person_id IS NULL
+                    AND accepted_field_worker_person_id IS NULL)
+                OR (status = 'needs_evidence'
+                    AND review_reason IS NOT NULL AND missing_evidence_kind IS NOT NULL
+                    AND owner_person_id IS NOT NULL AND reviewed_by_person_id IS NOT NULL
+                    AND reviewed_at IS NOT NULL AND accepted_land_parcel_id IS NULL
+                    AND accepted_operational_block_id IS NULL
+                    AND accepted_crop_allocation_id IS NULL
+                    AND accepted_grower_person_id IS NULL
+                    AND accepted_field_worker_person_id IS NULL)
+                OR (status = 'rejected'
+                    AND review_reason IS NOT NULL AND missing_evidence_kind IS NULL
+                    AND owner_person_id IS NULL AND reviewed_by_person_id IS NOT NULL
+                    AND reviewed_at IS NOT NULL AND accepted_land_parcel_id IS NULL
+                    AND accepted_operational_block_id IS NULL
+                    AND accepted_crop_allocation_id IS NULL
+                    AND accepted_grower_person_id IS NULL
+                    AND accepted_field_worker_person_id IS NULL)
+                OR (status = 'accepted'
+                    AND review_reason IS NOT NULL AND missing_evidence_kind IS NULL
+                    AND owner_person_id IS NULL AND reviewed_by_person_id IS NOT NULL
+                    AND reviewed_at IS NOT NULL AND accepted_land_parcel_id IS NOT NULL
+                    AND accepted_operational_block_id IS NOT NULL
+                    AND accepted_crop_allocation_id IS NOT NULL
+                    AND accepted_grower_person_id IS NOT NULL)
+            )
+        );
+
+        CREATE TRIGGER IF NOT EXISTS farm_truth_review_cases_valid_transition
+        BEFORE UPDATE ON farm_truth_review_cases
+        WHEN NOT (
+            (OLD.status = 'open' AND NEW.status IN (
+                'accepting', 'needs_evidence', 'rejected'
+            ))
+            OR (OLD.status = 'accepting' AND NEW.status = 'accepted')
+            OR (OLD.status = NEW.status
+                AND OLD.review_reason IS NEW.review_reason
+                AND OLD.missing_evidence_kind IS NEW.missing_evidence_kind
+                AND OLD.owner_person_id IS NEW.owner_person_id
+                AND OLD.reviewed_by_person_id IS NEW.reviewed_by_person_id
+                AND OLD.reviewed_at IS NEW.reviewed_at
+                AND OLD.accepted_land_parcel_id IS NEW.accepted_land_parcel_id
+                AND OLD.accepted_operational_block_id IS NEW.accepted_operational_block_id
+                AND OLD.accepted_crop_allocation_id IS NEW.accepted_crop_allocation_id
+                AND OLD.accepted_grower_person_id IS NEW.accepted_grower_person_id
+                AND OLD.accepted_field_worker_person_id IS NEW.accepted_field_worker_person_id)
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid farm truth review case transition');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS farm_truth_review_cases_source_immutable
+        BEFORE UPDATE OF id, source_id, registration_id, plot_id, candidate_fingerprint, created_at
+        ON farm_truth_review_cases
+        BEGIN
+            SELECT RAISE(ABORT, 'farm truth review case source is immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS farm_truth_review_cases_no_delete
+        BEFORE DELETE ON farm_truth_review_cases
+        BEGIN
+            SELECT RAISE(ABORT, 'farm truth review cases are append-only');
+        END;
+
         CREATE TABLE IF NOT EXISTS playbooks (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -1141,6 +1248,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trackwick_plot_operating_links (operational_block_id, link_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_task_links_allocation
             ON trackwick_task_allocation_links (crop_allocation_id, link_status);
+        CREATE INDEX IF NOT EXISTS idx_farm_truth_review_cases_status_updated
+            ON farm_truth_review_cases (status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_farm_truth_review_cases_registration_plot
+            ON farm_truth_review_cases (registration_id, plot_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_trackwick_plot_links_one_reviewed
+            ON trackwick_plot_operating_links (plot_id) WHERE link_status = 'reviewed';
         CREATE INDEX IF NOT EXISTS idx_trial_allocations_trial
             ON trial_allocations (trial_id);
         CREATE INDEX IF NOT EXISTS idx_trials_owner_created
