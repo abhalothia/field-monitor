@@ -717,6 +717,11 @@ def create_season(conn: sqlite3.Connection, operating_unit_id: str, name: str, s
     return Season(identifier, operating_unit_id, name, starts_on, ends_on, created_at)
 
 
+def get_season(conn: sqlite3.Connection, season_id: str) -> Optional[Season]:
+    row = conn.execute("SELECT * FROM seasons WHERE id = ?", (season_id,)).fetchone()
+    return _season(row) if row is not None else None
+
+
 def create_crop_allocation(
     conn: sqlite3.Connection,
     operating_unit_id: str,
@@ -2152,6 +2157,45 @@ def list_farm_truth_cases(
         "SELECT * FROM farm_truth_review_cases" + clause
         + " ORDER BY updated_at DESC, id LIMIT ?",
         (*params, limit),
+    ).fetchall()
+    return [_farm_truth_review_case(row) for row in rows]
+
+
+def list_latest_farm_truth_cases(
+    conn: sqlite3.Connection,
+    status: Optional[str] = None,
+    owner_person_id: Optional[str] = None,
+) -> List[FarmTruthReviewCase]:
+    """Return only the newest immutable receipt for each source plot.
+
+    This intentionally has no queue limit: callers must apply their transparent
+    evidence ordering before taking a bounded browser-facing slice.  Filtering
+    happens after receipt de-duplication so an older open receipt cannot
+    reappear after the newest receipt has reached a review state.
+    """
+    if status is not None and status not in FARM_TRUTH_CASE_STATUSES:
+        raise ValueError("invalid farm truth review case status")
+    where: List[str] = []
+    params: List[object] = []
+    if status is not None:
+        where.append("current.status = ?")
+        params.append(status)
+    if owner_person_id is not None:
+        where.append("current.owner_person_id = ?")
+        params.append(_required_text(owner_person_id, "owner_person_id", 128))
+    clause = " AND " + " AND ".join(where) if where else ""
+    rows = conn.execute(
+        """SELECT current.*
+           FROM farm_truth_review_cases AS current
+           WHERE NOT EXISTS (
+               SELECT 1 FROM farm_truth_review_cases AS newer
+               WHERE newer.plot_id = current.plot_id
+                 AND (newer.created_at > current.created_at
+                      OR (newer.created_at = current.created_at AND newer.id > current.id))
+           )"""
+        + clause
+        + " ORDER BY current.updated_at DESC, current.id",
+        params,
     ).fetchall()
     return [_farm_truth_review_case(row) for row in rows]
 
