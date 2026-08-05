@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 
 def _function_body(source, name, next_name):
@@ -223,3 +224,15 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     assert 't("farmTruthUnavailable")' in unavailable
     assert "error.message" not in decision
     assert 't("reviewFailed")' in decision
+
+
+def test_manager_app_farm_truth_behaviors_execute_in_node():
+    harness = Path(__file__).with_name("manager_app_behavior_test.js")
+    result = subprocess.run(
+        ["node", str(harness)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "manager Farm Truth behavior harness passed" in result.stdout

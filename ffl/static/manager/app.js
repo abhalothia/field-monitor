@@ -332,8 +332,10 @@
       }
     });
     var grouped = {};
+    var incompleteContext = false;
     allocations.forEach(function (item) {
       if (!item || !item.operating_unit_id || !item.season_id || !unitNames[item.operating_unit_id]) {
+        incompleteContext = true;
         return;
       }
       var key = item.operating_unit_id + "\u001f" + item.season_id;
@@ -350,6 +352,9 @@
         grouped[key].crop_names.push(item.crop_name);
       }
     });
+    if (incompleteContext) {
+      return [];
+    }
     var contexts = Object.keys(grouped).sort().map(function (key) {
       var context = grouped[key];
       context.crop_names.sort();
@@ -1389,12 +1394,17 @@
       renderHomeMetrics();
       return;
     }
+    var previousFarmTruthContextKey = selectedFarmTruthContextKey;
     currentPortfolio = portfolio;
     if (managerSessionAuthenticated) {
       loadFarmTruthInboxCases();
     }
     if (element("farm-truth-dialog").open) {
       renderFarmTruthContextChooser();
+      if (!selectedFarmTruthContextKey || selectedFarmTruthContextKey !== previousFarmTruthContextKey) {
+        setFarmTruthFeedback("");
+        renderFarmTruthUnavailable();
+      }
     }
     if (currentRuntime) {
       renderDailyDirection();
