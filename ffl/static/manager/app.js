@@ -308,6 +308,7 @@
       openManagerSessionDialog();
       return;
     }
+    resetFarmTruthDialogState(true);
     element("manager-session-action").disabled = true;
     fetch(managerSessionLogoutUrl, { method: "POST", credentials: "same-origin" })
       .then(function () { return loadManagerSessionStatus(); })

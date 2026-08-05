@@ -230,6 +230,11 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     )[0]
     assert close_handler.count("closeManagerSessionDialog") == 2
 
+    lock_manager = _function_body(app_js, "toggleManagerSession()", "farmTruthContexts()")
+    assert lock_manager.index("resetFarmTruthDialogState(true)") < lock_manager.index(
+        "fetch(managerSessionLogoutUrl"
+    )
+
     unavailable = _function_body(app_js, "renderFarmTruthUnavailable()", "loadFarmTruthCaseDetail(caseId)")
     clear_state = _function_body(app_js, "clearFarmTruthCaseState()", "renderFarmTruthUnavailable()")
     assert "error.message" not in unavailable
