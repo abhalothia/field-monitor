@@ -174,6 +174,61 @@ def list_farm_truth_inbox_items(
     return items
 
 
+def selected_farm_truth_task_ids(
+    conn,
+    case_id: str,
+    operating_unit_id: str,
+    season_id: str,
+    field_worker_party_id: Optional[str] = None,
+) -> tuple[str, ...]:
+    """Resolve acceptance evidence IDs entirely inside the private boundary.
+
+    The browser may choose an optional source worker, but it cannot choose the
+    task receipts used to justify that assignment.  Those receipts are derived
+    from the same typed, valid visit/open-work rules used by candidate refresh.
+    """
+    season = repository.get_season(conn, season_id)
+    if season is None or season.operating_unit_id != operating_unit_id:
+        raise ValueError("season does not belong to operating unit")
+    case = repository.get_farm_truth_case(conn, case_id)
+    if case is None:
+        raise ValueError("farm truth review case does not exist")
+    if not _case_is_current(case, operating_unit_id, season_id):
+        raise ValueError("farm truth review case is stale")
+    farmer = conn.execute(
+        """SELECT farmer_party_id
+           FROM trackwick_registrations
+           WHERE id = ? AND source_id = ?""",
+        (case.registration_id, case.source_id),
+    ).fetchone()
+    if farmer is None or farmer["farmer_party_id"] is None:
+        raise ValueError("farm truth case no longer has a linked source farmer")
+    support = _supporting_tasks(conn).get(
+        (case.source_id, str(farmer["farmer_party_id"])), ()
+    )
+    eligible = [
+        task for task in support
+        if task["support_kind"] == "open_work"
+        or (
+            task["support_kind"] == "visit"
+            and _date_in_window(task["observed_at"], season.starts_on, season.ends_on)
+        )
+    ]
+    if field_worker_party_id is not None:
+        supported = any(
+            task["field_worker_party_id"] == field_worker_party_id for task in eligible
+        )
+        worker = conn.execute(
+            """SELECT 1 FROM trackwick_parties
+               WHERE id = ? AND source_id = ? AND party_kind = 'field_worker'
+                 AND data_quality_status = 'valid'""",
+            (field_worker_party_id, case.source_id),
+        ).fetchone()
+        if not supported or worker is None:
+            raise ValueError("field worker is not supported by the selected source evidence")
+    return tuple(sorted(str(task["id"]) for task in eligible))
+
+
 def _candidate_rows(conn) -> list[Mapping[str, Any]]:
     return list(conn.execute(
         """SELECT
