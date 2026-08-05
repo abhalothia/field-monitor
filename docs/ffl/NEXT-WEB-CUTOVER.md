@@ -23,6 +23,11 @@ The Next project holds **no** database URL, Supabase secret, evidence-store
 credential, launch password, manager secret, or communication credential. All
 of those stay in the API project.
 
+The Next project also retains the native `/field` capture shell through tightly
+scoped rewrites to FastAPI (`/assets/field.css`, `/assets/field.js`, the rice
+mark, and its service worker). This preserves the signed field-capture PWA on
+the same public web origin while the manager command centre has moved to Next.
+
 ## Pre-cutover checks
 
 1. Confirm the latest `main` deployment of `agro-ceo-web` is ready.
