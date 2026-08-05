@@ -12,8 +12,6 @@ const nextConfig: NextConfig = {
         permanent: true,
         basePath: false,
       },
-      // Legacy manager bookmarks now enter the Next command centre.
-      { source: "/manager", destination: "/home", permanent: false },
     ];
   },
   // The browser always talks to its current AGRO CEO origin. Vercel rewrites
@@ -21,6 +19,9 @@ const nextConfig: NextConfig = {
   // truth and its signed cookies are never handled by client JavaScript.
   async rewrites() {
     return [
+      { source: "/manager", destination: `${apiOrigin}/manager` },
+      { source: "/assets/manager.css", destination: `${apiOrigin}/assets/manager.css` },
+      { source: "/assets/manager.js", destination: `${apiOrigin}/assets/manager.js` },
       { source: "/api/v1/:path*", destination: `${apiOrigin}/api/v1/:path*` },
       { source: "/health", destination: `${apiOrigin}/health` },
       // Native field capture is intentionally retained as a small, signed

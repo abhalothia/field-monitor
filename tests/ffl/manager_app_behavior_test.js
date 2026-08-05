@@ -118,12 +118,12 @@ source = source.replace(startup, `  window.__managerTest = {
       if (Object.prototype.hasOwnProperty.call(values, "currentRuntime")) { currentRuntime = values.currentRuntime; }
       if (Object.prototype.hasOwnProperty.call(values, "currentFortuneMap")) { currentFortuneMap = values.currentFortuneMap; }
       if (Object.prototype.hasOwnProperty.call(values, "managerSessionAuthenticated")) { managerSessionAuthenticated = values.managerSessionAuthenticated; }
+      if (Object.prototype.hasOwnProperty.call(values, "farmTruthReviewContexts")) { farmTruthReviewContexts = values.farmTruthReviewContexts; }
       if (Object.prototype.hasOwnProperty.call(values, "selectedFarmTruthContextKey")) { selectedFarmTruthContextKey = values.selectedFarmTruthContextKey; }
       if (Object.prototype.hasOwnProperty.call(values, "farmTruthCases")) { farmTruthCases = values.farmTruthCases; }
       if (Object.prototype.hasOwnProperty.call(values, "farmTruthInboxCases")) { farmTruthInboxCases = values.farmTruthInboxCases; }
       if (Object.prototype.hasOwnProperty.call(values, "currentFarmTruthCase")) { currentFarmTruthCase = values.currentFarmTruthCase; }
       if (Object.prototype.hasOwnProperty.call(values, "farmTruthOpenPending")) { farmTruthOpenPending = values.farmTruthOpenPending; }
-      if (Object.prototype.hasOwnProperty.call(values, "sampleMode")) { sampleMode = values.sampleMode; }
       if (Object.prototype.hasOwnProperty.call(values, "interfaceLocale")) { interfaceLocale = values.interfaceLocale; }
     },
     state: function () {
@@ -134,6 +134,8 @@ source = source.replace(startup, `  window.__managerTest = {
         currentFarmTruthCase: currentFarmTruthCase,
         farmTruthOpenPending: farmTruthOpenPending,
         farmTruthContextGeneration: farmTruthContextGeneration,
+        farmTruthInboxGeneration: farmTruthInboxGeneration,
+        farmTruthReviewContexts: farmTruthReviewContexts,
         managerSessionAuthenticated: managerSessionAuthenticated
       };
     },
@@ -144,6 +146,8 @@ source = source.replace(startup, `  window.__managerTest = {
     renderFarmTruthDetail: renderFarmTruthDetail,
     renderFarmTruthUnavailable: renderFarmTruthUnavailable,
     refreshFarmTruthCases: refreshFarmTruthCases,
+    loadFarmTruthReviewContexts: loadFarmTruthReviewContexts,
+    loadFarmTruthInboxCases: loadFarmTruthInboxCases,
     loadFarmTruthCases: loadFarmTruthCases,
     loadFarmTruthCaseDetail: loadFarmTruthCaseDetail,
     submitFarmTruthDecision: submitFarmTruthDecision,
@@ -219,79 +223,58 @@ async function flushPromises() {
 }
 
 async function main() {
-  const incomplete = portfolio(
-    [{ id: "unit-a", name: "Unit A", active_allocation_count: 1 }],
-    [
-      { id: "allocation-a", operating_unit_id: "unit-a", season_id: "season-a", crop_name: "Paddy", status: "active" },
-      { id: "allocation-b", operating_unit_id: "unit-b", season_id: "season-b", crop_name: "Wheat", status: "active" }
-    ]
-  );
-  api.setState({ currentPortfolio: incomplete, managerSessionAuthenticated: true, selectedFarmTruthContextKey: "" });
-  assert.deepEqual(Array.from(api.farmTruthContexts()), [], "one unmappable allocation must invalidate every context");
-  fetchCalls.length = 0;
-  api.openFarmTruthReview();
-  await Promise.resolve();
-  assert.equal(api.state().selectedFarmTruthContextKey, "", "invalid scope must not select a context");
-  assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "invalid scope must not refresh");
-
   const oldCase = {
     id: "case-old", status: "open",
     place: { village: "Old village", block: "Old block", district: "Old district" },
     area: {}, registration: {}, crop_timing: {},
     people: { farmer_display_name: "Old farmer", field_worker_display_names: [] },
-    evidence: { reason_chips: [], safe_task_labels: [] }
+    evidence: {
+      reason_codes: ["registration", "recent_visits", "open_follow_ups"],
+      task_label_codes: ["farmer_visit", "open_follow_up"],
+      recent_visits: 2,
+      open_follow_ups: 1
+    }
   };
-  const newPortfolio = portfolio(
-    [{ id: "unit-new", name: "New Unit", active_allocation_count: 1 }],
-    [{ id: "allocation-new", operating_unit_id: "unit-new", season_id: "season-new", crop_name: "Paddy", status: "active" }]
+  const reviewContexts = [
+    { operating_unit_id: "unit-old", operating_unit_name: "Old Unit", season_id: "season-old", season_name: "Rabi", starts_on: "2025-11-01", ends_on: "2026-04-30" },
+    { operating_unit_id: "unit-new", operating_unit_name: "New Unit", season_id: "season-new", season_name: "Kharif", starts_on: "2026-06-01", ends_on: "2026-10-31" }
+  ];
+
+  api.setState({
+    currentPortfolio: portfolio([], []),
+    farmTruthReviewContexts: reviewContexts,
+    managerSessionAuthenticated: true,
+    selectedFarmTruthContextKey: ""
+  });
+  assert.deepEqual(
+    Array.from(api.farmTruthContexts()).map((context) => context.key),
+    ["unit-old\u001fseason-old", "unit-new\u001fseason-new"],
+    "review contexts must not depend on active allocations"
   );
-  const oldPortfolio = portfolio(
-    [{ id: "unit-old", name: "Old Unit", active_allocation_count: 1 }],
-    [{ id: "allocation-old", operating_unit_id: "unit-old", season_id: "season-old", crop_name: "Wheat", status: "active" }]
-  );
-  const switchPortfolio = portfolio(
-    [
-      { id: "unit-old", name: "Old Unit", active_allocation_count: 1 },
-      { id: "unit-new", name: "New Unit", active_allocation_count: 1 }
-    ],
-    [
-      { id: "allocation-old", operating_unit_id: "unit-old", season_id: "season-old", crop_name: "Wheat", status: "active" },
-      { id: "allocation-new", operating_unit_id: "unit-new", season_id: "season-new", crop_name: "Paddy", status: "active" }
-    ]
-  );
+
+  const staleContextFetch = holdNextFetch((request) => request.url.endsWith("/api/v1/farm-truth/contexts"));
+  const staleContextRequest = api.loadFarmTruthReviewContexts();
+  assert.equal(staleContextFetch.claimed, true, "context bootstrap must use the dedicated endpoint");
+  await api.loadFarmTruthReviewContexts();
+  staleContextFetch.resolve(reviewContexts);
+  await staleContextRequest;
+  assert.deepEqual(Array.from(api.state().farmTruthReviewContexts), [], "an older context response must not replace newer state");
+
   getElement("farm-truth-dialog").open = true;
   getElement("farm-truth-decision-panel").hidden = false;
   getElement("farm-truth-list").innerHTML = "stale card";
   api.setState({
-    currentPortfolio: oldPortfolio,
+    farmTruthReviewContexts: reviewContexts,
     selectedFarmTruthContextKey: "unit-old\u001fseason-old",
     farmTruthCases: [oldCase],
     currentFarmTruthCase: oldCase
   });
-  fetchCalls.length = 0;
-  api.renderPortfolio(newPortfolio);
-  await Promise.resolve();
-  assert.equal(api.state().currentFarmTruthCase, null, "context replacement must clear current case");
-  assert.deepEqual(Array.from(api.state().farmTruthCases), [], "context replacement must clear case list");
-  assert.equal(getElement("farm-truth-decision-panel").hidden, true, "context replacement must hide decisions");
-  assert.equal(getElement("farm-truth-list").innerHTML.includes("stale card"), false, "stale card must be removed");
-  assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "portfolio changes must never refresh");
-  api.submitFarmTruthDecision({ preventDefault: () => {}, currentTarget: getElement("farm-truth-accept-form") }, "accept");
-  assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "cleared stale case must not submit");
-
-  getElement("farm-truth-dialog").open = true;
-  api.setState({
-    currentPortfolio: oldPortfolio,
-    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
-    farmTruthCases: [],
-    currentFarmTruthCase: null,
-    sampleMode: false
-  });
-  fetchCalls.length = 0;
   const oldListFetch = holdNextFetch((request) => request.url.includes("status=open"));
   const oldListRequest = api.loadFarmTruthCases();
   assert.equal(oldListFetch.claimed, true, "old-context list request must be held");
-  api.renderPortfolio(newPortfolio);
+  const selector = getElement("farm-truth-context");
+  selector.value = "unit-new\u001fseason-new";
+  selector.listeners.change({ currentTarget: selector });
   getElement("farm-truth-feedback").textContent = "new context feedback";
   getElement("farm-truth-feedback").hidden = false;
   oldListFetch.resolve([oldCase]);
@@ -302,12 +285,7 @@ async function main() {
   assert.equal(getElement("farm-truth-list").innerHTML.includes("Old farmer"), false, "late list response must not render an old card");
   assert.equal(getElement("farm-truth-feedback").textContent, "new context feedback", "late list response must not clear new feedback");
 
-  api.setState({
-    currentPortfolio: oldPortfolio,
-    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
-    farmTruthCases: [oldCase],
-    currentFarmTruthCase: null
-  });
+  api.setState({ selectedFarmTruthContextKey: "unit-old\u001fseason-old", farmTruthCases: [oldCase], currentFarmTruthCase: null });
   getElement("farm-truth-dialog").open = true;
   const oldDetailFetch = holdNextFetch((request) => request.url.includes("/cases/case-old?"));
   const oldDetailRequest = api.loadFarmTruthCaseDetail("case-old");
@@ -328,160 +306,38 @@ async function main() {
 
   getElement("farm-truth-dialog").open = true;
   api.setState({
-    currentPortfolio: oldPortfolio,
     selectedFarmTruthContextKey: "unit-old\u001fseason-old",
     farmTruthCases: [],
     currentFarmTruthCase: null
   });
   const oldFailureFetch = holdNextFetch((request) => request.url.includes("status=open"));
   const oldFailureRequest = api.loadFarmTruthCases();
-  api.renderPortfolio(newPortfolio);
+  selector.value = "unit-new\u001fseason-new";
+  selector.listeners.change({ currentTarget: selector });
   getElement("farm-truth-feedback").textContent = "newer feedback";
   getElement("farm-truth-feedback").hidden = false;
   oldFailureFetch.reject(new Error("stale request failed"));
   await oldFailureRequest;
   assert.equal(getElement("farm-truth-feedback").textContent, "newer feedback", "late list failure must not show or clear feedback");
 
-  const lateRequests = {
-    refresh: {
-      predicate: (request) => request.url.endsWith("/api/v1/farm-truth/refresh"),
-      start: () => api.refreshFarmTruthCases(),
-      response: {}
-    },
-    list: {
-      predicate: (request) => request.url.includes("/api/v1/farm-truth/cases?") && request.url.includes("status=open"),
-      start: () => api.loadFarmTruthCases(),
-      response: [oldCase]
-    },
-    detail: {
-      predicate: (request) => request.url.includes("/api/v1/farm-truth/cases/case-old?"),
-      start: () => api.loadFarmTruthCaseDetail("case-old"),
-      response: oldCase
-    },
-    decision: {
-      predicate: (request) => request.url.includes("/api/v1/farm-truth/cases/case-old/needs-evidence"),
-      start: () => api.submitFarmTruthDecision(
-        { preventDefault: () => {}, currentTarget: getElement("farm-truth-needs-form") },
-        "needs-evidence"
-      ),
-      response: {}
-    }
-  };
-  const invalidations = ["manager-lock", "dialog-close", "dialog-cancel", "selector-change"];
-  for (const [requestName, requestSpec] of Object.entries(lateRequests)) {
-    for (const invalidation of invalidations) {
-      for (const settlement of ["resolve", "reject"]) {
-        const scenario = `${requestName} / ${invalidation} / ${settlement}`;
-        fetchCalls.length = 0;
-        heldFetch = null;
-        getElement("farm-truth-dialog").open = true;
-        getElement("manager-session-action").disabled = false;
-        api.setState({
-          currentPortfolio: switchPortfolio,
-          managerSessionAuthenticated: true,
-          selectedFarmTruthContextKey: "unit-old\u001fseason-old",
-          farmTruthCases: [oldCase],
-          farmTruthInboxCases: [],
-          currentFarmTruthCase: oldCase,
-          sampleMode: false
-        });
-        api.renderFarmTruthDetail();
-        getElement("farm-truth-feedback").textContent = "request feedback";
-        getElement("farm-truth-feedback").hidden = false;
-
-        const requestHold = holdNextFetch(requestSpec.predicate);
-        const pendingRequest = requestSpec.start();
-        assert.equal(requestHold.claimed, true, `${scenario}: Farm Truth request must be held`);
-        const generationBeforeInvalidation = api.state().farmTruthContextGeneration;
-        let lockRequestSurface = null;
-
-        if (invalidation === "manager-lock") {
-          const logoutHold = holdNextFetch(
-            (request) => request.url.endsWith("/api/v1/manager-session/logout"),
-            () => { lockRequestSurface = reviewSurface(); }
-          );
-          api.toggleManagerSession();
-          assert.equal(logoutHold.claimed, true, `${scenario}: manager logout must be held`);
-          assert.ok(lockRequestSurface, `${scenario}: lock state must be captured at logout dispatch`);
-          assert.ok(
-            lockRequestSurface.generation > generationBeforeInvalidation,
-            `${scenario}: lock must invalidate the request generation before logout dispatch`
-          );
-          assert.equal(lockRequestSurface.selectedContext, "", `${scenario}: lock must clear context before logout dispatch`);
-          assert.equal(lockRequestSurface.currentCase, null, `${scenario}: lock must clear case before logout dispatch`);
-          assert.deepEqual(lockRequestSurface.cases, [], `${scenario}: lock must clear cards before logout dispatch`);
-          assert.equal(lockRequestSurface.list, "", `${scenario}: lock must clear list before logout dispatch`);
-          assert.equal(
-            lockRequestSurface.detail.includes("Old farmer"),
-            false,
-            `${scenario}: lock must clear detail before logout dispatch`
-          );
-          assert.equal(lockRequestSurface.actionsHidden, true, `${scenario}: lock must hide actions before logout dispatch`);
-          assert.equal(lockRequestSurface.feedback, "", `${scenario}: lock must clear feedback before logout dispatch`);
-          assert.equal(lockRequestSurface.refreshDisabled, false, `${scenario}: lock must clear busy state before logout dispatch`);
-        } else if (invalidation === "dialog-close") {
-          getElement("close-farm-truth").listeners.click();
-        } else if (invalidation === "dialog-cancel") {
-          getElement("farm-truth-dialog").listeners.cancel({ preventDefault: () => {} });
-          getElement("farm-truth-dialog").close();
-        } else {
-          const selector = getElement("farm-truth-context");
-          selector.value = "unit-new\u001fseason-new";
-          selector.listeners.change({ currentTarget: selector });
-        }
-
-        assert.ok(
-          api.state().farmTruthContextGeneration > generationBeforeInvalidation,
-          `${scenario}: invalidation must advance the request generation`
-        );
-        await flushPromises();
-        getElement("farm-truth-feedback").textContent = `stable feedback: ${scenario}`;
-        getElement("farm-truth-feedback").hidden = false;
-        const stableSurface = reviewSurface();
-        const requestCountAfterInvalidation = farmTruthFetches().length;
-        const postCountAfterInvalidation = farmTruthPosts().length;
-
-        if (settlement === "resolve") {
-          requestHold.resolve(requestSpec.response);
-        } else {
-          requestHold.reject(new Error(`late failure: ${scenario}`));
-        }
-        await pendingRequest;
-        await flushPromises();
-
-        assert.deepEqual(reviewSurface(), stableSurface, `${scenario}: late continuation must leave the review surface inert`);
-        assert.equal(
-          farmTruthFetches().length,
-          requestCountAfterInvalidation,
-          `${scenario}: late continuation must not start another Farm Truth request`
-        );
-        assert.equal(
-          farmTruthPosts().length,
-          postCountAfterInvalidation,
-          `${scenario}: late continuation must not issue a Farm Truth POST`
-        );
-      }
-    }
-  }
+  api.setState({ managerSessionAuthenticated: true, farmTruthInboxCases: [] });
+  const inboxFetch = holdNextFetch((request) => request.url.endsWith("/api/v1/farm-truth/inbox"));
+  const inboxRequest = api.loadFarmTruthInboxCases();
+  assert.equal(inboxFetch.claimed, true, "owner Inbox must use its dedicated endpoint");
+  const inboxContextGeneration = api.state().farmTruthContextGeneration;
+  api.renderFarmTruthUnavailable();
+  assert.ok(api.state().farmTruthContextGeneration > inboxContextGeneration, "context changes must invalidate Inbox request origins");
+  inboxFetch.resolve([{ id: "stale-inbox", status: "needs_evidence", reason_code: "confirm_plot_area" }]);
+  await inboxRequest;
+  assert.deepEqual(Array.from(api.state().farmTruthInboxCases), [], "late owner Inbox data must not restore stale rows");
 
   api.setState({
-    currentPortfolio: oldPortfolio,
-    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
-    farmTruthCases: [oldCase],
-    currentFarmTruthCase: oldCase,
-    sampleMode: true
+    managerSessionAuthenticated: false,
+    farmTruthInboxCases: []
   });
-  getElement("farm-truth-dialog").open = true;
-  getElement("farm-truth-decision-panel").hidden = false;
-  getElement("farm-truth-list").innerHTML = "stale sample card";
-  const generationBeforeSampleTakeover = api.state().farmTruthContextGeneration;
-  api.renderPortfolio({ risk_action_ledger: { items: [] } });
-  assert.ok(api.state().farmTruthContextGeneration > generationBeforeSampleTakeover, "sample takeover must invalidate pending requests");
-  assert.equal(api.state().selectedFarmTruthContextKey, "", "sample takeover must clear review selection");
-  assert.equal(api.state().currentFarmTruthCase, null, "sample takeover must clear current case");
-  assert.deepEqual(Array.from(api.state().farmTruthCases), [], "sample takeover must clear case cards");
-  assert.equal(getElement("farm-truth-decision-panel").hidden, true, "sample takeover must hide decisions");
-  assert.equal(getElement("farm-truth-list").innerHTML.includes("stale sample card"), false, "sample takeover must reset the dialog");
+  fetchCalls.length = 0;
+  await api.loadFarmTruthInboxCases();
+  assert.equal(farmTruthFetches().length, 0, "locked sessions must not request the owner Inbox");
 
   getElement("manager-session-dialog").open = true;
   api.setState({ farmTruthOpenPending: true });
@@ -498,6 +354,9 @@ async function main() {
   assert.ok(successText.includes(api.translate("reviewSaved")) && successText.includes(api.translate("reviewNext")));
 
   api.setState({ interfaceLocale: "hi" });
+  api.renderFarmTruthDetail();
+  assert.ok(getElement("farm-truth-detail").innerHTML.includes("पंजीकरण"), "stable evidence codes must localize in Hindi");
+  assert.ok(getElement("farm-truth-detail").innerHTML.includes("किसान मुलाक़ात"), "stable task codes must localize in Hindi");
   api.renderFarmTruthUnavailable(new Error("Network request failed"));
   assert.ok(getElement("farm-truth-detail").innerHTML.includes(api.translate("farmTruthUnavailable")));
   assert.equal(getElement("farm-truth-detail").innerHTML.includes("Network request failed"), false, "raw English error must not render");
@@ -506,7 +365,7 @@ async function main() {
     (error) => error.message === api.translate("reviewFailed") && !error.message.includes("Server English")
   );
 
-  api.setState({ sampleMode: true, currentFortuneMap: { type: "FeatureCollection", features: [] } });
+  api.setState({ currentFortuneMap: { type: "FeatureCollection", features: [] } });
   api.renderBestMap();
   assert.equal(getElement("home-map-status").textContent, api.translate("noReviewedGeometry"));
   assert.equal(getElement("home-map-status").textContent.includes("Dargava"), false, "sample location must not become map state");

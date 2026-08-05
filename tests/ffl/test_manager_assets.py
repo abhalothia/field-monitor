@@ -86,15 +86,13 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "currentFarmView" in app_js
     assert "renderPeople" in app_js
     assert "inboxRows" in app_js
-    assert "sampleRuntime" in app_js
-    assert "sampleProgramme" in app_js
-    assert "samplePortfolio" in app_js
-    assert "sampleMap" in app_js
-    assert "North Block" in app_js
-    assert "Jewar Model Farm" in app_js
-    assert "Dargava, Gabhana, Aligarh" in app_js
-    assert "Asha Devi" in app_js
-    assert "Ravi Kumar" in app_js
+    assert "sampleRuntime" not in app_js
+    assert "sampleProgramme" not in app_js
+    assert "samplePortfolio" not in app_js
+    assert "sampleMap" not in app_js
+    assert "Jewar Model Farm" not in app_js
+    assert "Asha Devi" not in app_js
+    assert "Ravi Kumar" not in app_js
     assert 'id="record-dialog"' in index_html
     assert 'id="record-dialog-action"' in index_html
     assert 'id="inbox-filter-clear"' in index_html
@@ -107,7 +105,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "viewRelatedDecisions" in app_js
     assert "data-record-kind" in app_js
     assert "directory-card-metric" in app_js
-    assert "sampleWeather" in app_js
+    assert "sampleWeather" not in app_js
     assert "mapPrivacyNote" in app_js
     assert "noReviewedFarmer" in app_js
     assert "noReviewedWorker" in app_js
@@ -118,6 +116,8 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     for endpoint in (
         '"/api/v1/farm-truth/refresh"',
         '"/api/v1/farm-truth/cases"',
+        '"/api/v1/farm-truth/contexts"',
+        '"/api/v1/farm-truth/inbox"',
         '"/accept"',
         '"/needs-evidence"',
         '"/reject"',
@@ -129,6 +129,9 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
         "reviewSaved", "reviewNext", "reviewReason", "reviewRefresh", "reviewSeason",
         "chooseReviewSeason", "farmTruthLoading", "reviewFailed",
         "reviewContextLabel", "activeSeason",
+        "evidenceRegistration", "evidenceRecentVisits", "evidenceOpenFollowUps",
+        "taskFarmerVisit", "taskOpenFollowUp", "statusNeedsEvidence",
+        "farmTruthCandidatesAria", "closeFarmTruthAria",
     ):
         assert app_js.count(copy_key + ":") == 2
     assert "loadFarmTruthCases" in app_js
@@ -136,10 +139,16 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "refreshFarmTruthCases" in app_js
     assert "submitFarmTruthDecision" in app_js
     assert "farmTruthInboxRows" in app_js
+    assert "reason_codes" in app_js
+    assert "task_label_codes" in app_js
+    assert "reason_chips" not in app_js
+    assert "safe_task_labels" not in app_js
     assert "farmTruthContexts" in app_js
     assert "selectedFarmTruthContextKey" in app_js
     assert "farmTruthContextGeneration" in app_js
     assert "farmTruthOriginIsActive" in app_js
+    assert "farmTruthInboxOriginIsActive" in app_js
+    assert "farmTruthInboxGeneration" in app_js
     assert ".farm-truth-dialog" in styles_css
     assert ".evidence-chips" in styles_css
     assert ".farm-truth-fields" in styles_css
@@ -154,6 +163,10 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "sourceBoardFeatureCollection" not in app_js
     assert "currentSourceBoard.map" not in app_js
     assert "renderFortuneMap(sampleMap())" not in app_js
+    assert "renderSourceFarms" not in app_js
+    assert "renderSourcePeople" not in app_js
+    assert "sourceFarmCardMarkup" not in app_js
+    assert "sourcePersonCardMarkup" not in app_js
 
     assert "Start with one field" not in index_html + app_js
     assert "Prepare first farm" not in index_html + app_js
@@ -172,9 +185,9 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     app_js = (root / "app.js").read_text()
 
     contexts = _function_body(app_js, "farmTruthContexts()", "renderFarmTruthContextChooser()")
-    assert "currentPortfolio.scope" in contexts
-    assert "active_allocations" in contexts
-    assert "active_farms" in contexts
+    assert "farmTruthReviewContexts" in contexts
+    assert "active_allocations" not in contexts
+    assert "active_farms" not in contexts
     assert "currentRuntime" not in contexts
     assert "label:" in contexts
     assert "label: (unit.name || unit.id) + \" · \" + item.season_id" not in contexts
@@ -210,7 +223,7 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     )
     detail = _function_body(app_js, "renderFarmTruthDetail()", "renderFarmTruthUnavailable()")
     assert 'setFarmTruthFeedback("")' not in detail
-    decision = _function_body(app_js, "submitFarmTruthDecision(event, decision)", "setSampleMode(enabled)")
+    decision = _function_body(app_js, "submitFarmTruthDecision(event, decision)", "renderRuntimeUnavailable()")
     assert "showFarmTruthDecisionSuccess" in decision
     assert "farmTruthOriginIsActive(origin)" in decision
 
@@ -221,6 +234,16 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     ):
         guarded_request = _function_body(app_js, function_name, next_name)
         assert "farmTruthOriginIsActive(origin)" in guarded_request
+
+    inbox_request = _function_body(
+        app_js, "loadFarmTruthInboxCases()", "refreshFarmTruthCases()"
+    )
+    assert "farmTruthInboxOriginIsActive(origin)" in inbox_request
+    assert "farmTruthInboxUrl" in inbox_request
+
+    assert 'data-i18n-aria-label="farmTruthCandidatesAria"' in index_html
+    assert 'data-i18n-aria-label="closeFarmTruthAria"' in index_html
+    assert 'querySelectorAll("[data-i18n-aria-label]")' in app_js
 
     close_unlock = _function_body(app_js, "closeManagerSessionDialog()", "toggleManagerSession()")
     assert "farmTruthOpenPending = false" in close_unlock

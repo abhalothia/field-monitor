@@ -93,6 +93,7 @@ type Translation = {
   manager: string; signIn: string; signal: string; source: string; fieldUpdates: string;
   evidence: string; work: string; noActions: string; english: string; hindi: string;
   operator: string; farm: string; received: string;
+  farmTruth: string;
 };
 
 const WORDS: Record<Language, Translation> = {
@@ -106,6 +107,7 @@ const WORDS: Record<Language, Translation> = {
     signIn: "Sign in", signal: "signals", source: "sources", fieldUpdates: "field updates",
     evidence: "Proof required", work: "work", noActions: "No open actions need attention.",
     english: "EN", hindi: "हि", operator: "Field team", farm: "Farm", received: "Observed",
+    farmTruth: "Farm Truth",
   },
   hi: {
     home: "होम", fields: "खेत", farmers: "किसान", actions: "काम", settings: "सेटिंग्स",
@@ -117,6 +119,7 @@ const WORDS: Record<Language, Translation> = {
     signIn: "साइन इन", signal: "संकेत", source: "स्रोत", fieldUpdates: "खेत अपडेट",
     evidence: "प्रमाण ज़रूरी", work: "काम", noActions: "ध्यान देने वाला कोई खुला काम नहीं है।",
     english: "EN", hindi: "हि", operator: "फील्ड टीम", farm: "फार्म", received: "देखा गया",
+    farmTruth: "खेत सत्य",
   },
 };
 
@@ -251,6 +254,7 @@ export function CommandCentre({ view }: { view: View }) {
           {NAV.map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "nav-link active" : "nav-link"}>{t[item.view]}</Link>)}
         </nav>
         <div className="command-tools">
+          {state.session?.authenticated ? <a href="/manager" className="quiet-button">{t.farmTruth}</a> : null}
           <button type="button" className="language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
           <button type="button" className="quiet-button" onClick={() => void load()} disabled={state.loading}>{state.loading ? t.loading : t.refresh}</button>
         </div>

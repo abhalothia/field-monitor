@@ -10,6 +10,8 @@
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
   var farmTruthRefreshUrl = "/api/v1/farm-truth/refresh";
   var farmTruthCasesUrl = "/api/v1/farm-truth/cases";
+  var farmTruthContextsUrl = "/api/v1/farm-truth/contexts";
+  var farmTruthInboxUrl = "/api/v1/farm-truth/inbox";
   var farmTruthDecisionPaths = {
     accept: "/accept", "needs-evidence": "/needs-evidence", reject: "/reject"
   };
@@ -30,22 +32,23 @@
   var currentInboxMode = "priority";
   var connectedAllocationId = null;
   var leafletMaps = {};
-  var sampleMode = false;
   var focusTargetView = "farms";
   var managerSessionAuthenticated = false;
   var farmTruthCases = [];
   var farmTruthInboxCases = [];
   var currentFarmTruthCase = null;
   var farmTruthOpenPending = false;
+  var farmTruthReviewContexts = [];
   var selectedFarmTruthContextKey = "";
   var farmTruthContextGeneration = 0;
+  var farmTruthInboxGeneration = 0;
   var localeStorageKey = "ffl.manager.interface-locale";
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
     en: {
       navHome: "Home", navFarms: "Farms", navFarmers: "Farmers", navWorkers: "Field workers", navInbox: "Inbox", navSettings: "Settings",
       refresh: "Refresh", pageTitle: "Home.", fieldPulse: "Daily direction", lastUpdate: "Last update", from: "From", weatherLoading: "Weather loading",
-      sampleView: "", fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
+      fortuneRice: "Fortune Rice", fortunePaddy: "Fortune paddy", indiaTime: "India Standard Time", fortuneNetwork: "Fortune network",
       localContext: "Local operating context", visitsFiled: "Visits filed", farmersOverdue: "Farmers overdue", highRiskIssues: "High-risk issues",
       farmerReach: "Farmer reach", purchaseShare: "Purchase share", chemicalRecord: "Chemical record", cropSignals: "Crop signals",
       programmeDataLoading: "Reading programme data…", noEligibleFarmers: "No kit-taking farmer records yet",
@@ -57,10 +60,8 @@
       map: "Map", cards: "Cards", table: "Table", all: "All", field: "Field", crop: "Crop", variety: "Variety", status: "Status",
       reviewedPeople: "Reviewed people", farmer: "Farmer", farmerPlural: "Farmers", fieldWorker: "Field worker", fieldWorkerPlural: "Field workers",
       role: "Role", scope: "Scope", openWorkLabel: "Open work", decisionQueue: "Decision queue", priority: "Priority", decision: "Decision", owner: "Owner", dueLabel: "Due", inbox: "Inbox",
-      oneThing: "One thing", managerAccess: "Manager access", sampleLocation: "Dargava · Gabhana · Aligarh", sampleGeometry: "Dargava · Gabhana · Aligarh",
-      sampleWeather: "31°C · partly cloudy", sampleWeatherNote: "Dargava, Gabhana", hectare: "ha", openAction: "open action", openActions: "open actions", fieldCount: "field", fieldCountPlural: "fields",
+      oneThing: "One thing", managerAccess: "Manager access", hectare: "ha", openAction: "open action", openActions: "open actions", fieldCount: "field", fieldCountPlural: "fields",
       location: "Location", cropPlan: "Crop plan", area: "Area", risk: "Risk", issue: "Issue", visitToday: "visit today", visitsToday: "visits today",
-      sampleFarm: "Jewar Model Farm · North Block", sampleFarmName: "Jewar Model Farm", sampleField: "North Block", sampleCrop: "Pusa Basmati 1121", sampleFarmerTrait: "Contract grower", sampleWorkerTrait: "Field operator", sampleLocationShort: "Dargava, Aligarh",
       reading: "reading", attention: "attention", reported: "reported", planned: "planned", verified: "verified", high: "high", moderate: "moderate", low: "low", critical: "critical",
       grower: "grower", fieldOperator: "field operator", stemBorer: "stem borer", leafFolder: "leaf folder",
       loading: "loading", today: "today", filedToday: "filed today", farmersNeedVisit: "farmers need a visit", highCriticalSevenDays: "high / critical · 7 days", notScheduled: "Not scheduled", notVisited: "never visited", reachedFourteenDays: "reached in 14 days", workerNoFile: "active officers did not file", unassigned: "Unassigned",
@@ -77,7 +78,7 @@
       officersNoVisitTitle: "{count} officers filed no visit today.", officersNoVisitNote: "{filed} visits were filed by {filing} of {active} active officers. Start with the coverage gap, then follow up with the field team.", officersFiled: "{filing} / {active} officers filed", farmersOverdueMetric: "{count} farmers overdue", reviewWorkerFollowUp: "Review worker follow-up",
       urgentIssueTitle: "{issue} is the lead field signal.", urgentIssueNote: "{count} dated observations in the last {days} days. Detection shows where to look, not a diagnosis or prevalence rate.", reviewDecisionQueue: "Review the decision queue", visitsFiledMetric: "{count} visits filed today", neverVisitedMetric: "{count} never visited",
       farmerOverdueTitle: "{count} farmers are overdue for a visit.", farmerCoverageCurrent: "Farmer coverage is current.", farmerOverdueNote: "Start with the farmer groups carrying the largest overdue gap. Never visited remains a separate acquisition and record-quality gap.", noOverdueNote: "No overdue visit gap is reported in the published farmer aggregate.", reviewFarmerCoverage: "Review farmer coverage",
-      priorityDecision: "{count} priority decision, most urgent first.", priorityDecisions: "{count} priority decisions, most urgent first.", allDecisions: "{count} reviewed decisions and open work items.", noDecision: "No decision needs attention right now.", nothingWaiting: "Nothing is waiting for a manager decision.", sampleReviewIssue: "Review stem borer cluster", sampleCheckIssue: "Check stem borer cluster",
+      priorityDecision: "{count} priority decision, most urgent first.", priorityDecisions: "{count} priority decisions, most urgent first.", allDecisions: "{count} reviewed decisions and open work items.", noDecision: "No decision needs attention right now.", nothingWaiting: "Nothing is waiting for a manager decision.",
       viewRelatedDecisions: "View related decisions", showAllDecisions: "Show all decisions", decisionsForField: "Decisions for {field}",
       openFieldWork: "Open field workers", today: "Today", openWork: "Open work", awaitingReview: "Awaiting review",
       currentFields: "Current fields", work: "Work", selectedSignal: "Selected signal", review: "Review",
@@ -91,12 +92,13 @@
       fieldAskReady: "is reviewed; delivery stays independently gated", awaitingFieldAnswer: "Awaiting a reviewable field answer from",
       checkDelivery: "Check delivery eligibility or cancel and reissue it. Do not assume an answer.",
       reviewFieldAnswer: "Review any response and retained proof. The linked work stays open until a human closes it.",
-      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", reviewCandidates: "Review candidates", farmTruthTitle: "Review farm candidates", farmTruthLoading: "Loading candidates…", farmTruthEmpty: "No farm candidate is waiting for review.", farmTruthUnavailable: "Farm review is unavailable for the current season.", reviewSeason: "Review season", chooseReviewSeason: "Choose a season", reviewContextLabel: "{unit} · {crops}", activeSeason: "Active season", reviewRefresh: "Refresh candidates", candidateProgress: "{current} of {total}", placeFacts: "Place", areaFacts: "Area", cropFacts: "Crop and timing", visitFacts: "Visits and work", evidenceFacts: "Evidence", farmerName: "Farmer", village: "Village", block: "Block", district: "District", gataNumber: "Gata number", plotArea: "Reported plot area", registrationArea: "Reported registration area", cropStage: "Crop stage", transplantedOn: "Transplanted on", latestVisit: "Latest visit", recentVisits: "Recent visits", openFollowUps: "Open follow-ups", fieldWorkers: "Field workers", fieldName: "Field name", managedArea: "Managed area (ha)", cropName: "Crop", cultivarOptional: "Cultivar (optional)", growerEffectiveOn: "Grower effective on", rightType: "Right to operate", rightStartsOn: "Right starts on", rightEndsOn: "Right ends on", acceptCandidate: "Accept", needsEvidence: "Needs evidence", rejectCandidate: "Reject", missingEvidence: "Evidence needed", missingPlotArea: "Plot area", missingCropSeason: "Crop and season", missingRight: "Right to operate", missingFarmer: "Farmer identity", missingWorker: "Field worker assignment", reviewReason: "Reason", evidenceNeeded: "Farm Truth evidence needed", reviewSaved: "Decision saved.", reviewNext: "Opening the next candidate.", reviewFailed: "The decision could not be saved.", managerOwner: "You", bigha: "bigha", acres: "acres", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
+      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", reviewCandidates: "Review candidates", farmTruthTitle: "Review farm candidates", farmTruthLoading: "Loading candidates…", farmTruthEmpty: "No farm candidate is waiting for review.", farmTruthUnavailable: "Farm review is unavailable for the current season.", reviewSeason: "Review season", chooseReviewSeason: "Choose a season", reviewContextLabel: "{unit} · {crops}", activeSeason: "Active season", reviewRefresh: "Refresh candidates", candidateProgress: "{current} of {total}", placeFacts: "Place", areaFacts: "Area", cropFacts: "Crop and timing", visitFacts: "Visits and work", evidenceFacts: "Evidence", farmerName: "Farmer", village: "Village", block: "Block", district: "District", gataNumber: "Gata number", plotArea: "Reported plot area", registrationArea: "Reported registration area", cropStage: "Crop stage", transplantedOn: "Transplanted on", latestVisit: "Latest visit", recentVisits: "Recent visits", openFollowUps: "Open follow-ups", fieldWorkers: "Field workers", fieldName: "Field name", managedArea: "Managed area (ha)", cropName: "Crop", cultivarOptional: "Cultivar (optional)", growerEffectiveOn: "Grower effective on", rightType: "Right to operate", rightStartsOn: "Right starts on", rightEndsOn: "Right ends on", acceptCandidate: "Accept", needsEvidence: "Needs evidence", rejectCandidate: "Reject", missingEvidence: "Evidence needed", missingPlotArea: "Plot area", missingCropSeason: "Crop and season", missingRight: "Right to operate", missingFarmer: "Farmer identity", missingWorker: "Field worker assignment", reviewReason: "Reason", evidenceNeeded: "Farm Truth evidence needed", reviewSaved: "Decision saved.", reviewNext: "Opening the next candidate.", reviewFailed: "The decision could not be saved.", managerOwner: "You", bigha: "bigha", acres: "acres", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now.",
+      evidenceRegistration: "Registration", evidenceRecentVisits: "{count} recent visits", evidenceOpenFollowUps: "{count} open follow-ups", taskFarmerVisit: "Farmer visit", taskOpenFollowUp: "Open follow-up", statusNeedsEvidence: "needs evidence", farmTruthCandidatesAria: "Farm candidates", closeFarmTruthAria: "Close farm review", confirmPlotArea: "Confirm plot area", confirmCropSeason: "Confirm crop and season", confirmRightToOperate: "Confirm right to operate", confirmFarmerIdentity: "Confirm farmer identity", confirmFieldWorkerAssignment: "Confirm field worker assignment", confirmRequiredEvidence: "Confirm required evidence"
     },
     hi: {
       navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
       refresh: "ताज़ा करें", pageTitle: "मुख्य।", fieldPulse: "आज की दिशा", lastUpdate: "आख़िरी अपडेट", from: "किससे", weatherLoading: "मौसम लोड हो रहा है",
-      sampleView: "", fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
+      fortuneRice: "फॉर्च्यून राइस", fortunePaddy: "फॉर्च्यून धान", indiaTime: "भारतीय मानक समय", fortuneNetwork: "फॉर्च्यून नेटवर्क",
       localContext: "स्थानीय परिचालन संदर्भ", visitsFiled: "दर्ज की गई मुलाक़ातें", farmersOverdue: "मुलाक़ात के लिए बाकी किसान", highRiskIssues: "उच्च जोखिम के मुद्दे",
       farmerReach: "किसान संपर्क", purchaseShare: "खरीद हिस्सेदारी", chemicalRecord: "रसायन रिकॉर्ड", cropSignals: "फसल संकेत",
       programmeDataLoading: "कार्यक्रम डेटा पढ़ा जा रहा है…", noEligibleFarmers: "किट लेने वाले किसानों का रिकॉर्ड अभी नहीं है",
@@ -108,10 +110,8 @@
       map: "नक्शा", cards: "कार्ड", table: "तालिका", all: "सभी", field: "खेत", crop: "फसल", variety: "किस्म", status: "स्थिति",
       reviewedPeople: "समीक्षित लोग", farmer: "किसान", farmerPlural: "किसान", fieldWorker: "फील्ड कर्मी", fieldWorkerPlural: "फील्ड कर्मी",
       role: "भूमिका", scope: "दायरा", openWorkLabel: "खुला काम", decisionQueue: "निर्णय सूची", priority: "प्राथमिकता", decision: "निर्णय", owner: "जिम्मेदार", dueLabel: "समय", inbox: "इनबॉक्स",
-      oneThing: "एक काम", managerAccess: "प्रबंधक पहुँच", sampleLocation: "दरगावा · गभाना · अलीगढ़", sampleGeometry: "दरगावा · गभाना · अलीगढ़",
-      sampleWeather: "31°C · आंशिक बादल", sampleWeatherNote: "दरगावा, गभाना", hectare: "हेक्टेयर", openAction: "खुला काम", openActions: "खुले काम", fieldCount: "खेत", fieldCountPlural: "खेत",
+      oneThing: "एक काम", managerAccess: "प्रबंधक पहुँच", hectare: "हेक्टेयर", openAction: "खुला काम", openActions: "खुले काम", fieldCount: "खेत", fieldCountPlural: "खेत",
       location: "स्थान", cropPlan: "फसल योजना", area: "क्षेत्र", risk: "जोखिम", issue: "मुद्दा", visitToday: "आज की मुलाक़ात", visitsToday: "आज की मुलाक़ातें",
-      sampleFarm: "जेवर मॉडल फ़ार्म · उत्तर खंड", sampleFarmName: "जेवर मॉडल फ़ार्म", sampleField: "उत्तर खंड", sampleCrop: "पूसा बासमती 1121", sampleFarmerTrait: "अनुबंधित किसान", sampleWorkerTrait: "फील्ड कर्मी", sampleLocationShort: "दरगावा, अलीगढ़",
       reading: "पढ़ा जा रहा है", attention: "ध्यान", reported: "दर्ज", planned: "योजित", verified: "सत्यापित", high: "उच्च", moderate: "मध्यम", low: "कम", critical: "अति गंभीर",
       grower: "किसान", fieldOperator: "फील्ड कर्मी", stemBorer: "तना छेदक", leafFolder: "पत्ता लपेटक",
       loading: "लोड हो रहा है", today: "आज", filedToday: "आज दर्ज", farmersNeedVisit: "किसानों की मुलाक़ात बाकी", highCriticalSevenDays: "उच्च / अति गंभीर · 7 दिन", notScheduled: "निर्धारित नहीं", notVisited: "कभी मुलाक़ात नहीं हुई", reachedFourteenDays: "14 दिन में पहुँचे", workerNoFile: "सक्रिय कर्मियों ने दर्ज नहीं किया", unassigned: "जिम्मेदार तय नहीं",
@@ -128,7 +128,7 @@
       officersNoVisitTitle: "{count} कर्मियों ने आज कोई मुलाक़ात दर्ज नहीं की।", officersNoVisitNote: "{active} सक्रिय कर्मियों में से {filing} ने {filed} मुलाक़ातें दर्ज कीं। पहले कवरेज की कमी देखें, फिर फील्ड टीम से संपर्क करें।", officersFiled: "{filing} / {active} कर्मियों ने दर्ज किया", farmersOverdueMetric: "{count} किसानों की मुलाक़ात बाकी", reviewWorkerFollowUp: "कर्मियों की फॉलो-अप सूची देखें",
       urgentIssueTitle: "{issue} मुख्य फील्ड संकेत है।", urgentIssueNote: "पिछले {days} दिनों में {count} दर्ज अवलोकन। यह बताता है कि कहाँ देखना है, निदान या प्रसार दर नहीं।", reviewDecisionQueue: "निर्णय सूची देखें", visitsFiledMetric: "आज {count} मुलाक़ातें दर्ज", neverVisitedMetric: "{count} से कभी मुलाक़ात नहीं हुई",
       farmerOverdueTitle: "{count} किसानों की मुलाक़ात बाकी है।", farmerCoverageCurrent: "किसान कवरेज वर्तमान है।", farmerOverdueNote: "सबसे अधिक बाकी मुलाक़ात वाले किसान समूहों से शुरुआत करें। कभी न मिले किसान अलग कवरेज और रिकॉर्ड गुणवत्ता की कमी हैं।", noOverdueNote: "प्रकाशित किसान आँकड़ों में कोई बाकी मुलाक़ात नहीं है।", reviewFarmerCoverage: "किसान कवरेज देखें",
-      priorityDecision: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", priorityDecisions: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", allDecisions: "{count} समीक्षित निर्णय और खुले काम।", noDecision: "अभी किसी निर्णय पर ध्यान नहीं चाहिए।", nothingWaiting: "प्रबंधक के निर्णय की कोई प्रतीक्षा नहीं है।", sampleReviewIssue: "तना छेदक समूह की समीक्षा", sampleCheckIssue: "तना छेदक समूह जाँचें",
+      priorityDecision: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", priorityDecisions: "{count} प्राथमिक निर्णय, सबसे जरूरी पहले।", allDecisions: "{count} समीक्षित निर्णय और खुले काम।", noDecision: "अभी किसी निर्णय पर ध्यान नहीं चाहिए।", nothingWaiting: "प्रबंधक के निर्णय की कोई प्रतीक्षा नहीं है।",
       viewRelatedDecisions: "संबंधित निर्णय देखें", showAllDecisions: "सभी निर्णय देखें", decisionsForField: "{field} के निर्णय",
       openFieldWork: "फील्ड टीम खोलें", today: "आज", openWork: "खुला काम", awaitingReview: "समीक्षा के लिए",
       currentFields: "मौजूदा खेत", work: "काम", selectedSignal: "चुना हुआ संकेत", review: "समीक्षा",
@@ -142,7 +142,8 @@
       fieldAskReady: "की समीक्षा हो चुकी है; भेजना अलग से स्वीकृत होगा", awaitingFieldAnswer: "समीक्षा योग्य उत्तर की प्रतीक्षा",
       checkDelivery: "भेजने की पात्रता जाँचें या इसे रद्द करके फिर से जारी करें। उत्तर मान कर न चलें।",
       reviewFieldAnswer: "किसी भी उत्तर और सुरक्षित प्रमाण की समीक्षा करें। मानव बंद होने तक जुड़ा काम खुला रहता है।",
-      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", reviewCandidates: "उम्मीदवारों की समीक्षा करें", farmTruthTitle: "खेत उम्मीदवारों की समीक्षा", farmTruthLoading: "उम्मीदवार लोड हो रहे हैं…", farmTruthEmpty: "समीक्षा के लिए कोई खेत उम्मीदवार बाकी नहीं है।", farmTruthUnavailable: "मौजूदा मौसम के लिए खेत समीक्षा उपलब्ध नहीं है।", reviewSeason: "समीक्षा मौसम", chooseReviewSeason: "मौसम चुनें", reviewContextLabel: "{unit} · {crops}", activeSeason: "सक्रिय मौसम", reviewRefresh: "उम्मीदवार ताज़ा करें", candidateProgress: "{total} में से {current}", placeFacts: "स्थान", areaFacts: "क्षेत्र", cropFacts: "फसल और समय", visitFacts: "मुलाक़ातें और काम", evidenceFacts: "प्रमाण", farmerName: "किसान", village: "गाँव", block: "ब्लॉक", district: "ज़िला", gataNumber: "गाटा संख्या", plotArea: "दर्ज प्लॉट क्षेत्र", registrationArea: "दर्ज पंजीकरण क्षेत्र", cropStage: "फसल अवस्था", transplantedOn: "रोपाई की तारीख", latestVisit: "नवीनतम मुलाक़ात", recentVisits: "हाल की मुलाक़ातें", openFollowUps: "खुले अनुवर्ती काम", fieldWorkers: "फील्ड कर्मी", fieldName: "खेत का नाम", managedArea: "प्रबंधित क्षेत्र (हेक्टेयर)", cropName: "फसल", cultivarOptional: "किस्म (वैकल्पिक)", growerEffectiveOn: "किसान की प्रभावी तारीख", rightType: "संचालन अधिकार", rightStartsOn: "अधिकार शुरू होने की तारीख", rightEndsOn: "अधिकार समाप्त होने की तारीख", acceptCandidate: "स्वीकार करें", needsEvidence: "प्रमाण चाहिए", rejectCandidate: "अस्वीकार करें", missingEvidence: "आवश्यक प्रमाण", missingPlotArea: "प्लॉट क्षेत्र", missingCropSeason: "फसल और मौसम", missingRight: "संचालन अधिकार", missingFarmer: "किसान की पहचान", missingWorker: "फील्ड कर्मी की जिम्मेदारी", reviewReason: "कारण", evidenceNeeded: "खेत सत्य के लिए प्रमाण चाहिए", reviewSaved: "निर्णय सहेजा गया।", reviewNext: "अगला उम्मीदवार खोला जा रहा है।", reviewFailed: "निर्णय सहेजा नहीं जा सका।", managerOwner: "आप", bigha: "बीघा", acres: "एकड़", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
+      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", reviewCandidates: "उम्मीदवारों की समीक्षा करें", farmTruthTitle: "खेत उम्मीदवारों की समीक्षा", farmTruthLoading: "उम्मीदवार लोड हो रहे हैं…", farmTruthEmpty: "समीक्षा के लिए कोई खेत उम्मीदवार बाकी नहीं है।", farmTruthUnavailable: "मौजूदा मौसम के लिए खेत समीक्षा उपलब्ध नहीं है।", reviewSeason: "समीक्षा मौसम", chooseReviewSeason: "मौसम चुनें", reviewContextLabel: "{unit} · {crops}", activeSeason: "सक्रिय मौसम", reviewRefresh: "उम्मीदवार ताज़ा करें", candidateProgress: "{total} में से {current}", placeFacts: "स्थान", areaFacts: "क्षेत्र", cropFacts: "फसल और समय", visitFacts: "मुलाक़ातें और काम", evidenceFacts: "प्रमाण", farmerName: "किसान", village: "गाँव", block: "ब्लॉक", district: "ज़िला", gataNumber: "गाटा संख्या", plotArea: "दर्ज प्लॉट क्षेत्र", registrationArea: "दर्ज पंजीकरण क्षेत्र", cropStage: "फसल अवस्था", transplantedOn: "रोपाई की तारीख", latestVisit: "नवीनतम मुलाक़ात", recentVisits: "हाल की मुलाक़ातें", openFollowUps: "खुले अनुवर्ती काम", fieldWorkers: "फील्ड कर्मी", fieldName: "खेत का नाम", managedArea: "प्रबंधित क्षेत्र (हेक्टेयर)", cropName: "फसल", cultivarOptional: "किस्म (वैकल्पिक)", growerEffectiveOn: "किसान की प्रभावी तारीख", rightType: "संचालन अधिकार", rightStartsOn: "अधिकार शुरू होने की तारीख", rightEndsOn: "अधिकार समाप्त होने की तारीख", acceptCandidate: "स्वीकार करें", needsEvidence: "प्रमाण चाहिए", rejectCandidate: "अस्वीकार करें", missingEvidence: "आवश्यक प्रमाण", missingPlotArea: "प्लॉट क्षेत्र", missingCropSeason: "फसल और मौसम", missingRight: "संचालन अधिकार", missingFarmer: "किसान की पहचान", missingWorker: "फील्ड कर्मी की जिम्मेदारी", reviewReason: "कारण", evidenceNeeded: "खेत सत्य के लिए प्रमाण चाहिए", reviewSaved: "निर्णय सहेजा गया।", reviewNext: "अगला उम्मीदवार खोला जा रहा है।", reviewFailed: "निर्णय सहेजा नहीं जा सका।", managerOwner: "आप", bigha: "बीघा", acres: "एकड़", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।",
+      evidenceRegistration: "पंजीकरण", evidenceRecentVisits: "{count} हाल की मुलाक़ातें", evidenceOpenFollowUps: "{count} खुले अनुवर्ती काम", taskFarmerVisit: "किसान मुलाक़ात", taskOpenFollowUp: "खुला अनुवर्ती काम", statusNeedsEvidence: "प्रमाण चाहिए", farmTruthCandidatesAria: "खेत उम्मीदवार", closeFarmTruthAria: "खेत समीक्षा बंद करें", confirmPlotArea: "प्लॉट क्षेत्र की पुष्टि करें", confirmCropSeason: "फसल और मौसम की पुष्टि करें", confirmRightToOperate: "संचालन अधिकार की पुष्टि करें", confirmFarmerIdentity: "किसान की पहचान की पुष्टि करें", confirmFieldWorkerAssignment: "फील्ड कर्मी की जिम्मेदारी की पुष्टि करें", confirmRequiredEvidence: "आवश्यक प्रमाण की पुष्टि करें"
     }
   };
 
@@ -168,6 +169,9 @@
     document.documentElement.lang = interfaceLocale === "hi" ? "hi" : "en";
     Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (node) {
       node.textContent = t(node.getAttribute("data-i18n"));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-aria-label]"), function (node) {
+      node.setAttribute("aria-label", t(node.getAttribute("data-i18n-aria-label")));
     });
     element("language-toggle").textContent = interfaceLocale === "hi" ? "EN" : "हिं";
     element("language-toggle").setAttribute(
@@ -218,7 +222,9 @@
       t("managerUnlocked") : t("managerLocked");
     action.textContent = managerSessionAuthenticated ? t("lockActions") : t("unlockActions");
     if (!managerSessionAuthenticated) {
+      farmTruthReviewContexts = [];
       farmTruthInboxCases = [];
+      invalidateFarmTruthInbox();
       resetFarmTruthDialogState(true);
     }
   }
@@ -319,52 +325,17 @@
   }
 
   function farmTruthContexts() {
-    var scope = currentPortfolio && currentPortfolio.scope;
-    var activeFarms = scope && scope.active_farms && Array.isArray(scope.active_farms.items) ? scope.active_farms.items : [];
-    var allocations = scope && scope.active_allocations && Array.isArray(scope.active_allocations.items) ? scope.active_allocations.items : [];
-    if (!scope || scope.availability !== "available" || !activeFarms.length || !allocations.length) {
-      return [];
-    }
-    var unitNames = {};
-    activeFarms.forEach(function (unit) {
-      if (unit && unit.id && unit.name) {
-        unitNames[unit.id] = unit.name;
-      }
-    });
-    var grouped = {};
-    var incompleteContext = false;
-    allocations.forEach(function (item) {
-      if (!item || !item.operating_unit_id || !item.season_id || !unitNames[item.operating_unit_id]) {
-        incompleteContext = true;
-        return;
-      }
-      var key = item.operating_unit_id + "\u001f" + item.season_id;
-      if (!grouped[key]) {
-        grouped[key] = {
-          key: key,
-          operating_unit_id: item.operating_unit_id,
-          season_id: item.season_id,
-          unit_name: unitNames[item.operating_unit_id],
-          crop_names: []
-        };
-      }
-      if (item.crop_name && grouped[key].crop_names.indexOf(item.crop_name) === -1) {
-        grouped[key].crop_names.push(item.crop_name);
-      }
-    });
-    if (incompleteContext) {
-      return [];
-    }
-    var contexts = Object.keys(grouped).sort().map(function (key) {
-      var context = grouped[key];
-      context.crop_names.sort();
+    var contexts = farmTruthReviewContexts.filter(function (item) {
+      return item && item.operating_unit_id && item.operating_unit_name &&
+        item.season_id && item.season_name && item.starts_on && item.ends_on;
+    }).map(function (item) {
       return {
-        key: context.key,
-        operating_unit_id: context.operating_unit_id,
-        season_id: context.season_id,
+        key: item.operating_unit_id + "\u001f" + item.season_id,
+        operating_unit_id: item.operating_unit_id,
+        season_id: item.season_id,
         label: message("reviewContextLabel", {
-          unit: context.unit_name,
-          crops: context.crop_names.join(", ") || t("activeSeason")
+          unit: item.operating_unit_name,
+          crops: item.season_name
         })
       };
     });
@@ -373,6 +344,29 @@
       labelCounts[context.label] = (labelCounts[context.label] || 0) + 1;
     });
     return contexts.some(function (context) { return labelCounts[context.label] > 1; }) ? [] : contexts;
+  }
+
+  function loadFarmTruthReviewContexts() {
+    invalidateFarmTruthContext();
+    var generation = farmTruthContextGeneration;
+    if (!managerSessionAuthenticated) {
+      farmTruthReviewContexts = [];
+      return Promise.resolve([]);
+    }
+    return fetch(farmTruthContextsUrl, { credentials: "same-origin" }).then(farmTruthResponse).then(function (contexts) {
+      if (!managerSessionAuthenticated || generation !== farmTruthContextGeneration) {
+        return [];
+      }
+      farmTruthReviewContexts = Array.isArray(contexts) ? contexts : [];
+      renderFarmTruthContextChooser();
+      return farmTruthContexts();
+    }).catch(function () {
+      if (managerSessionAuthenticated && generation === farmTruthContextGeneration) {
+        farmTruthReviewContexts = [];
+        renderFarmTruthUnavailable();
+      }
+      return [];
+    });
   }
 
   function renderFarmTruthContextChooser() {
@@ -401,6 +395,27 @@
 
   function invalidateFarmTruthContext() {
     farmTruthContextGeneration += 1;
+  }
+
+  function invalidateFarmTruthInbox() {
+    farmTruthInboxGeneration += 1;
+  }
+
+  function beginFarmTruthInboxRequest() {
+    invalidateFarmTruthInbox();
+    return {
+      authenticated: managerSessionAuthenticated,
+      generation: farmTruthInboxGeneration,
+      contextGeneration: farmTruthContextGeneration
+    };
+  }
+
+  function farmTruthInboxOriginIsActive(origin) {
+    return Boolean(
+      origin && origin.authenticated && managerSessionAuthenticated &&
+      origin.generation === farmTruthInboxGeneration &&
+      origin.contextGeneration === farmTruthContextGeneration
+    );
   }
 
   function beginFarmTruthRequest() {
@@ -481,6 +496,36 @@
     return isFinite(number) && number > 0 ? formatQuantity(number) + " " + t(unit) : "—";
   }
 
+  function farmTruthEvidenceLabels(evidence) {
+    var labels = [];
+    var reasonLabels = {
+      registration: function () { return t("evidenceRegistration"); },
+      recent_visits: function () {
+        return message("evidenceRecentVisits", { count: formatCount(evidence.recent_visit_count) });
+      },
+      open_follow_ups: function () {
+        return message("evidenceOpenFollowUps", { count: formatCount(evidence.open_work_count) });
+      }
+    };
+    var taskLabels = {
+      farmer_visit: "taskFarmerVisit",
+      open_follow_up: "taskOpenFollowUp"
+    };
+    (Array.isArray(evidence.reason_codes) ? evidence.reason_codes : []).forEach(function (code) {
+      if (reasonLabels[code]) {
+        labels.push(reasonLabels[code]());
+      }
+    });
+    (Array.isArray(evidence.task_label_codes) ? evidence.task_label_codes : []).forEach(function (code) {
+      if (taskLabels[code]) {
+        labels.push(t(taskLabels[code]));
+      }
+    });
+    return labels.filter(function (label, index, all) {
+      return label && all.indexOf(label) === index;
+    });
+  }
+
   function renderFarmTruthList() {
     var selectedId = currentFarmTruthCase && currentFarmTruthCase.id;
     if (!farmTruthCases.length) {
@@ -535,9 +580,7 @@
     var timing = item.crop_timing || {};
     var people = item.people || {};
     var evidence = item.evidence || {};
-    var chips = (Array.isArray(evidence.reason_chips) ? evidence.reason_chips : []).concat(
-      Array.isArray(evidence.safe_task_labels) ? evidence.safe_task_labels : []
-    ).filter(function (chip, index, all) { return chip && all.indexOf(chip) === index; });
+    var chips = farmTruthEvidenceLabels(evidence);
     var workers = Array.isArray(people.field_worker_display_names) ? people.field_worker_display_names.join(", ") : "";
     setHtml("farm-truth-detail", '<article class="farm-truth-candidate"><header><p class="eyebrow">' + escapeHtml(t("placeFacts")) +
       "</p><h3>" + escapeHtml(people.farmer_display_name) + "</h3><p>" + escapeHtml(farmTruthPlace(item)) + "</p></header>" +
@@ -576,6 +619,7 @@
 
   function resetFarmTruthDialogState(clearSelection) {
     invalidateFarmTruthContext();
+    invalidateFarmTruthInbox();
     if (clearSelection) {
       selectedFarmTruthContextKey = "";
     }
@@ -619,14 +663,13 @@
       }
       return Promise.resolve();
     }
-    return Promise.all([
-      fetch(farmTruthCasesUrl + farmTruthQuery(origin.context, "open"), { credentials: "same-origin" }).then(farmTruthResponse),
-      loadFarmTruthInboxCases(origin)
-    ]).then(function (results) {
+    return fetch(farmTruthCasesUrl + farmTruthQuery(origin.context, "open"), {
+      credentials: "same-origin"
+    }).then(farmTruthResponse).then(function (items) {
       if (!farmTruthOriginIsActive(origin)) {
         return null;
       }
-      farmTruthCases = Array.isArray(results[0]) ? results[0] : [];
+      farmTruthCases = Array.isArray(items) ? items : [];
       if (!farmTruthCases.length) {
         currentFarmTruthCase = null;
         renderFarmTruthDetail();
@@ -641,23 +684,18 @@
   }
 
   function loadFarmTruthInboxCases() {
-    var origin = arguments[0] || null;
-    var contexts = farmTruthContexts();
-    if (!managerSessionAuthenticated || !contexts.length) {
+    var origin = beginFarmTruthInboxRequest();
+    if (!origin.authenticated) {
       farmTruthInboxCases = [];
       renderRiskLedger();
       return Promise.resolve([]);
     }
-    return Promise.all(contexts.map(function (context) {
-      return fetch(farmTruthCasesUrl + farmTruthQuery(context, "needs_evidence"), {
-        credentials: "same-origin"
-      }).then(farmTruthResponse);
-    })).then(function (groups) {
-      if (origin && !farmTruthOriginIsActive(origin)) {
+    return fetch(farmTruthInboxUrl, { credentials: "same-origin" }).then(farmTruthResponse).then(function (items) {
+      if (!farmTruthInboxOriginIsActive(origin)) {
         return [];
       }
       var known = {};
-      farmTruthInboxCases = [].concat.apply([], groups).filter(function (item) {
+      farmTruthInboxCases = (Array.isArray(items) ? items : []).filter(function (item) {
         if (!item || item.status !== "needs_evidence" || known[item.id]) {
           return false;
         }
@@ -667,7 +705,7 @@
       renderRiskLedger();
       return farmTruthInboxCases;
     }).catch(function () {
-      if (origin && !farmTruthOriginIsActive(origin)) {
+      if (!farmTruthInboxOriginIsActive(origin)) {
         return [];
       }
       farmTruthInboxCases = [];
@@ -717,13 +755,18 @@
     if (!dialog.open) {
       dialog.showModal();
     }
-    var contexts = renderFarmTruthContextChooser();
     setFarmTruthFeedback("");
-    if (contexts.length === 1) {
-      refreshFarmTruthCases();
-    } else {
-      renderFarmTruthUnavailable();
-    }
+    setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthLoading")) + "</p>");
+    return loadFarmTruthReviewContexts().then(function (contexts) {
+      if (!dialog.open || !managerSessionAuthenticated) {
+        return;
+      }
+      if (contexts.length === 1) {
+        refreshFarmTruthCases();
+      } else {
+        renderFarmTruthUnavailable();
+      }
+    });
   }
 
   function submitFarmTruthDecision(event, decision) {
@@ -765,7 +808,15 @@
       }
       if (decision === "needs-evidence") {
         farmTruthInboxCases.unshift(Object.assign({}, caseItem, {
-          status: "needs_evidence", missing_evidence_kind: payload.missing_evidence_kind
+          status: "needs_evidence", missing_evidence_kind: payload.missing_evidence_kind,
+          title_code: "farm_truth_evidence_needed",
+          reason_code: {
+            plot_area: "confirm_plot_area",
+            crop_season: "confirm_crop_season",
+            right_to_operate: "confirm_right_to_operate",
+            farmer_identity: "confirm_farmer_identity",
+            field_worker_assignment: "confirm_field_worker_assignment"
+          }[payload.missing_evidence_kind] || "confirm_required_evidence"
         }));
       }
       farmTruthCases = farmTruthCases.filter(function (item) { return item.id !== caseItem.id; });
@@ -790,92 +841,6 @@
         setFarmTruthBusy(false);
       }
     });
-  }
-
-  function setSampleMode(enabled) {
-    sampleMode = Boolean(enabled);
-    if (sampleMode) {
-      resetFarmTruthDialogState(true);
-    }
-  }
-
-  function sampleRuntime() {
-    return {
-      operating_unit: { name: "Fortune Rice" },
-      allocations: [{
-        id: "sample-north-block", farm_name: "Jewar Model Farm", operational_block_name: "North Block",
-        crop_name: "Pusa Basmati 1121", cultivar: "1121", area_hectares: 2.5,
-        location_label: "Dargava, Gabhana, Aligarh"
-      }],
-      people: [
-        { id: "sample-asha", name: "Asha Devi", role: "grower", characteristics: ["Contract grower", "Pusa Basmati 1121", "2.5 ha"] },
-        { id: "sample-ravi", name: "Ravi Kumar", role: "field_operator", characteristics: ["Field operator", "North Block", "1 urgent action"] }
-      ],
-      work_items: [{ id: "sample-visit", allocation_id: "sample-north-block", title: "Check stem borer cluster", owner_id: "sample-ravi", due_at: new Date().toISOString(), status: "planned" }],
-      exceptions: [],
-      latest_field_update: null,
-      person_operating_relationships: {
-        availability: "available",
-        items: [
-          { person_id: "sample-asha", role: "grower", scope_name: "North Block" },
-          { person_id: "sample-ravi", role: "field operator", scope_name: "North Block" }
-        ]
-      }
-    };
-  }
-
-  function sampleProgramme() {
-    return {
-      coverage: { taken_kit: 2592, visited: 1941, recent: 1585, overdue: 1007, never_visited: 651 },
-      visits: { filed_on_reporting_day: 5, filing_officers: 2, active_officers: 24, active_officers_without_filed_visit: 22 },
-      issues: {
-        window_days: 7,
-        observation_count: 545,
-        by_issue: [
-          { issue_code: "stem borer", count: 215, highest_severity: "high" },
-          { issue_code: "leaf folder", count: 265, highest_severity: "moderate" }
-        ]
-      },
-      outcomes: {
-        farmer_reach: { recently_reached: 1585, eligible_farmers: 2592, share_percent: 61.1, window_days: 14 },
-        chemical_record: { reported_events: 0, review_cues: 0 },
-        crop_signals: { observations: 545, window_days: 7, lead_issue: { issue_code: "leaf folder", count: 265, highest_severity: "moderate" } },
-        purchase_share: { availability: "not_connected" }
-      },
-      freshness: { status: "available", age_hours: 1 }
-    };
-  }
-
-  function samplePortfolio() {
-    return {
-      risk_action_ledger: {
-        items: [{
-          severity: "high", action: "review field signal", entity: { type: "exception_record", id: "sample-stem-borer" },
-          status: "reported", title: "Review stem borer cluster", allocation_id: "sample-north-block",
-          owner_id: "sample-ravi", observed_at: new Date().toISOString()
-        }]
-      }
-    };
-  }
-
-  function sampleMap() {
-    return {
-      type: "FeatureCollection",
-      features: [{
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [77.7853488, 28.1052221] },
-        properties: {
-          plot_label: "Jewar Model Farm · North Block", crop_name: "Pusa Basmati 1121", cultivar: "1121",
-          area_hectares: 2.5, location_label: "Dargava, Gabhana, Aligarh", location_precision: "sample",
-          record_kind: "farm", record_id: "sample-north-block"
-        }
-      }]
-    };
-  }
-
-  function renderSampleWeather() {
-    element("weather-state").textContent = t("sampleWeather");
-    element("weather-note").textContent = t("sampleWeatherNote");
   }
 
   function formatTime(value) {
@@ -914,10 +879,6 @@
   }
 
   function renderWeatherContext(snapshot) {
-    if (sampleMode) {
-      renderSampleWeather();
-      return;
-    }
     var lanes = snapshot && Array.isArray(snapshot.lanes) ? snapshot.lanes : [];
     var weather = lanes.filter(function (lane) { return lane.key === "weather"; })[0];
     if (!weather) {
@@ -931,10 +892,6 @@
   }
 
   function renderWeatherUnavailable() {
-    if (sampleMode) {
-      renderSampleWeather();
-      return;
-    }
     element("weather-state").textContent = t("loading");
     element("weather-note").textContent = "";
   }
@@ -1056,10 +1013,6 @@
   }
 
   function renderProgrammeLocked() {
-    if (sampleMode) {
-      renderProgramme(sampleProgramme(), { state: "sample" });
-      return;
-    }
     currentProgramme = null;
     currentSourceBoard = null;
     if (currentRuntime) {
@@ -1075,10 +1028,6 @@
   }
 
   function renderProgrammeUnavailable() {
-    if (sampleMode) {
-      renderProgramme(sampleProgramme(), { state: "sample" });
-      return;
-    }
     currentProgramme = null;
     currentSourceBoard = null;
     if (currentRuntime) {
@@ -1159,32 +1108,16 @@
     return translated ? t(translated) : raw.replace(/_/g, " ");
   }
 
-  function sampleText(value) {
-    var raw = String(value || "");
-    if (!sampleMode) {
-      return raw;
-    }
-    var labels = {
-      "Jewar Model Farm": "sampleFarmName",
-      "North Block": "sampleField",
-      "Jewar Model Farm · North Block": "sampleFarm",
-      "Pusa Basmati 1121": "sampleCrop",
-      "Dargava, Gabhana, Aligarh": "sampleGeometry",
-      "Contract grower": "sampleFarmerTrait",
-      "Field operator": "sampleWorkerTrait",
-      "1 urgent action": "openAction",
-      "Review stem borer cluster": "sampleReviewIssue",
-      "Check stem borer cluster": "sampleCheckIssue"
-    };
-    return labels[raw] ? t(labels[raw]) : raw.replace("2.5 ha", "2.5 " + t("hectare"));
+  function displayText(value) {
+    return String(value || "");
   }
 
   function fieldLabel(value) {
-    return sampleText(value || t("field"));
+    return displayText(value || t("field"));
   }
 
   function cropLabel(value) {
-    return sampleText(value || t("crop"));
+    return displayText(value || t("crop"));
   }
 
   function areaLabel(value) {
@@ -1206,7 +1139,7 @@
 
   function pageMeta(viewName) {
     var labels = {
-      home: { title: t("todayTitle"), detail: sampleMode ? t("fortuneRice") + " · " + t("sampleLocationShort") : (currentOperatingUnitName || t("homeDetail")) },
+      home: { title: t("todayTitle"), detail: currentOperatingUnitName || t("homeDetail") },
       farms: { title: t("farmsTitle"), detail: t("farmsDetail") },
       farmers: { title: t("farmersTitle"), detail: t("farmersDetail") },
       workers: { title: t("workersTitle"), detail: t("workersDetail") },
@@ -1360,16 +1293,6 @@
   }
 
   function renderPortfolioUnavailable() {
-    if (sampleMode) {
-      currentPortfolio = samplePortfolio();
-      resetFarmTruthDialogState(true);
-      if (element("farm-truth-dialog").open) {
-        renderFarmTruthContextChooser();
-      }
-      renderRiskLedger();
-      renderHomeMetrics();
-      return;
-    }
     currentPortfolio = null;
     if (managerSessionAuthenticated) {
       loadFarmTruthInboxCases();
@@ -1438,6 +1361,14 @@
   }
 
   function farmTruthInboxRows() {
+    var reasonKeys = {
+      confirm_plot_area: "confirmPlotArea",
+      confirm_crop_season: "confirmCropSeason",
+      confirm_right_to_operate: "confirmRightToOperate",
+      confirm_farmer_identity: "confirmFarmerIdentity",
+      confirm_field_worker_assignment: "confirmFieldWorkerAssignment",
+      confirm_required_evidence: "confirmRequiredEvidence"
+    };
     return farmTruthInboxCases.filter(function (item) {
       return item && item.status === "needs_evidence";
     }).map(function (item) {
@@ -1449,8 +1380,8 @@
         fieldName: farmTruthPlace(item) || t("unassigned"),
         ownerName: t("managerOwner"),
         dueAt: null,
-        status: "needs_evidence",
-        action: readable(item.missing_evidence_kind)
+        status: t("statusNeedsEvidence"),
+        action: t(reasonKeys[item.reason_code] || "confirmRequiredEvidence")
       };
     });
   }
@@ -1477,7 +1408,7 @@
       message("decisionsForField", { field: fieldLabel(selectedAllocation.operational_block_name) }) + " · " + summary : summary;
     setHtml("portfolio-ledger", rows.map(function (item) {
       return '<tr><td><span class="severity severity-' + escapeHtml(item.severity) + '">' + escapeHtml(readable(item.severity)) +
-        '</span></td><th scope="row">' + escapeHtml(sampleText(item.title)) + '</th><td>' + escapeHtml(item.fieldName || fieldNameFor(item.allocationId)) +
+        '</span></td><th scope="row">' + escapeHtml(displayText(item.title)) + '</th><td>' + escapeHtml(item.fieldName || fieldNameFor(item.allocationId)) +
         '</td><td>' + escapeHtml(item.ownerName || personName(item.ownerId)) + '</td><td>' + escapeHtml(formatTime(item.dueAt)) +
         '</td><td><span class="status">' + escapeHtml(readable(item.status)) + '</span></td></tr>';
     }).join(""));
@@ -1489,27 +1420,12 @@
       renderPortfolioUnavailable();
       return;
     }
-    if (sampleMode && !listedItems(portfolio.risk_action_ledger).length) {
-      currentPortfolio = samplePortfolio();
-      resetFarmTruthDialogState(true);
-      if (element("farm-truth-dialog").open) {
-        renderFarmTruthContextChooser();
-      }
-      renderRiskLedger();
-      renderHomeMetrics();
-      return;
-    }
-    var previousFarmTruthContextKey = selectedFarmTruthContextKey;
     currentPortfolio = portfolio;
     if (managerSessionAuthenticated) {
       loadFarmTruthInboxCases();
     }
     if (element("farm-truth-dialog").open) {
       renderFarmTruthContextChooser();
-      if (!selectedFarmTruthContextKey || selectedFarmTruthContextKey !== previousFarmTruthContextKey) {
-        setFarmTruthFeedback("");
-        renderFarmTruthUnavailable();
-      }
     }
     if (currentRuntime) {
       renderDailyDirection();
@@ -1525,57 +1441,6 @@
 
   function sourceRows(kind) {
     return sourceBoardReady() && Array.isArray(currentSourceBoard[kind]) ? currentSourceBoard[kind] : [];
-  }
-
-  function sourceFarmFor(id) {
-    return sourceRows("farms").filter(function (farm) { return farm.id === id; })[0] || null;
-  }
-
-  function sourceFarmerFor(id) {
-    return sourceRows("farmers").filter(function (farmer) { return farmer.id === id; })[0] || null;
-  }
-
-  function sourceWorkerFor(id) {
-    return sourceRows("field_workers").filter(function (worker) { return worker.id === id; })[0] || null;
-  }
-
-  function sourceFarmCardMarkup(farm) {
-    var hasArea = Number(farm.reported_area_acres) > 0;
-    var traits = [
-      farm.place,
-      Number(farm.pb1_area_acres) > 0 ? "PB-1 · " + formatQuantity(farm.pb1_area_acres) + " ac" : "",
-      farm.open_work ? formatCount(farm.open_work) + " " + t("openWork") : "",
-      farm.crop_photo_references ? formatCount(farm.crop_photo_references) + " crop photo references" : ""
-    ].filter(Boolean);
-    return '<button class="directory-card allocation-card" type="button" data-record-kind="farm" data-record-id="' + escapeHtml(farm.id) + '">' +
-      '<div class="allocation-card-heading"><h3>' + escapeHtml(farm.farmer_name) + '</h3><span class="status">' + escapeHtml(t("reported")) + '</span></div>' +
-      '<p class="allocation-crop">' + escapeHtml(farm.place) + '</p>' +
-      '<div class="directory-card-metric"><strong>' + escapeHtml(hasArea ? formatQuantity(farm.reported_area_acres) + " ac" : formatCount(farm.open_work)) +
-      '</strong><span>' + escapeHtml(hasArea ? t("area") : t("openWork")) + '</span></div>' +
-      '<ul class="directory-characteristics">' + traits.map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul></button>';
-  }
-
-  function sourceFarmTableMarkup(farms) {
-    if (!farms.length) {
-      return '<tr><td colspan="4" class="table-empty">No reported farm candidates yet.</td></tr>';
-    }
-    return farms.map(function (farm) {
-      return '<tr><th scope="row">' + escapeHtml(farm.farmer_name) + '</th><td>' + escapeHtml(farm.place) +
-        '</td><td>' + escapeHtml(Number(farm.reported_area_acres) > 0 ? formatQuantity(farm.reported_area_acres) + " ac" : "—") +
-        '</td><td><span class="status">' + escapeHtml(t("reported")) + '</span></td></tr>';
-    }).join("");
-  }
-
-  function renderSourceFarms() {
-    var farms = sourceRows("farms").slice(0, 150);
-    if (!farms.length) {
-      return false;
-    }
-    var counts = currentSourceBoard.counts || {};
-    element("allocation-summary").textContent = formatCount(counts.farm_candidates) + " reported farm candidates · showing the highest-attention records first.";
-    setHtml("allocation-list", farms.map(sourceFarmCardMarkup).join(""));
-    setHtml("farm-table-body", sourceFarmTableMarkup(farms));
-    return true;
   }
 
   function renderAllocationCards(runtime) {
@@ -1596,9 +1461,9 @@
       var headlineValue = Number(allocation.area_hectares) ? areaLabel(allocation.area_hectares) : formatCount(assignedWork);
       var headlineLabel = Number(allocation.area_hectares) ? t("area") : (assignedWork === 1 ? t("openAction") : t("openActions"));
       var fieldName = fieldLabel(allocation.operational_block_name);
-      var farmName = allocation.farm_name ? sampleText(allocation.farm_name) + " · " : "";
+      var farmName = allocation.farm_name ? displayText(allocation.farm_name) + " · " : "";
       var characteristics = [
-        allocation.location_label ? t("location") + " · " + sampleText(allocation.location_label) : "",
+        allocation.location_label ? t("location") + " · " + displayText(allocation.location_label) : "",
         allocation.crop_name ? t("crop") + " · " + cropLabel(allocation.crop_name) : "",
         allocation.cultivar ? t("variety") + " · " + allocation.cultivar : "",
         assignedWork ? t("risk") + " · " + formatCount(assignedWork) + " " + (assignedWork === 1 ? t("openAction") : t("openActions")) : ""
@@ -1633,7 +1498,7 @@
 
   function mapPopup(feature) {
     var properties = feature && feature.properties ? feature.properties : {};
-    var parts = [sampleText(properties.plot_label || t("reviewedField"))];
+    var parts = [displayText(properties.plot_label || t("reviewedField"))];
     if (properties.crop_name) {
       parts.push(cropLabel(properties.crop_name) + (properties.cultivar ? " · " + properties.cultivar : ""));
     }
@@ -1641,7 +1506,7 @@
       parts.push(areaLabel(properties.area_hectares));
     }
     if (properties.location_label) {
-      parts.push(sampleText(properties.location_label));
+      parts.push(displayText(properties.location_label));
     }
     return escapeHtml(parts.join(" · "));
   }
@@ -1793,7 +1658,7 @@
       fields: fields,
       fieldCount: assignments.length || fields.length,
       isFarmer: isFarmer(person),
-      characteristics: Array.isArray(person.characteristics) ? person.characteristics.map(sampleText) : []
+      characteristics: Array.isArray(person.characteristics) ? person.characteristics.map(displayText) : []
     };
   }
 
@@ -1821,51 +1686,6 @@
     }).join("");
   }
 
-  function sourcePersonCardMarkup(person, kind) {
-    var isFarmer = kind === "farmer";
-    var hasArea = isFarmer && Number(person.reported_area_acres) > 0;
-    var metric = hasArea ? formatQuantity(person.reported_area_acres) + " ac" : formatCount(person.open_work || person.completed_work || 0);
-    var metricLabel = hasArea ? t("area") : (isFarmer ? t("openWork") : t("openWork"));
-    var characteristics = isFarmer ? [
-      person.crm_status ? readable(person.crm_status) : "",
-      person.tag ? person.tag : "",
-      formatCount(person.farm_candidates) + " reported farms",
-      person.crop_photo_references ? formatCount(person.crop_photo_references) + " crop photo references" : ""
-    ] : [
-      formatCount(person.completed_work) + " completed",
-      person.latest_attendance && person.latest_attendance.status ? readable(person.latest_attendance.status) : "",
-      person.latest_attendance && person.latest_attendance.observed_on ? person.latest_attendance.observed_on : ""
-    ];
-    return '<button class="directory-card person-card" type="button" data-record-kind="' + kind + '" data-record-id="' + escapeHtml(person.id) + '">' +
-      '<h3>' + escapeHtml(person.name) + '</h3><p class="person-role">' + escapeHtml(isFarmer ? t("farmer") : t("fieldWorker")) + '</p>' +
-      '<div class="directory-card-metric"><strong>' + escapeHtml(metric) + '</strong><span>' + escapeHtml(metricLabel) + '</span></div>' +
-      '<ul class="directory-characteristics">' + characteristics.filter(Boolean).map(function (trait) { return '<li>' + escapeHtml(trait) + '</li>'; }).join("") + '</ul></button>';
-  }
-
-  function sourcePeopleTableMarkup(people, kind) {
-    if (!people.length) {
-      return '<tr><td colspan="4" class="table-empty">No source records yet.</td></tr>';
-    }
-    return people.map(function (person) {
-      var scope = kind === "farmer" ? formatCount(person.farm_candidates) + " reported farms" : formatCount(person.completed_work) + " completed";
-      return '<tr><th scope="row">' + escapeHtml(person.name) + '</th><td>' + escapeHtml(kind === "farmer" ? t("farmer") : t("fieldWorker")) +
-        '</td><td>' + escapeHtml(scope) + '</td><td>' + escapeHtml(formatCount(person.open_work || 0)) + '</td></tr>';
-    }).join("");
-  }
-
-  function renderSourcePeople() {
-    var farmers = sourceRows("farmers").slice(0, 150);
-    var workers = sourceRows("field_workers").slice(0, 150);
-    if (!farmers.length && !workers.length) {
-      return false;
-    }
-    setHtml("farmer-list", farmers.map(function (farmer) { return sourcePersonCardMarkup(farmer, "farmer"); }).join(""));
-    setHtml("worker-list", workers.map(function (worker) { return sourcePersonCardMarkup(worker, "worker"); }).join(""));
-    setHtml("farmer-table-body", sourcePeopleTableMarkup(farmers, "farmer"));
-    setHtml("worker-table-body", sourcePeopleTableMarkup(workers, "worker"));
-    return true;
-  }
-
   function renderSourceBoard(board) {
     currentSourceBoard = board && typeof board === "object" ? board : null;
     if (currentRuntime) {
@@ -1877,9 +1697,6 @@
   }
 
   function renderPeople(runtime) {
-    if (renderSourcePeople()) {
-      return;
-    }
     var people = Array.isArray(runtime.people) ? runtime.people : [];
     var relationshipSummary = runtime.person_operating_relationships || {};
     var relationships = Array.isArray(relationshipSummary.items) ? relationshipSummary.items : [];
@@ -1911,20 +1728,6 @@
     var traits = [];
     var context = "";
     if (kind === "farm") {
-      var sourceFarm = sourceFarmFor(id);
-      if (sourceFarm) {
-        title = sourceFarm.farmer_name;
-        metric = Number(sourceFarm.reported_area_acres) > 0 ? formatQuantity(sourceFarm.reported_area_acres) + " ac" : formatCount(sourceFarm.open_work);
-        metricLabel = Number(sourceFarm.reported_area_acres) > 0 ? t("area") : t("openWork");
-        traits = [
-          sourceFarm.place,
-          sourceFarm.reported_plot_count ? formatCount(sourceFarm.reported_plot_count) + " reported plots" : "",
-          Number(sourceFarm.pb1_area_acres) > 0 ? "PB-1 · " + formatQuantity(sourceFarm.pb1_area_acres) + " ac" : "",
-          sourceFarm.open_work ? formatCount(sourceFarm.open_work) + " " + t("openWork") : "",
-          sourceFarm.crop_photo_references ? formatCount(sourceFarm.crop_photo_references) + " crop photo references" : ""
-        ];
-        context = "Reported farm candidate · requires Fortune review";
-      } else {
       var allocation = allocationFor(id);
       if (!allocation) {
         return;
@@ -1933,36 +1736,17 @@
       var work = (currentRuntime.work_items || []).filter(function (item) {
         return item.allocation_id === allocation.id && isOpenWork(item);
       }).length;
-      title = (allocation.farm_name ? sampleText(allocation.farm_name) + " · " : "") + fieldLabel(allocation.operational_block_name);
+      title = (allocation.farm_name ? displayText(allocation.farm_name) + " · " : "") + fieldLabel(allocation.operational_block_name);
       metric = Number(allocation.area_hectares) ? areaLabel(allocation.area_hectares) : formatCount(work);
       metricLabel = Number(allocation.area_hectares) ? t("area") : (work === 1 ? t("openAction") : t("openActions"));
       traits = [
-        allocation.location_label ? t("location") + " · " + sampleText(allocation.location_label) : "",
+        allocation.location_label ? t("location") + " · " + displayText(allocation.location_label) : "",
         allocation.crop_name ? t("crop") + " · " + cropLabel(allocation.crop_name) : "",
         allocation.cultivar ? t("variety") + " · " + allocation.cultivar : "",
         work ? t("risk") + " · " + formatCount(work) + " " + (work === 1 ? t("openAction") : t("openActions")) : ""
       ];
       context = t("reviewedRecord");
-      }
     } else {
-      var sourcePerson = kind === "farmer" ? sourceFarmerFor(id) : sourceWorkerFor(id);
-      if (sourcePerson) {
-        var sourceFarmer = kind === "farmer";
-        title = sourcePerson.name;
-        metric = sourceFarmer && Number(sourcePerson.reported_area_acres) > 0 ? formatQuantity(sourcePerson.reported_area_acres) + " ac" : formatCount(sourcePerson.open_work || sourcePerson.completed_work || 0);
-        metricLabel = sourceFarmer && Number(sourcePerson.reported_area_acres) > 0 ? t("area") : t("openWork");
-        traits = sourceFarmer ? [
-          sourcePerson.crm_status ? readable(sourcePerson.crm_status) : "",
-          sourcePerson.tag || "",
-          formatCount(sourcePerson.farm_candidates) + " reported farms",
-          sourcePerson.crop_photo_references ? formatCount(sourcePerson.crop_photo_references) + " crop photo references" : ""
-        ] : [
-          formatCount(sourcePerson.completed_work) + " completed",
-          sourcePerson.latest_attendance && sourcePerson.latest_attendance.status ? readable(sourcePerson.latest_attendance.status) : "",
-          sourcePerson.latest_attendance && sourcePerson.latest_attendance.observed_on ? sourcePerson.latest_attendance.observed_on : ""
-        ];
-        context = sourceFarmer ? "TrackWick farmer record" : "TrackWick field-worker record";
-      } else {
       var person = personFor(id);
       if (!person) {
         return;
@@ -1977,7 +1761,6 @@
         (data.openWork === 1 ? t("openAction") : t("openActions"));
       traits = data.characteristics.length ? data.characteristics : [data.scope];
       context = data.scope;
-      }
     }
     element("record-dialog-kind").textContent = kind === "farm" ? t("field") : (kind === "farmer" ? t("farmer") : t("fieldWorker"));
     element("record-dialog-title").textContent = title;
@@ -1986,8 +1769,8 @@
     element("record-dialog-context").textContent = context;
     recordTraits(traits);
     var action = element("record-dialog-action");
-    action.hidden = kind !== "farm" || Boolean(sourceFarmFor(id));
-    action.textContent = kind === "farm" && !sourceFarmFor(id) ? t("viewRelatedDecisions") : "";
+    action.hidden = kind !== "farm";
+    action.textContent = kind === "farm" ? t("viewRelatedDecisions") : "";
     if (syncRoute !== false) {
       updateRecordRoute(kind, id);
     }
@@ -2057,7 +1840,6 @@
   }
 
   function renderRuntime(runtime) {
-    setSampleMode(false);
     currentRuntime = runtime;
     currentOperatingUnitName = runtime.operating_unit ? runtime.operating_unit.name : t("currentFieldOperations");
     renderPageIntro();
@@ -2070,16 +1852,24 @@
   }
 
   function renderRuntimeUnavailable() {
-    setSampleMode(true);
-    currentRuntime = sampleRuntime();
-    currentPortfolio = samplePortfolio();
-    currentOperatingUnitName = "Fortune Rice · Dargava, Gabhana, Aligarh";
+    resetFarmTruthDialogState(true);
+    currentRuntime = {
+      operating_unit: null,
+      allocations: [],
+      people: [],
+      work_items: [],
+      exceptions: [],
+      latest_field_update: null,
+      person_operating_relationships: { availability: "unavailable", items: [] }
+    };
+    currentPortfolio = null;
+    currentOperatingUnitName = t("currentFieldOperations");
     renderPageIntro();
     renderCards(currentRuntime);
     renderPeople(currentRuntime);
-    renderProgramme(sampleProgramme(), { state: "sample" });
+    currentProgramme = null;
     renderRiskLedger();
-    renderSampleWeather();
+    renderWeatherUnavailable();
     renderFortuneMapUnavailable();
     renderHomeMetrics();
     restoreConnectedRecord();
