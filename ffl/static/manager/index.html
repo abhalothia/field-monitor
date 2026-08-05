@@ -89,10 +89,16 @@
               <p class="eyebrow" data-i18n="reviewedRecord">Reviewed operating record</p>
               <h2 id="allocations-heading" data-i18n="verifiedFields">Verified fields</h2>
             </div>
-            <div class="view-switcher" role="group" aria-label="Farm view">
-              <button class="view-toggle is-selected" type="button" data-farm-view="map" aria-pressed="true" data-i18n="map">Map</button>
-              <button class="view-toggle" type="button" data-farm-view="cards" aria-pressed="false" data-i18n="cards">Cards</button>
-              <button class="view-toggle" type="button" data-farm-view="table" aria-pressed="false" data-i18n="table">Table</button>
+            <div class="farm-toolbar-actions">
+              <button id="farm-truth-open" class="quiet-button farm-truth-open" type="button">
+                <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
+                <span data-i18n="reviewCandidates">Review candidates</span>
+              </button>
+              <div class="view-switcher" role="group" aria-label="Farm view">
+                <button class="view-toggle is-selected" type="button" data-farm-view="map" aria-pressed="true" data-i18n="map">Map</button>
+                <button class="view-toggle" type="button" data-farm-view="cards" aria-pressed="false" data-i18n="cards">Cards</button>
+                <button class="view-toggle" type="button" data-farm-view="table" aria-pressed="false" data-i18n="table">Table</button>
+              </div>
             </div>
           </div>
           <p id="allocation-summary" class="directory-summary">A source village or coverage count never becomes a farm record on its own.</p>
@@ -209,6 +215,65 @@
             <ul id="record-dialog-characteristics" class="directory-characteristics"></ul>
             <p id="record-dialog-context" class="record-dialog-context"></p>
             <button id="record-dialog-action" class="pulse-action record-dialog-action" type="button" hidden></button>
+          </div>
+        </section>
+      </dialog>
+
+      <dialog id="farm-truth-dialog" class="farm-truth-dialog" aria-labelledby="farm-truth-title">
+        <section class="farm-truth-sheet">
+          <header class="action-header farm-truth-header">
+            <div>
+              <p class="eyebrow" data-i18n="reviewedRecord">Reviewed operating record</p>
+              <h2 id="farm-truth-title" data-i18n="farmTruthTitle">Review farm candidates</h2>
+              <p id="farm-truth-progress" class="farm-truth-progress" aria-live="polite"></p>
+              <label id="farm-truth-context-label" class="farm-truth-context-label" for="farm-truth-context" hidden>
+                <span data-i18n="reviewSeason">Review season</span>
+                <select id="farm-truth-context"><option value="" data-i18n="chooseReviewSeason">Choose a season</option></select>
+              </label>
+            </div>
+            <div class="farm-truth-header-actions">
+              <button id="farm-truth-refresh" class="quiet-button" type="button">
+                <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+                <span data-i18n="reviewRefresh">Refresh candidates</span>
+              </button>
+              <button id="close-farm-truth" class="dialog-close" type="button" aria-label="Close farm review">
+                <span class="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </div>
+          </header>
+          <div class="farm-truth-layout">
+            <nav id="farm-truth-list" class="farm-truth-list" aria-label="Farm candidates"></nav>
+            <section id="farm-truth-detail" class="farm-truth-detail" aria-live="polite">
+              <p class="farm-truth-empty" data-i18n="farmTruthLoading">Loading candidates…</p>
+            </section>
+          </div>
+          <div id="farm-truth-decision-panel" class="farm-truth-decision-panel" hidden>
+            <p id="farm-truth-feedback" class="farm-truth-feedback" role="alert" aria-live="assertive" hidden></p>
+            <form id="farm-truth-accept-form" class="farm-truth-form">
+              <h3 data-i18n="acceptCandidate">Accept</h3>
+              <div class="farm-truth-fields">
+                <label><span data-i18n="fieldName">Field name</span><input name="field_name" required maxlength="160"></label>
+                <label><span data-i18n="managedArea">Managed area (ha)</span><input name="managed_area_hectares" type="number" min="0.01" step="0.01" required></label>
+                <label><span data-i18n="cropName">Crop</span><input name="crop_name" required maxlength="160"></label>
+                <label><span data-i18n="cultivarOptional">Cultivar (optional)</span><input name="cultivar" maxlength="160"></label>
+                <label><span data-i18n="growerEffectiveOn">Grower effective on</span><input name="grower_effective_on" type="date" required></label>
+                <label><span data-i18n="rightType">Right to operate</span><input name="right_type" required maxlength="160"></label>
+                <label><span data-i18n="rightStartsOn">Right starts on</span><input name="right_starts_on" type="date" required></label>
+                <label><span data-i18n="rightEndsOn">Right ends on</span><input name="right_ends_on" type="date"></label>
+              </div>
+              <button class="setup-submit farm-truth-submit" type="submit" data-i18n="acceptCandidate">Accept</button>
+            </form>
+            <form id="farm-truth-needs-form" class="farm-truth-form farm-truth-secondary-form">
+              <h3 data-i18n="needsEvidence">Needs evidence</h3>
+              <label><span data-i18n="missingEvidence">Evidence needed</span><select name="missing_evidence_kind" required><option value="plot_area" data-i18n="missingPlotArea">Plot area</option><option value="crop_season" data-i18n="missingCropSeason">Crop and season</option><option value="right_to_operate" data-i18n="missingRight">Right to operate</option><option value="farmer_identity" data-i18n="missingFarmer">Farmer identity</option><option value="field_worker_assignment" data-i18n="missingWorker">Field worker assignment</option></select></label>
+              <label><span data-i18n="reviewReason">Reason</span><textarea name="reason" required maxlength="500"></textarea></label>
+              <button class="quiet-button farm-truth-submit" type="submit" data-i18n="needsEvidence">Needs evidence</button>
+            </form>
+            <form id="farm-truth-reject-form" class="farm-truth-form farm-truth-secondary-form">
+              <h3 data-i18n="rejectCandidate">Reject</h3>
+              <label><span data-i18n="reviewReason">Reason</span><textarea name="reason" required maxlength="500"></textarea></label>
+              <button class="quiet-button farm-truth-submit farm-truth-reject" type="submit" data-i18n="rejectCandidate">Reject</button>
+            </form>
           </div>
         </section>
       </dialog>

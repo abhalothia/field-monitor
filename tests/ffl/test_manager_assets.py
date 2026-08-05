@@ -5,6 +5,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     index_html = (root / "index.html").read_text()
     app_js = (root / "app.js").read_text()
+    styles_css = (root / "styles.css").read_text()
 
     assert "Home" in index_html
     assert "Farms" in index_html
@@ -13,6 +14,14 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "Inbox" in index_html
     assert "Settings" in index_html
     assert index_html.count('<button id="tab-') == 6
+    assert 'id="farm-truth-open"' in index_html
+    assert 'id="farm-truth-dialog"' in index_html
+    assert 'id="farm-truth-refresh"' in index_html
+    assert 'id="farm-truth-list"' in index_html
+    assert 'id="farm-truth-detail"' in index_html
+    assert 'id="farm-truth-accept-form"' in index_html
+    assert 'id="farm-truth-needs-form"' in index_html
+    assert 'id="farm-truth-reject-form"' in index_html
 
     assert 'id="today-date"' in index_html
     assert 'id="today-time"' in index_html
@@ -100,6 +109,43 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "नमूना दृश्य" not in index_html
     assert "Map detail comes only from the latest published, reviewed farm manifest." in app_js
     assert "Programme coverage never becomes a farm pin." in app_js
+
+    for endpoint in (
+        '"/api/v1/farm-truth/refresh"',
+        '"/api/v1/farm-truth/cases"',
+        '"/accept"',
+        '"/needs-evidence"',
+        '"/reject"',
+    ):
+        assert endpoint in app_js
+    for copy_key in (
+        "reviewCandidates", "farmTruthTitle", "farmTruthEmpty", "farmTruthUnavailable",
+        "acceptCandidate", "needsEvidence", "rejectCandidate", "evidenceNeeded",
+        "reviewSaved", "reviewNext", "reviewReason", "reviewRefresh", "reviewSeason",
+        "chooseReviewSeason", "farmTruthLoading", "reviewFailed",
+    ):
+        assert app_js.count(copy_key + ":") == 2
+    assert "loadFarmTruthCases" in app_js
+    assert "loadFarmTruthCaseDetail" in app_js
+    assert "refreshFarmTruthCases" in app_js
+    assert "submitFarmTruthDecision" in app_js
+    assert "farmTruthInboxRows" in app_js
+    assert "farmTruthContexts" in app_js
+    assert "selectedFarmTruthContextKey" in app_js
+    assert ".farm-truth-dialog" in styles_css
+    assert ".evidence-chips" in styles_css
+    assert ".farm-truth-fields" in styles_css
+
+    render_best_map = app_js.split("function renderBestMap()", 1)[1].split(
+        "function renderFortuneMapUnavailable", 1
+    )[0]
+    assert "sourceBoardFeatureCollection()" not in render_best_map
+    assert "sourcePoints" not in render_best_map
+    assert "reviewed.concat" not in render_best_map
+    assert "currentFortuneMap" in render_best_map
+    assert "sourceBoardFeatureCollection" not in app_js
+    assert "currentSourceBoard.map" not in app_js
+    assert "renderFortuneMap(sampleMap())" not in app_js
 
     assert "Start with one field" not in index_html + app_js
     assert "Prepare first farm" not in index_html + app_js

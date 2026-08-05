@@ -397,6 +397,48 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
 .record-dialog-body .directory-card-metric { margin-top: 0; }
 .record-dialog-context { margin: 18px 0 0; color: #536a5a; font-size: .78rem; line-height: 1.5; }
 .record-dialog-action { margin-top: 20px; }
+.farm-toolbar-actions { display: flex; align-items: center; gap: 9px; }
+.farm-truth-open { padding: 8px 11px; }
+.farm-truth-dialog { width: min(1080px, calc(100% - 32px)); max-height: calc(100dvh - 32px); border: 0; background: transparent; padding: 0; }
+.farm-truth-dialog::backdrop { background: rgba(12, 38, 29, .58); backdrop-filter: blur(3px); }
+.farm-truth-sheet { max-height: inherit; overflow: auto; border: 1px solid rgba(24, 57, 46, .34); background: #f8f0df url("/assets/rice-paper.png"); background-size: 980px 652px; box-shadow: 0 24px 70px rgba(12, 36, 27, .35); }
+.farm-truth-header { position: sticky; z-index: 3; top: 0; align-items: center; background: rgba(248, 240, 223, .96); }
+.farm-truth-header h2 { font-size: clamp(1.8rem, 3vw, 2.7rem); }
+.farm-truth-header-actions { display: flex; align-items: center; gap: 9px; }
+.farm-truth-progress { margin: 7px 0 0; color: #60705f; font: 500 .65rem "DM Mono", monospace; }
+.farm-truth-context-label { display: flex; align-items: center; gap: 9px; margin-top: 10px; color: #395846; font-size: .67rem; font-weight: 800; }
+.farm-truth-context-label select { min-width: 230px; border: 1px solid rgba(24, 57, 46, .34); background: rgba(255, 251, 240, .9); color: #163b2e; padding: 8px; }
+.farm-truth-layout { display: grid; grid-template-columns: minmax(180px, .32fr) minmax(0, 1fr); min-height: 310px; border-bottom: 1px solid rgba(24, 57, 46, .22); }
+.farm-truth-list { display: grid; align-content: start; gap: 7px; max-height: 470px; overflow: auto; border-right: 1px solid rgba(24, 57, 46, .2); background: rgba(229, 232, 210, .32); padding: 18px; }
+.farm-truth-card { width: 100%; border: 1px solid rgba(24, 57, 46, .22); background: rgba(255, 251, 241, .62); color: inherit; cursor: pointer; padding: 11px 12px; text-align: left; }
+.farm-truth-card:hover, .farm-truth-card.is-selected { border-color: #315844; background: rgba(221, 230, 204, .78); box-shadow: inset 3px 0 0 #d1af35; }
+.farm-truth-card strong, .farm-truth-card span { display: block; }
+.farm-truth-card strong { color: #173b2e; font-size: .76rem; line-height: 1.3; }
+.farm-truth-card span { margin-top: 4px; color: #647263; font-size: .64rem; line-height: 1.4; }
+.farm-truth-list-empty { margin: 0; color: #687568; font-size: .72rem; line-height: 1.45; }
+.farm-truth-detail { min-width: 0; padding: 21px 24px; }
+.farm-truth-empty { max-width: 38ch; margin: 32px auto; color: #5d6e60; font-family: "DM Serif Display", Georgia, serif; font-size: 1.08rem; line-height: 1.4; text-align: center; }
+.farm-truth-candidate header { padding-bottom: 14px; border-bottom: 1px solid rgba(24, 57, 46, .18); }
+.farm-truth-candidate header h3 { color: #153a2e; font: 800 1rem Manrope, Arial, sans-serif; }
+.farm-truth-candidate header > p:last-child { margin: 5px 0 0; color: #617061; font-size: .72rem; }
+.farm-truth-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px 16px; margin: 18px 0; }
+.farm-truth-facts dd { color: #294c3a; font-size: .71rem; }
+.evidence-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.evidence-chips span { border: 1px solid rgba(63, 92, 69, .24); border-radius: 999px; background: #e1e8d3; color: #345841; font: 700 .61rem Manrope, Arial, sans-serif; padding: 6px 9px; }
+.farm-truth-decision-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px 24px 24px; }
+.farm-truth-decision-panel[hidden] { display: none; }
+.farm-truth-feedback { grid-column: 1 / -1; margin: 0; border-left: 3px solid #a4472b; background: #f3dfd0; color: #743520; font-size: .75rem; line-height: 1.45; padding: 10px 12px; }
+.farm-truth-feedback.is-saved { border-left-color: #5b7c3b; background: #e0e9cf; color: #254b38; }
+.farm-truth-form { min-width: 0; border: 1px solid rgba(24, 57, 46, .2); background: rgba(255, 251, 241, .48); padding: 16px; }
+.farm-truth-form:first-of-type { grid-column: 1 / -1; }
+.farm-truth-form h3 { margin: 0 0 13px; color: #173b2e; font: 800 .82rem Manrope, Arial, sans-serif; }
+.farm-truth-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
+.farm-truth-form label { display: grid; gap: 6px; color: #395846; font-size: .65rem; font-weight: 800; }
+.farm-truth-form input, .farm-truth-form select, .farm-truth-form textarea { width: 100%; min-width: 0; border: 1px solid rgba(24, 57, 46, .34); border-radius: 2px; outline: 0; background: rgba(255, 251, 240, .86); color: #163b2e; font: 500 .76rem Manrope, Arial, sans-serif; padding: 9px; }
+.farm-truth-form textarea { min-height: 68px; resize: vertical; }
+.farm-truth-form input:focus, .farm-truth-form select:focus, .farm-truth-form textarea:focus, .farm-truth-context-label select:focus { border-color: #b38426; box-shadow: 0 0 0 3px rgba(209, 175, 53, .22); }
+.farm-truth-submit { margin-top: 13px; }
+.farm-truth-reject { border-color: rgba(130, 64, 38, .52); color: #7c3f28; }
 .person-card .person-work { margin-top: 17px; }
 .directory-table-wrap { overflow-x: auto; border: 1px solid rgba(24, 57, 46, .22); }
 .directory-table { width: 100%; min-width: 660px; border-collapse: collapse; text-align: left; }
@@ -431,6 +473,7 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
   .setup-fields, .setup-fields-wide, .quick-setup-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .today-command { grid-template-columns: 1fr; }
   .directory-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farm-truth-facts, .farm-truth-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
@@ -484,6 +527,8 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
   .setup-submit { width: 100%; justify-content: center; }
   .allocation-context { align-items: flex-start; flex-direction: column; }
   .today-kicker, .directory-toolbar { align-items: flex-start; flex-direction: column; }
+  .farm-toolbar-actions { width: 100%; align-items: stretch; flex-direction: column; }
+  .farm-truth-open { justify-content: center; font-size: .7rem; }
   .today-context { padding: 16px; }
   .home-metrics { grid-template-columns: 1fr; }
   .metric-card { padding: 15px 16px; }
@@ -493,4 +538,17 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
   .view-switcher { width: 100%; }
   .view-toggle { flex: 1 1 auto; }
   .directory-card-grid { grid-template-columns: 1fr; }
+  .farm-truth-dialog { width: min(100% - 18px, 560px); max-height: calc(100dvh - 18px); }
+  .farm-truth-header { align-items: flex-start; padding-right: 18px; padding-left: 18px; }
+  .farm-truth-header-actions .quiet-button { font-size: 0; }
+  .farm-truth-context-label { align-items: flex-start; flex-direction: column; }
+  .farm-truth-context-label select { width: 100%; min-width: 0; }
+  .farm-truth-layout { grid-template-columns: 1fr; }
+  .farm-truth-list { display: flex; max-height: none; overflow-x: auto; border-right: 0; border-bottom: 1px solid rgba(24, 57, 46, .2); padding: 12px 18px; }
+  .farm-truth-card { min-width: 180px; }
+  .farm-truth-detail { padding: 18px; }
+  .farm-truth-facts, .farm-truth-fields, .farm-truth-decision-panel { grid-template-columns: 1fr; }
+  .farm-truth-decision-panel { padding: 18px; }
+  .farm-truth-form, .farm-truth-form:first-of-type { grid-column: 1; }
+  .farm-truth-submit { width: 100%; justify-content: center; }
 }

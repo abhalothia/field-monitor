@@ -8,6 +8,11 @@
   var managerSessionStatusUrl = "/api/v1/manager-session/status";
   var managerSessionLoginUrl = "/api/v1/manager-session/login";
   var managerSessionLogoutUrl = "/api/v1/manager-session/logout";
+  var farmTruthRefreshUrl = "/api/v1/farm-truth/refresh";
+  var farmTruthCasesUrl = "/api/v1/farm-truth/cases";
+  var farmTruthDecisionPaths = {
+    accept: "/accept", "needs-evidence": "/needs-evidence", reject: "/reject"
+  };
   var trackwickMetricsUrl = "/api/v1/trackwick/metrics";
   var trackwickHealthUrl = "/api/v1/trackwick/health";
   var trackwickBoardUrl = "/api/v1/trackwick/board";
@@ -28,6 +33,11 @@
   var sampleMode = false;
   var focusTargetView = "farms";
   var managerSessionAuthenticated = false;
+  var farmTruthCases = [];
+  var farmTruthInboxCases = [];
+  var currentFarmTruthCase = null;
+  var farmTruthOpenPending = false;
+  var selectedFarmTruthContextKey = "";
   var localeStorageKey = "ffl.manager.interface-locale";
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
@@ -80,7 +90,7 @@
       fieldAskReady: "is reviewed; delivery stays independently gated", awaitingFieldAnswer: "Awaiting a reviewable field answer from",
       checkDelivery: "Check delivery eligibility or cancel and reissue it. Do not assume an answer.",
       reviewFieldAnswer: "Review any response and retained proof. The linked work stays open until a human closes it.",
-      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
+      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", reviewCandidates: "Review candidates", farmTruthTitle: "Review farm candidates", farmTruthLoading: "Loading candidates…", farmTruthEmpty: "No farm candidate is waiting for review.", farmTruthUnavailable: "Farm review is unavailable for the current season.", reviewSeason: "Review season", chooseReviewSeason: "Choose a season", reviewRefresh: "Refresh candidates", candidateProgress: "{current} of {total}", placeFacts: "Place", areaFacts: "Area", cropFacts: "Crop and timing", visitFacts: "Visits and work", evidenceFacts: "Evidence", farmerName: "Farmer", village: "Village", block: "Block", district: "District", gataNumber: "Gata number", plotArea: "Reported plot area", registrationArea: "Reported registration area", cropStage: "Crop stage", transplantedOn: "Transplanted on", latestVisit: "Latest visit", recentVisits: "Recent visits", openFollowUps: "Open follow-ups", fieldWorkers: "Field workers", fieldName: "Field name", managedArea: "Managed area (ha)", cropName: "Crop", cultivarOptional: "Cultivar (optional)", growerEffectiveOn: "Grower effective on", rightType: "Right to operate", rightStartsOn: "Right starts on", rightEndsOn: "Right ends on", acceptCandidate: "Accept", needsEvidence: "Needs evidence", rejectCandidate: "Reject", missingEvidence: "Evidence needed", missingPlotArea: "Plot area", missingCropSeason: "Crop and season", missingRight: "Right to operate", missingFarmer: "Farmer identity", missingWorker: "Field worker assignment", reviewReason: "Reason", evidenceNeeded: "Farm Truth evidence needed", reviewSaved: "Decision saved.", reviewNext: "Opening the next candidate.", reviewFailed: "The decision could not be saved.", managerOwner: "You", bigha: "bigha", acres: "acres", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
     },
     hi: {
       navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
@@ -131,7 +141,7 @@
       fieldAskReady: "की समीक्षा हो चुकी है; भेजना अलग से स्वीकृत होगा", awaitingFieldAnswer: "समीक्षा योग्य उत्तर की प्रतीक्षा",
       checkDelivery: "भेजने की पात्रता जाँचें या इसे रद्द करके फिर से जारी करें। उत्तर मान कर न चलें।",
       reviewFieldAnswer: "किसी भी उत्तर और सुरक्षित प्रमाण की समीक्षा करें। मानव बंद होने तक जुड़ा काम खुला रहता है।",
-      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
+      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", reviewCandidates: "उम्मीदवारों की समीक्षा करें", farmTruthTitle: "खेत उम्मीदवारों की समीक्षा", farmTruthLoading: "उम्मीदवार लोड हो रहे हैं…", farmTruthEmpty: "समीक्षा के लिए कोई खेत उम्मीदवार बाकी नहीं है।", farmTruthUnavailable: "मौजूदा मौसम के लिए खेत समीक्षा उपलब्ध नहीं है।", reviewSeason: "समीक्षा मौसम", chooseReviewSeason: "मौसम चुनें", reviewRefresh: "उम्मीदवार ताज़ा करें", candidateProgress: "{total} में से {current}", placeFacts: "स्थान", areaFacts: "क्षेत्र", cropFacts: "फसल और समय", visitFacts: "मुलाक़ातें और काम", evidenceFacts: "प्रमाण", farmerName: "किसान", village: "गाँव", block: "ब्लॉक", district: "ज़िला", gataNumber: "गाटा संख्या", plotArea: "दर्ज प्लॉट क्षेत्र", registrationArea: "दर्ज पंजीकरण क्षेत्र", cropStage: "फसल अवस्था", transplantedOn: "रोपाई की तारीख", latestVisit: "नवीनतम मुलाक़ात", recentVisits: "हाल की मुलाक़ातें", openFollowUps: "खुले अनुवर्ती काम", fieldWorkers: "फील्ड कर्मी", fieldName: "खेत का नाम", managedArea: "प्रबंधित क्षेत्र (हेक्टेयर)", cropName: "फसल", cultivarOptional: "किस्म (वैकल्पिक)", growerEffectiveOn: "किसान की प्रभावी तारीख", rightType: "संचालन अधिकार", rightStartsOn: "अधिकार शुरू होने की तारीख", rightEndsOn: "अधिकार समाप्त होने की तारीख", acceptCandidate: "स्वीकार करें", needsEvidence: "प्रमाण चाहिए", rejectCandidate: "अस्वीकार करें", missingEvidence: "आवश्यक प्रमाण", missingPlotArea: "प्लॉट क्षेत्र", missingCropSeason: "फसल और मौसम", missingRight: "संचालन अधिकार", missingFarmer: "किसान की पहचान", missingWorker: "फील्ड कर्मी की जिम्मेदारी", reviewReason: "कारण", evidenceNeeded: "खेत सत्य के लिए प्रमाण चाहिए", reviewSaved: "निर्णय सहेजा गया।", reviewNext: "अगला उम्मीदवार खोला जा रहा है।", reviewFailed: "निर्णय सहेजा नहीं जा सका।", managerOwner: "आप", bigha: "बीघा", acres: "एकड़", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
     }
   };
 
@@ -206,6 +216,12 @@
     status.textContent = managerSessionAuthenticated ?
       t("managerUnlocked") : t("managerLocked");
     action.textContent = managerSessionAuthenticated ? t("lockActions") : t("unlockActions");
+    if (!managerSessionAuthenticated) {
+      farmTruthCases = [];
+      farmTruthInboxCases = [];
+      currentFarmTruthCase = null;
+      selectedFarmTruthContextKey = "";
+    }
   }
 
   function loadManagerSessionStatus() {
@@ -262,7 +278,12 @@
         element("manager-session-dialog").close();
         return loadManagerSessionStatus();
       })
-      .then(loadActionCentre)
+      .then(function () {
+        loadActionCentre();
+        if (farmTruthOpenPending) {
+          openFarmTruthReview();
+        }
+      })
       .catch(function (error) {
         form.reset();
         setManagerSessionFeedback(error.message || "Manager access could not be unlocked.");
@@ -285,6 +306,346 @@
       .finally(function () {
         element("manager-session-action").disabled = false;
       });
+  }
+
+  function farmTruthContexts() {
+    var unit = currentRuntime && currentRuntime.operating_unit;
+    var allocations = currentRuntime && Array.isArray(currentRuntime.allocations) ? currentRuntime.allocations : [];
+    if (!unit || !unit.id) {
+      return [];
+    }
+    var known = {};
+    return allocations.filter(function (item) {
+      var key = item && item.season_id ? unit.id + "\u001f" + item.season_id : "";
+      if (!key || known[key]) {
+        return false;
+      }
+      known[key] = true;
+      return true;
+    }).map(function (item) {
+      return {
+        key: unit.id + "\u001f" + item.season_id,
+        operating_unit_id: unit.id,
+        season_id: item.season_id,
+        label: (unit.name || unit.id) + " · " + item.season_id
+      };
+    });
+  }
+
+  function renderFarmTruthContextChooser() {
+    var contexts = farmTruthContexts();
+    var select = element("farm-truth-context");
+    var existing = contexts.some(function (context) { return context.key === selectedFarmTruthContextKey; });
+    if (contexts.length === 1) {
+      selectedFarmTruthContextKey = contexts[0].key;
+    } else if (!existing) {
+      selectedFarmTruthContextKey = "";
+    }
+    element("farm-truth-context-label").hidden = contexts.length <= 1;
+    setHtml("farm-truth-context", '<option value="">' + escapeHtml(t("chooseReviewSeason")) + "</option>" + contexts.map(function (context) {
+      return '<option value="' + escapeHtml(context.key) + '"' + (context.key === selectedFarmTruthContextKey ? " selected" : "") + ">" + escapeHtml(context.label) + "</option>";
+    }).join(""));
+    select.value = selectedFarmTruthContextKey;
+    return contexts;
+  }
+
+  function farmTruthContext() {
+    return farmTruthContexts().filter(function (context) {
+      return context.key === selectedFarmTruthContextKey;
+    })[0] || null;
+  }
+
+  function farmTruthQuery(context, status) {
+    return "?operating_unit_id=" + encodeURIComponent(context.operating_unit_id) +
+      "&season_id=" + encodeURIComponent(context.season_id) +
+      (status ? "&status=" + encodeURIComponent(status) : "");
+  }
+
+  function farmTruthResponse(response) {
+    return response.json().then(function (body) {
+      if (!response.ok) {
+        throw new Error(t("farmTruthUnavailable"));
+      }
+      return body;
+    });
+  }
+
+  function farmTruthDecisionResponse(response) {
+    return response.json().then(function (body) {
+      if (!response.ok) {
+        throw new Error(t("reviewFailed"));
+      }
+      return body;
+    });
+  }
+
+  function setFarmTruthFeedback(value, saved) {
+    var feedback = element("farm-truth-feedback");
+    feedback.textContent = value || "";
+    feedback.hidden = !value;
+    feedback.classList.toggle("is-saved", Boolean(saved));
+  }
+
+  function setFarmTruthBusy(busy) {
+    element("farm-truth-refresh").disabled = busy;
+    Array.prototype.forEach.call(document.querySelectorAll(".farm-truth-submit"), function (button) {
+      button.disabled = busy;
+    });
+  }
+
+  function farmTruthPlace(caseItem) {
+    var place = caseItem && caseItem.place ? caseItem.place : {};
+    return [place.village, place.block, place.district].filter(Boolean).join(" · ");
+  }
+
+  function farmTruthFact(label, value) {
+    return "<div><dt>" + escapeHtml(label) + "</dt><dd>" + escapeHtml(value) + "</dd></div>";
+  }
+
+  function farmTruthArea(value, unit) {
+    var number = Number(value);
+    return isFinite(number) && number > 0 ? formatQuantity(number) + " " + t(unit) : "—";
+  }
+
+  function renderFarmTruthList() {
+    var selectedId = currentFarmTruthCase && currentFarmTruthCase.id;
+    if (!farmTruthCases.length) {
+      setHtml("farm-truth-list", '<p class="farm-truth-list-empty">' + escapeHtml(t("farmTruthEmpty")) + "</p>");
+      element("farm-truth-progress").textContent = t("farmTruthEmpty");
+      return;
+    }
+    var selectedIndex = farmTruthCases.map(function (item) { return item.id; }).indexOf(selectedId);
+    element("farm-truth-progress").textContent = message("candidateProgress", {
+      current: formatCount(selectedIndex < 0 ? 1 : selectedIndex + 1), total: formatCount(farmTruthCases.length)
+    });
+    setHtml("farm-truth-list", farmTruthCases.map(function (item, index) {
+      var farmer = item.people ? item.people.farmer_display_name : "";
+      var selected = item.id === selectedId || (!selectedId && index === 0);
+      return '<button class="farm-truth-card' + (selected ? " is-selected" : "") +
+        '" type="button" data-farm-truth-case="' + escapeHtml(item.id) + '" aria-pressed="' + String(selected) + '">' +
+        "<strong>" + escapeHtml(farmer) + "</strong><span>" + escapeHtml(farmTruthPlace(item)) + "</span></button>";
+    }).join(""));
+  }
+
+  function prefillFarmTruthAcceptance(caseItem) {
+    var form = element("farm-truth-accept-form");
+    form.reset();
+    element("farm-truth-needs-form").reset();
+    element("farm-truth-reject-form").reset();
+    var place = caseItem.place || {};
+    var area = caseItem.area || {};
+    var registration = caseItem.registration || {};
+    var fieldName = [place.village, area.gata_number ? t("gataNumber") + " " + area.gata_number : ""].filter(Boolean).join(" · ");
+    form.elements.field_name.value = fieldName;
+    if (Number(area.registration_plot_count) === 1 && Number(area.registration_acres) > 0) {
+      form.elements.managed_area_hectares.value = (Number(area.registration_acres) * 0.404686).toFixed(2);
+    }
+    if (Number(registration.pb1_acres) > 0 && !Number(registration.variety_1718_acres)) {
+      form.elements.cultivar.value = "PB1";
+    } else if (Number(registration.variety_1718_acres) > 0 && !Number(registration.pb1_acres)) {
+      form.elements.cultivar.value = "1718";
+    }
+  }
+
+  function renderFarmTruthDetail() {
+    var item = currentFarmTruthCase;
+    renderFarmTruthList();
+    if (!item) {
+      setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthEmpty")) + "</p>");
+      element("farm-truth-decision-panel").hidden = true;
+      return;
+    }
+    var place = item.place || {};
+    var area = item.area || {};
+    var registration = item.registration || {};
+    var timing = item.crop_timing || {};
+    var people = item.people || {};
+    var evidence = item.evidence || {};
+    var chips = (Array.isArray(evidence.reason_chips) ? evidence.reason_chips : []).concat(
+      Array.isArray(evidence.safe_task_labels) ? evidence.safe_task_labels : []
+    ).filter(function (chip, index, all) { return chip && all.indexOf(chip) === index; });
+    var workers = Array.isArray(people.field_worker_display_names) ? people.field_worker_display_names.join(", ") : "";
+    setHtml("farm-truth-detail", '<article class="farm-truth-candidate"><header><p class="eyebrow">' + escapeHtml(t("placeFacts")) +
+      "</p><h3>" + escapeHtml(people.farmer_display_name) + "</h3><p>" + escapeHtml(farmTruthPlace(item)) + "</p></header>" +
+      '<dl class="farm-truth-facts">' +
+      farmTruthFact(t("village"), place.village) + farmTruthFact(t("block"), place.block) +
+      farmTruthFact(t("district"), place.district) + farmTruthFact(t("gataNumber"), area.gata_number) +
+      farmTruthFact(t("plotArea"), farmTruthArea(area.plot_bigha, "bigha")) +
+      farmTruthFact(t("registrationArea"), farmTruthArea(area.registration_acres, "acres")) +
+      farmTruthFact(t("cropStage"), readable(timing.crop_stage)) +
+      farmTruthFact(t("transplantedOn"), timing.transplanted_on) +
+      farmTruthFact(t("latestVisit"), formatTime(timing.latest_visit_at)) +
+      farmTruthFact(t("recentVisits"), formatCount(evidence.recent_visit_count)) +
+      farmTruthFact(t("openFollowUps"), formatCount(evidence.open_work_count)) +
+      farmTruthFact(t("fieldWorkers"), workers) + "</dl>" +
+      '<div class="evidence-chips" aria-label="' + escapeHtml(t("evidenceFacts")) + '">' + chips.map(function (chip) {
+        return "<span>" + escapeHtml(chip) + "</span>";
+      }).join("") + "</div></article>");
+    element("farm-truth-decision-panel").hidden = false;
+    setFarmTruthFeedback("");
+    prefillFarmTruthAcceptance(item);
+  }
+
+  function renderFarmTruthUnavailable(error) {
+    currentFarmTruthCase = null;
+    farmTruthCases = [];
+    element("farm-truth-progress").textContent = "";
+    setHtml("farm-truth-list", "");
+    setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(error && error.message ? error.message : t("farmTruthUnavailable")) + "</p>");
+    element("farm-truth-decision-panel").hidden = true;
+  }
+
+  function loadFarmTruthCaseDetail(caseId) {
+    var context = farmTruthContext();
+    if (!context || !caseId) {
+      renderFarmTruthUnavailable();
+      return Promise.resolve();
+    }
+    setFarmTruthBusy(true);
+    return fetch(farmTruthCasesUrl + "/" + encodeURIComponent(caseId) + farmTruthQuery(context), {
+      credentials: "same-origin"
+    }).then(farmTruthResponse).then(function (detail) {
+      currentFarmTruthCase = detail;
+      renderFarmTruthDetail();
+    }).catch(renderFarmTruthUnavailable).finally(function () {
+      setFarmTruthBusy(false);
+    });
+  }
+
+  function loadFarmTruthCases() {
+    var context = farmTruthContext();
+    if (!context) {
+      renderFarmTruthUnavailable();
+      return Promise.resolve();
+    }
+    return Promise.all([
+      fetch(farmTruthCasesUrl + farmTruthQuery(context, "open"), { credentials: "same-origin" }).then(farmTruthResponse),
+      loadFarmTruthInboxCases()
+    ]).then(function (results) {
+      farmTruthCases = Array.isArray(results[0]) ? results[0] : [];
+      if (!farmTruthCases.length) {
+        currentFarmTruthCase = null;
+        renderFarmTruthDetail();
+        return null;
+      }
+      return loadFarmTruthCaseDetail(farmTruthCases[0].id);
+    });
+  }
+
+  function loadFarmTruthInboxCases() {
+    var contexts = farmTruthContexts();
+    if (!managerSessionAuthenticated || !contexts.length) {
+      farmTruthInboxCases = [];
+      renderRiskLedger();
+      return Promise.resolve([]);
+    }
+    return Promise.all(contexts.map(function (context) {
+      return fetch(farmTruthCasesUrl + farmTruthQuery(context, "needs_evidence"), {
+        credentials: "same-origin"
+      }).then(farmTruthResponse);
+    })).then(function (groups) {
+      var known = {};
+      farmTruthInboxCases = [].concat.apply([], groups).filter(function (item) {
+        if (!item || item.status !== "needs_evidence" || known[item.id]) {
+          return false;
+        }
+        known[item.id] = true;
+        return true;
+      });
+      renderRiskLedger();
+      return farmTruthInboxCases;
+    }).catch(function () {
+      farmTruthInboxCases = [];
+      renderRiskLedger();
+      return [];
+    });
+  }
+
+  function refreshFarmTruthCases() {
+    var context = farmTruthContext();
+    if (!context) {
+      renderFarmTruthUnavailable();
+      return Promise.resolve();
+    }
+    setFarmTruthBusy(true);
+    setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthLoading")) + "</p>");
+    return fetch(farmTruthRefreshUrl, {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify(context)
+    }).then(farmTruthResponse).then(loadFarmTruthCases).catch(renderFarmTruthUnavailable).finally(function () {
+      setFarmTruthBusy(false);
+    });
+  }
+
+  function openFarmTruthReview() {
+    if (!managerSessionAuthenticated) {
+      farmTruthOpenPending = true;
+      openManagerSessionDialog();
+      return;
+    }
+    farmTruthOpenPending = false;
+    var dialog = element("farm-truth-dialog");
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    var contexts = renderFarmTruthContextChooser();
+    if (contexts.length === 1) {
+      refreshFarmTruthCases();
+    } else {
+      renderFarmTruthUnavailable();
+    }
+  }
+
+  function submitFarmTruthDecision(event, decision) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    var context = farmTruthContext();
+    var caseItem = currentFarmTruthCase;
+    if (!context || !caseItem || !form.reportValidity()) {
+      return;
+    }
+    var payload = { operating_unit_id: context.operating_unit_id, season_id: context.season_id };
+    if (decision === "accept") {
+      payload.field_name = formValue(form, "field_name");
+      payload.managed_area_hectares = Number(formValue(form, "managed_area_hectares"));
+      payload.crop_name = formValue(form, "crop_name");
+      payload.cultivar = formValue(form, "cultivar") || null;
+      payload.grower_effective_on = formValue(form, "grower_effective_on");
+      payload.right_type = formValue(form, "right_type");
+      payload.right_starts_on = formValue(form, "right_starts_on");
+      payload.right_ends_on = formValue(form, "right_ends_on") || null;
+    } else {
+      payload.reason = formValue(form, "reason");
+      if (decision === "needs-evidence") {
+        payload.missing_evidence_kind = formValue(form, "missing_evidence_kind");
+      }
+    }
+    setFarmTruthBusy(true);
+    setFarmTruthFeedback("");
+    return fetch(farmTruthCasesUrl + "/" + encodeURIComponent(caseItem.id) + farmTruthDecisionPaths[decision], {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(farmTruthDecisionResponse).then(function () {
+      if (decision === "needs-evidence") {
+        farmTruthInboxCases.unshift(Object.assign({}, caseItem, {
+          status: "needs_evidence", missing_evidence_kind: payload.missing_evidence_kind
+        }));
+      }
+      farmTruthCases = farmTruthCases.filter(function (item) { return item.id !== caseItem.id; });
+      currentFarmTruthCase = null;
+      renderRiskLedger();
+      if (!farmTruthCases.length) {
+        renderFarmTruthDetail();
+        setFarmTruthFeedback(t("reviewSaved"), true);
+        return null;
+      }
+      setFarmTruthFeedback(t("reviewSaved") + " " + t("reviewNext"), true);
+      return loadFarmTruthCaseDetail(farmTruthCases[0].id);
+    }).catch(function (error) {
+      setFarmTruthFeedback(error.message || t("reviewFailed"), false);
+    }).finally(function () {
+      setFarmTruthBusy(false);
+    });
   }
 
   function setSampleMode(enabled) {
@@ -869,8 +1230,9 @@
   }
 
   function inboxRows() {
+    var rows = [];
     if (sourceBoardReady()) {
-      return sourceRows("inbox").slice(0, 250).map(function (item) {
+      rows = sourceRows("inbox").slice(0, 250).map(function (item) {
         return {
           key: "source_work_item:" + item.id,
           severity: item.status === "in_progress" ? "high" : "medium",
@@ -883,36 +1245,56 @@
           action: "review TrackWick work"
         };
       });
+    } else {
+      var ledger = currentPortfolio ? listedItems(currentPortfolio.risk_action_ledger) : [];
+      rows = ledger.map(function (item) {
+        return {
+          key: (item.entity && item.entity.type ? item.entity.type : "decision") + ":" + (item.entity && item.entity.id ? item.entity.id : item.title),
+          severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
+          ownerId: item.owner_id, dueAt: item.due_at || item.observed_at, status: item.status,
+          action: item.action
+        };
+      });
+      if (currentInboxMode === "all" && currentRuntime) {
+        var known = {};
+        rows.forEach(function (row) { known[row.key] = true; });
+        (currentRuntime.exceptions || []).filter(isOpenException).forEach(function (item) {
+          var exceptionKey = "exception_record:" + item.id;
+          if (!known[exceptionKey]) {
+            rows.push({ key: exceptionKey, severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
+              ownerId: item.owner_id, dueAt: item.observed_at, status: item.status, action: "review exception" });
+          }
+        });
+        (currentRuntime.work_items || []).filter(isOpenWork).forEach(function (item) {
+          var workKey = "work_item:" + item.id;
+          if (!known[workKey]) {
+            rows.push({ key: workKey, severity: item.status === "blocked" ? "high" : "medium", title: item.title,
+              allocationId: item.allocation_id, ownerId: item.owner_id, dueAt: item.due_at, status: item.status,
+              action: "complete or replan" });
+          }
+        });
+      }
     }
-    var ledger = currentPortfolio ? listedItems(currentPortfolio.risk_action_ledger) : [];
-    var rows = ledger.map(function (item) {
+    rows = rows.concat(farmTruthInboxRows());
+    return connectedAllocationId ? rows.filter(function (row) { return row.allocationId === connectedAllocationId; }) : rows;
+  }
+
+  function farmTruthInboxRows() {
+    return farmTruthInboxCases.filter(function (item) {
+      return item && item.status === "needs_evidence";
+    }).map(function (item) {
       return {
-        key: (item.entity && item.entity.type ? item.entity.type : "decision") + ":" + (item.entity && item.entity.id ? item.entity.id : item.title),
-        severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
-        ownerId: item.owner_id, dueAt: item.due_at || item.observed_at, status: item.status,
-        action: item.action
+        key: "farm_truth:" + item.id,
+        severity: "medium",
+        title: t("evidenceNeeded"),
+        allocationId: null,
+        fieldName: farmTruthPlace(item) || t("unassigned"),
+        ownerName: t("managerOwner"),
+        dueAt: null,
+        status: "needs_evidence",
+        action: readable(item.missing_evidence_kind)
       };
     });
-    if (currentInboxMode === "all" && currentRuntime) {
-      var known = {};
-      rows.forEach(function (row) { known[row.key] = true; });
-      (currentRuntime.exceptions || []).filter(isOpenException).forEach(function (item) {
-        var exceptionKey = "exception_record:" + item.id;
-        if (!known[exceptionKey]) {
-          rows.push({ key: exceptionKey, severity: safeSeverity(item.severity), title: item.title, allocationId: item.allocation_id,
-            ownerId: item.owner_id, dueAt: item.observed_at, status: item.status, action: "review exception" });
-        }
-      });
-      (currentRuntime.work_items || []).filter(isOpenWork).forEach(function (item) {
-        var workKey = "work_item:" + item.id;
-        if (!known[workKey]) {
-          rows.push({ key: workKey, severity: item.status === "blocked" ? "high" : "medium", title: item.title,
-            allocationId: item.allocation_id, ownerId: item.owner_id, dueAt: item.due_at, status: item.status,
-            action: "complete or replan" });
-        }
-      });
-    }
-    return connectedAllocationId ? rows.filter(function (row) { return row.allocationId === connectedAllocationId; }) : rows;
   }
 
   function renderRiskLedger() {
@@ -930,7 +1312,7 @@
       renderHomeMetrics();
       return;
     }
-    var summary = sourceWork ? formatCount((currentSourceBoard.counts || {}).open_work || rows.length) + " open field items · highest-attention first." : (currentInboxMode === "all" ?
+    var summary = sourceWork ? formatCount(rows.length) + " open field items · highest-attention first." : (currentInboxMode === "all" ?
       message("allDecisions", { count: formatCount(rows.length) }) :
       message(rows.length === 1 ? "priorityDecision" : "priorityDecisions", { count: formatCount(rows.length) }));
     element("inbox-summary").textContent = selectedAllocation ?
@@ -1024,9 +1406,6 @@
   }
 
   function renderAllocationCards(runtime) {
-    if (renderSourceFarms()) {
-      return;
-    }
     var allocations = Array.isArray(runtime.allocations) ? runtime.allocations : [];
     if (!allocations.length) {
       element("allocation-summary").textContent = t("noActiveCrop");
@@ -1035,7 +1414,7 @@
       return;
     }
     element("allocation-summary").textContent = allocations.length === 1 ?
-      message("farmsSummarySingle", { location: t("sampleLocationShort") }) :
+      message("farmsSummarySingle", { location: allocations[0].location_label || allocations[0].operational_block_name || t("reviewedField") }) :
       message("farmsSummaryMultiple", { count: formatCount(allocations.length) });
     setHtml("allocation-list", allocations.map(function (allocation) {
       var assignedWork = (runtime.work_items || []).filter(function (item) {
@@ -1081,16 +1460,6 @@
 
   function mapPopup(feature) {
     var properties = feature && feature.properties ? feature.properties : {};
-    if (properties.map_label) {
-      var sourceParts = [properties.map_label];
-      if (properties.location_kind) {
-        sourceParts.push(readable(properties.location_kind));
-      }
-      if (properties.location_confidence) {
-        sourceParts.push(readable(properties.location_confidence));
-      }
-      return escapeHtml(sourceParts.join(" · "));
-    }
     var parts = [sampleText(properties.plot_label || t("reviewedField"))];
     if (properties.crop_name) {
       parts.push(cropLabel(properties.crop_name) + (properties.cultivar ? " · " + properties.cultivar : ""));
@@ -1126,17 +1495,12 @@
       attribution: "© OpenStreetMap contributors"
     }).addTo(map);
     var layer = window.L.geoJSON(featureCollection, {
-      style: function (feature) {
-        var properties = feature && feature.properties ? feature.properties : {};
-        return properties.record_kind === "source_point" || properties.record_kind === "source_farm" ?
-          { color: "#214d3a", weight: 1.5, fillColor: "#d2a936", fillOpacity: 0.86 } :
-          { color: "#bc7a1e", weight: 2, fillColor: "#d8b14d", fillOpacity: 0.28 };
+      style: function () {
+        return { color: "#bc7a1e", weight: 2, fillColor: "#d8b14d", fillOpacity: 0.28 };
       },
-      pointToLayer: function (feature, latlng) {
-        var properties = feature && feature.properties ? feature.properties : {};
+      pointToLayer: function (_feature, latlng) {
         return window.L.circleMarker(latlng, {
-          radius: properties.record_kind === "source_point" || properties.record_kind === "source_farm" ? 4 : 7,
-          color: "#173f2c", weight: properties.record_kind === "source_point" || properties.record_kind === "source_farm" ? 1 : 2,
+          radius: 7, color: "#173f2c", weight: 2,
           fillColor: "#d7aa3f", fillOpacity: 0.95
         });
       },
@@ -1146,11 +1510,6 @@
         if (properties.record_kind === "farm" && properties.record_id) {
           featureLayer.on("click", function () {
             connectFarm(properties.record_id);
-            openRecordDialog("farm", properties.record_id);
-          });
-        }
-        if (properties.record_kind === "source_farm" && properties.record_id) {
-          featureLayer.on("click", function () {
             openRecordDialog("farm", properties.record_id);
           });
         }
@@ -1167,57 +1526,19 @@
     renderBestMap();
   }
 
-  function sourceBoardFeatureCollection() {
-    var points = sourceBoardReady() && currentSourceBoard.map && Array.isArray(currentSourceBoard.map.points) ? currentSourceBoard.map.points : [];
-    return {
-      type: "FeatureCollection",
-      features: points.map(function (point) {
-        var isFarm = String(point.id || "").indexOf("registration_id:") === 0;
-        return {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [Number(point.longitude), Number(point.latitude)] },
-          properties: {
-            record_kind: isFarm ? "source_farm" : "source_point",
-            record_id: isFarm ? String(point.id).slice("registration_id:".length) : null,
-            map_label: point.label,
-            location_kind: point.kind,
-            location_confidence: point.confidence
-          }
-        };
-      }).filter(function (feature) {
-        return isFinite(feature.geometry.coordinates[0]) && isFinite(feature.geometry.coordinates[1]);
-      })
-    };
-  }
-
   function renderBestMap() {
     var reviewed = currentFortuneMap && Array.isArray(currentFortuneMap.features) ? currentFortuneMap.features : [];
-    var sourceMap = sourceBoardFeatureCollection();
-    var sourcePoints = sourceMap.features || [];
-    var features = reviewed.concat(sourcePoints);
-    if (sourcePoints.length) {
-      var counts = currentSourceBoard.counts || {};
-      element("home-map-status").textContent = formatCount(counts.source_points || sourcePoints.length) + " source points";
-      element("home-map-note").textContent = "Source evidence points guide field work. They are not farm boundaries.";
-      element("farm-map-note").textContent = element("home-map-note").textContent;
-      renderMapCanvas("home-map-canvas", { type: "FeatureCollection", features: features });
-      renderMapCanvas("farm-map-canvas", { type: "FeatureCollection", features: features });
-      return;
-    }
     var count = reviewed.length;
     element("home-map-status").textContent = sampleMode ? t("sampleLocation") :
       (count ? formatCount(count) + " " + (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry"));
     element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("mapManifestNote") : t("mapPrivacyNote"));
     element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("farmMapNote") : t("farmMapPrivacyNote"));
-    renderMapCanvas("home-map-canvas", currentFortuneMap || { type: "FeatureCollection", features: [] });
-    renderMapCanvas("farm-map-canvas", currentFortuneMap || { type: "FeatureCollection", features: [] });
+    var manifest = { type: "FeatureCollection", features: reviewed };
+    renderMapCanvas("home-map-canvas", manifest);
+    renderMapCanvas("farm-map-canvas", manifest);
   }
 
   function renderFortuneMapUnavailable() {
-    if (sampleMode) {
-      renderFortuneMap(sampleMap());
-      return;
-    }
     currentFortuneMap = { type: "FeatureCollection", features: [] };
     element("home-map-status").textContent = managerSessionAuthenticated ? t("mapUnavailable") : t("unlockMap");
     element("home-map-note").textContent = managerSessionAuthenticated ?
@@ -1573,6 +1894,9 @@
     renderDailyDirection();
     renderHomeMetrics();
     restoreConnectedRecord();
+    if (managerSessionAuthenticated) {
+      loadFarmTruthInboxCases();
+    }
   }
 
   function renderRuntimeUnavailable() {
@@ -1586,7 +1910,7 @@
     renderProgramme(sampleProgramme(), { state: "sample" });
     renderRiskLedger();
     renderSampleWeather();
-    renderFortuneMap(sampleMap());
+    renderFortuneMap({ type: "FeatureCollection", features: [] });
     renderHomeMetrics();
     restoreConnectedRecord();
   }
@@ -1685,6 +2009,40 @@
     });
   });
   element("refresh").addEventListener("click", refreshActionCentre);
+  element("farm-truth-open").addEventListener("click", openFarmTruthReview);
+  element("farm-truth-refresh").addEventListener("click", refreshFarmTruthCases);
+  element("close-farm-truth").addEventListener("click", function () {
+    element("farm-truth-dialog").close();
+    setFarmTruthFeedback("");
+  });
+  element("farm-truth-dialog").addEventListener("cancel", function () {
+    setFarmTruthFeedback("");
+  });
+  element("farm-truth-context").addEventListener("change", function (event) {
+    selectedFarmTruthContextKey = event.currentTarget.value;
+    currentFarmTruthCase = null;
+    farmTruthCases = [];
+    if (selectedFarmTruthContextKey) {
+      loadFarmTruthCases().catch(renderFarmTruthUnavailable);
+    } else {
+      renderFarmTruthUnavailable();
+    }
+  });
+  element("farm-truth-list").addEventListener("click", function (event) {
+    var card = event.target.closest("[data-farm-truth-case]");
+    if (card) {
+      loadFarmTruthCaseDetail(card.getAttribute("data-farm-truth-case"));
+    }
+  });
+  element("farm-truth-accept-form").addEventListener("submit", function (event) {
+    submitFarmTruthDecision(event, "accept");
+  });
+  element("farm-truth-needs-form").addEventListener("submit", function (event) {
+    submitFarmTruthDecision(event, "needs-evidence");
+  });
+  element("farm-truth-reject-form").addEventListener("submit", function (event) {
+    submitFarmTruthDecision(event, "reject");
+  });
   element("manager-session-action").addEventListener("click", toggleManagerSession);
   element("close-manager-session").addEventListener("click", function () {
     element("manager-session-dialog").close();
