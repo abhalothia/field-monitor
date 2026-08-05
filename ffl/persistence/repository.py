@@ -2280,7 +2280,9 @@ def list_latest_farm_truth_cases(
 
 
 def claim_farm_truth_case(
-    conn: sqlite3.Connection, case_id: str,
+    conn: sqlite3.Connection,
+    case_id: str,
+    expected_updated_at: Optional[str] = None,
 ) -> Optional[FarmTruthReviewCase]:
     """Claim an open case inside the caller's transaction.
 
@@ -2288,11 +2290,18 @@ def claim_farm_truth_case(
     PostgreSQL rolls this short-lived state back to ``open`` automatically.
     """
     _, updated_at = _new_identity()
-    updated = conn.execute(
-        """UPDATE farm_truth_review_cases SET status = 'accepting', updated_at = ?
-           WHERE id = ? AND status = 'open'""",
-        (updated_at, case_id),
-    )
+    if expected_updated_at is None:
+        updated = conn.execute(
+            """UPDATE farm_truth_review_cases SET status = 'accepting', updated_at = ?
+               WHERE id = ? AND status = 'open'""",
+            (updated_at, case_id),
+        )
+    else:
+        updated = conn.execute(
+            """UPDATE farm_truth_review_cases SET status = 'accepting', updated_at = ?
+               WHERE id = ? AND status = 'open' AND updated_at = ?""",
+            (updated_at, case_id, expected_updated_at),
+        )
     if updated.rowcount != 1:
         return None
     return get_farm_truth_case(conn, case_id)
@@ -2304,21 +2313,27 @@ def mark_farm_truth_case_needs_evidence(
     reviewer_id: str,
     missing_evidence_kind: str,
     reason: str,
+    expected_case_updated_at: Optional[str] = None,
 ) -> FarmTruthReviewCase:
     if missing_evidence_kind not in FARM_TRUTH_MISSING_EVIDENCE_KINDS:
         raise ValueError("invalid missing evidence kind")
     reviewer_id = _required_text(reviewer_id, "reviewer_id", 128)
     reason = _required_text(reason, "reason", 500)
     _, reviewed_at = _new_identity()
+    params = (
+        reason, missing_evidence_kind, reviewer_id, reviewer_id, reviewed_at,
+        reviewed_at, case_id,
+    )
+    freshness_clause = ""
+    if expected_case_updated_at is not None:
+        freshness_clause = " AND updated_at = ?"
+        params = (*params, expected_case_updated_at)
     updated = conn.execute(
         """UPDATE farm_truth_review_cases
            SET status = 'needs_evidence', review_reason = ?, missing_evidence_kind = ?,
                owner_person_id = ?, reviewed_by_person_id = ?, reviewed_at = ?, updated_at = ?
-           WHERE id = ? AND status = 'open'""",
-        (
-            reason, missing_evidence_kind, reviewer_id, reviewer_id, reviewed_at,
-            reviewed_at, case_id,
-        ),
+           WHERE id = ? AND status = 'open'""" + freshness_clause,
+        params,
     )
     if updated.rowcount != 1:
         conn.rollback()
@@ -2328,17 +2343,26 @@ def mark_farm_truth_case_needs_evidence(
 
 
 def mark_farm_truth_case_rejected(
-    conn: sqlite3.Connection, case_id: str, reviewer_id: str, reason: str,
+    conn: sqlite3.Connection,
+    case_id: str,
+    reviewer_id: str,
+    reason: str,
+    expected_case_updated_at: Optional[str] = None,
 ) -> FarmTruthReviewCase:
     reviewer_id = _required_text(reviewer_id, "reviewer_id", 128)
     reason = _required_text(reason, "reason", 500)
     _, reviewed_at = _new_identity()
+    params = (reason, reviewer_id, reviewed_at, reviewed_at, case_id)
+    freshness_clause = ""
+    if expected_case_updated_at is not None:
+        freshness_clause = " AND updated_at = ?"
+        params = (*params, expected_case_updated_at)
     updated = conn.execute(
         """UPDATE farm_truth_review_cases
            SET status = 'rejected', review_reason = ?, reviewed_by_person_id = ?,
                reviewed_at = ?, updated_at = ?
-           WHERE id = ? AND status = 'open'""",
-        (reason, reviewer_id, reviewed_at, reviewed_at, case_id),
+           WHERE id = ? AND status = 'open'""" + freshness_clause,
+        params,
     )
     if updated.rowcount != 1:
         conn.rollback()
@@ -2387,6 +2411,7 @@ def accept_farm_truth_case(
     right_ends_on: Optional[str],
     selected_task_ids: Sequence[str] = (),
     field_worker_party_id: Optional[str] = None,
+    expected_case_updated_at: Optional[str] = None,
 ) -> FarmTruthReviewCase:
     """Atomically accept one exact source plot into canonical Farm Truth.
 
@@ -2427,12 +2452,19 @@ def accept_farm_truth_case(
             return review_case
         if review_case.status != "open":
             raise ValueError("farm truth review case is already claimed or resolved")
-        claimed = claim_farm_truth_case(conn, case_id)
+        if (
+            expected_case_updated_at is not None
+            and review_case.updated_at != expected_case_updated_at
+        ):
+            raise ValueError("farm truth review case is stale, claimed, or resolved")
+        claimed = claim_farm_truth_case(
+            conn, case_id, expected_updated_at=expected_case_updated_at
+        )
         if claimed is None:
             established = get_farm_truth_case(conn, case_id)
             if established is not None and established.status == "accepted":
                 return established
-            raise ValueError("farm truth review case is already claimed or resolved")
+            raise ValueError("farm truth review case is stale, claimed, or resolved")
 
         if conn.execute(
             """SELECT 1 FROM trackwick_plot_operating_links

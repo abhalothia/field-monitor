@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from ffl.app import create_app
 from ffl.persistence import repository
+from ffl.services import farm_truth
 from tests.ffl.test_farm_truth_service import (
     _all_keys,
     _seed_candidate,
@@ -199,6 +200,54 @@ def test_accept_uses_manager_identity_and_returns_only_stable_canonical_ids(farm
     assert "worker-route" not in json.dumps(accepted.json())
 
 
+def test_accepted_retry_requires_the_same_valid_acceptance_context(farm_truth_api):
+    app, client, _manager, unit, season, _source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+    accepted = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(unit, season),
+        headers=TOKEN,
+    )
+    other_unit = repository.create_operating_unit(app.state.conn, "Other retry unit")
+    other_season = repository.create_season(
+        app.state.conn, other_unit.id, "Kharif 2027", "2027-06-01", "2027-11-30"
+    )
+
+    nonexistent_context = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(unit, season, operating_unit_id="missing-unit"),
+        headers=TOKEN,
+    )
+    mismatched_context = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(
+            other_unit,
+            other_season,
+            grower_effective_on="2027-06-01",
+            right_starts_on="2027-06-01",
+            right_ends_on="2027-11-30",
+        ),
+        headers=TOKEN,
+    )
+    invalid_dates = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(unit, season, grower_effective_on="2027-01-01"),
+        headers=TOKEN,
+    )
+    valid_replay = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(unit, season),
+        headers=TOKEN,
+    )
+
+    assert accepted.status_code == valid_replay.status_code == 200
+    assert valid_replay.json() == accepted.json()
+    assert nonexistent_context.status_code == invalid_dates.status_code == 422
+    assert mismatched_context.status_code == 409
+    assert app.state.conn.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 1
+    assert app.state.conn.execute("SELECT COUNT(*) FROM crop_allocations").fetchone()[0] == 1
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -245,6 +294,44 @@ def test_accept_validates_operating_unit_season_membership_and_effective_dates(f
     )
 
     assert wrong_membership.status_code == outside_season.status_code == 422
+    assert repository.get_farm_truth_case(app.state.conn, case_id).status == "open"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "detail"),
+    [
+        (
+            {"grower_effective_on": "2026-06-15", "right_starts_on": "2026-07-01"},
+            "grower_effective_on must fall within the right-to-operate interval",
+        ),
+        (
+            {"grower_effective_on": "2026-11-15", "right_ends_on": "2026-10-31"},
+            "grower_effective_on must fall within the right-to-operate interval",
+        ),
+        (
+            {
+                "grower_effective_on": "2026-07-15",
+                "right_starts_on": "2026-07-01",
+                "right_ends_on": "2026-10-31",
+            },
+            "right-to-operate interval must cover the selected season",
+        ),
+    ],
+)
+def test_accept_requires_relationship_and_right_dates_to_be_coherent(
+    farm_truth_api, overrides, detail
+):
+    app, client, _manager, unit, season, _source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+
+    response = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(unit, season, **overrides),
+        headers=TOKEN,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == detail
     assert repository.get_farm_truth_case(app.state.conn, case_id).status == "open"
 
 
@@ -357,3 +444,51 @@ def test_decisions_return_conflict_when_open_case_is_stale(farm_truth_api):
             f"/api/v1/farm-truth/cases/{case_id}/{decision}", json=payload, headers=TOKEN
         )
         assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("decision", "repository_function"),
+    [
+        ("accept", "accept_farm_truth_case"),
+        ("needs-evidence", "mark_farm_truth_case_needs_evidence"),
+        ("reject", "mark_farm_truth_case_rejected"),
+    ],
+)
+def test_decision_revalidates_freshness_in_the_atomic_mutation(
+    farm_truth_api, monkeypatch, decision, repository_function
+):
+    app, client, manager, unit, season, _source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+    original = getattr(repository, repository_function)
+
+    def refresh_to_stale_between_read_and_mutation(*args, **kwargs):
+        app.state.conn.execute(
+            "UPDATE trackwick_visits SET observed_at = '2026-05-01T00:00:00+00:00' "
+            "WHERE task_id = 'visit-route-0'"
+        )
+        app.state.conn.commit()
+        assert farm_truth.refresh_farm_truth_cases(
+            app.state.conn, unit.id, season.id, manager.id
+        ) == []
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        repository, repository_function, refresh_to_stale_between_read_and_mutation
+    )
+    payload = {
+        "accept": _acceptance(unit, season),
+        "needs-evidence": {
+            **_context(unit, season),
+            "missing_evidence_kind": "plot_area",
+            "reason": "Confirm area",
+        },
+        "reject": {**_context(unit, season), "reason": "Outside programme"},
+    }[decision]
+
+    response = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/{decision}", json=payload, headers=TOKEN
+    )
+
+    assert response.status_code == 409
+    assert repository.get_farm_truth_case(app.state.conn, case_id).status == "open"
+    assert app.state.conn.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 0

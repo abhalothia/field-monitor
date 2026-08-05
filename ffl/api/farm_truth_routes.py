@@ -22,6 +22,13 @@ class FarmTruthContextRequest(BaseModel):
     operating_unit_id: str = Field(min_length=1, max_length=128)
     season_id: str = Field(min_length=1, max_length=128)
 
+    @field_validator("operating_unit_id", "season_id")
+    @classmethod
+    def nonempty_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("identifier must not be blank")
+        return value.strip()
+
 
 class FarmTruthAcceptanceRequest(FarmTruthContextRequest):
     field_name: str = Field(min_length=1, max_length=160)
@@ -33,6 +40,21 @@ class FarmTruthAcceptanceRequest(FarmTruthContextRequest):
     right_starts_on: date
     right_ends_on: Optional[date] = None
     field_worker_party_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("field_name", "crop_name", "right_type")
+    @classmethod
+    def nonempty_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must not be blank")
+        return value.strip()
+
+    @field_validator("cultivar", "field_worker_party_id")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @model_validator(mode="after")
     def coherent_right_dates(self):
@@ -125,6 +147,82 @@ def _validate_acceptance_dates(conn, payload: FarmTruthAcceptanceRequest) -> Non
     effective_right_end = payload.right_ends_on or ends_on
     if effective_right_end < payload.right_starts_on:
         raise ValueError("right_ends_on must be on or after right_starts_on")
+    if not payload.right_starts_on <= payload.grower_effective_on <= effective_right_end:
+        raise ValueError("grower_effective_on must fall within the right-to-operate interval")
+    if payload.right_starts_on > starts_on or effective_right_end < ends_on:
+        raise ValueError("right-to-operate interval must cover the selected season")
+
+
+def _validate_accepted_replay(
+    conn,
+    case: repository.FarmTruthReviewCase,
+    payload: FarmTruthAcceptanceRequest,
+) -> None:
+    row = conn.execute(
+        """SELECT
+               parcel.operating_unit_id,
+               parcel.name AS field_name,
+               parcel.area_hectares AS parcel_area_hectares,
+               block.name AS block_name,
+               block.area_hectares AS block_area_hectares,
+               allocation.season_id,
+               allocation.crop_name,
+               allocation.cultivar,
+               allocation.area_hectares AS allocation_area_hectares,
+               right_record.right_type,
+               right_record.starts_on AS right_starts_on,
+               right_record.ends_on AS right_ends_on,
+               grower.starts_on AS grower_effective_on
+           FROM land_parcels AS parcel
+           JOIN operational_blocks AS block ON block.id = ?
+           JOIN crop_allocations AS allocation ON allocation.id = ?
+           JOIN rights_to_operate AS right_record
+             ON right_record.land_parcel_id = parcel.id
+           JOIN person_operating_relationships AS grower
+             ON grower.person_id = ?
+            AND grower.crop_allocation_id = allocation.id
+            AND grower.role = 'grower'
+           WHERE parcel.id = ?""",
+        (
+            case.accepted_operational_block_id,
+            case.accepted_crop_allocation_id,
+            case.accepted_grower_person_id,
+            case.accepted_land_parcel_id,
+        ),
+    ).fetchone()
+    season = repository.get_season(conn, payload.season_id)
+    expected_right_end = payload.right_ends_on or (
+        date.fromisoformat(season.ends_on) if season is not None else None
+    )
+    cultivar = payload.cultivar or None
+    matches = row is not None and (
+        row["operating_unit_id"] == payload.operating_unit_id
+        and row["season_id"] == payload.season_id
+        and row["field_name"] == payload.field_name
+        and row["block_name"] == payload.field_name
+        and float(row["parcel_area_hectares"]) == payload.managed_area_hectares
+        and float(row["block_area_hectares"]) == payload.managed_area_hectares
+        and float(row["allocation_area_hectares"]) == payload.managed_area_hectares
+        and row["crop_name"] == payload.crop_name
+        and row["cultivar"] == cultivar
+        and row["grower_effective_on"] == payload.grower_effective_on.isoformat()
+        and row["right_type"] == payload.right_type
+        and row["right_starts_on"] == payload.right_starts_on.isoformat()
+        and row["right_ends_on"] == (
+            expected_right_end.isoformat() if expected_right_end is not None else None
+        )
+    )
+    if matches and payload.field_worker_party_id is not None:
+        worker_link = conn.execute(
+            """SELECT 1 FROM trackwick_party_person_links
+               WHERE party_id = ? AND person_id = ? AND link_status = 'reviewed'""",
+            (payload.field_worker_party_id, case.accepted_field_worker_person_id),
+        ).fetchone()
+        matches = worker_link is not None
+    elif matches and case.accepted_field_worker_person_id is not None:
+        matches = False
+    if not matches:
+        raise _conflict("accepted farm truth result does not match this request")
 
 
 @router.post("/refresh")
@@ -190,11 +288,17 @@ def accept_farm_truth_case(
     established = repository.get_farm_truth_case(conn, case_id)
     if established is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="farm truth review case not found")
-    if established.status == "accepted":
-        return _acceptance_result(established)
-    _case_for_decision(conn, case_id, payload.operating_unit_id, payload.season_id)
     try:
         _validate_acceptance_dates(conn, payload)
+    except ValueError as error:
+        raise _unprocessable(error)
+    if established.status == "accepted":
+        _validate_accepted_replay(conn, established, payload)
+        return _acceptance_result(established)
+    expected = _case_for_decision(
+        conn, case_id, payload.operating_unit_id, payload.season_id
+    )
+    try:
         task_ids = farm_truth.selected_farm_truth_task_ids(
             conn,
             case_id,
@@ -218,9 +322,14 @@ def accept_farm_truth_case(
             right_ends_on=payload.right_ends_on.isoformat() if payload.right_ends_on else None,
             selected_task_ids=task_ids,
             field_worker_party_id=payload.field_worker_party_id,
+            expected_case_updated_at=expected.updated_at,
         )
     except ValueError as error:
-        if "claimed or resolved" in str(error) or "reviewed operating link" in str(error):
+        if (
+            "stale" in str(error)
+            or "claimed or resolved" in str(error)
+            or "reviewed operating link" in str(error)
+        ):
             raise _conflict(str(error))
         raise _unprocessable(error)
     return _acceptance_result(accepted)
@@ -234,10 +343,17 @@ def mark_farm_truth_case_needs_evidence(
     manager_id: str = Depends(require_manager),
 ) -> dict:
     conn = _connection(request)
-    _case_for_decision(conn, case_id, payload.operating_unit_id, payload.season_id)
+    expected = _case_for_decision(
+        conn, case_id, payload.operating_unit_id, payload.season_id
+    )
     try:
         case = repository.mark_farm_truth_case_needs_evidence(
-            conn, case_id, manager_id, payload.missing_evidence_kind, payload.reason
+            conn,
+            case_id,
+            manager_id,
+            payload.missing_evidence_kind,
+            payload.reason,
+            expected_case_updated_at=expected.updated_at,
         )
     except ValueError as error:
         raise _conflict(str(error))
@@ -256,10 +372,16 @@ def reject_farm_truth_case(
     manager_id: str = Depends(require_manager),
 ) -> dict:
     conn = _connection(request)
-    _case_for_decision(conn, case_id, payload.operating_unit_id, payload.season_id)
+    expected = _case_for_decision(
+        conn, case_id, payload.operating_unit_id, payload.season_id
+    )
     try:
         case = repository.mark_farm_truth_case_rejected(
-            conn, case_id, manager_id, payload.reason
+            conn,
+            case_id,
+            manager_id,
+            payload.reason,
+            expected_case_updated_at=expected.updated_at,
         )
     except ValueError as error:
         raise _conflict(str(error))
