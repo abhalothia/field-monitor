@@ -79,6 +79,10 @@ WEB_ASSETS = {
     "rice-sheaf-icon.png": STATIC_DIR / "art" / "rice-sheaf-icon.png",
 }
 FIELD_SERVICE_WORKER = STATIC_DIR / "field" / "sw.js"
+VERCEL_ANALYTICS_SNIPPET = '''    <script>
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>'''
 
 
 def _public_origin() -> str:
@@ -135,6 +139,7 @@ def _public_landing(origin: str) -> str:
     <meta name="twitter:description" content="Know what changed. Know who owns the next move.">
     <meta name="twitter:image" content="{social_image}">
     <link rel="stylesheet" href="/assets/public.css">
+{VERCEL_ANALYTICS_SNIPPET}
   </head>
   <body>
     <main class="shell">
@@ -292,14 +297,18 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             # surface: leave only the data-free share shell and static branding
             # available until its encrypted launch secret is configured.
             if os.environ.get("VERCEL") and not (
-                path in public_paths or path.startswith("/assets/") or path.startswith("/brand/") or path == "/field-service-worker.js"
+                path in public_paths or path.startswith("/assets/") or path.startswith("/brand/")
+                or path.startswith("/_vercel/insights/") or path == "/field-service-worker.js"
             ):
                 return JSONResponse(
                     {"detail": "Fortune pilot access is not configured"},
                     status_code=503,
                 )
             return await call_next(request)
-        if path in public_paths or path.startswith("/assets/") or path.startswith("/brand/") or path == "/field-service-worker.js" or webhook:
+        if (
+            path in public_paths or path.startswith("/assets/") or path.startswith("/brand/")
+            or path.startswith("/_vercel/insights/") or path == "/field-service-worker.js" or webhook
+        ):
             return await call_next(request)
         if request.session.get(SESSION_FLAG) is True:
             return await call_next(request)

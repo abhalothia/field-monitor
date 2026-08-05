@@ -14,6 +14,8 @@ def test_public_landing_is_data_free_and_has_absolute_share_metadata(tmp_path, m
     assert "Real-time farm steering" not in response.text
     assert "Open AGRO CEO" in response.text
     assert "https://pilot.agroceo.co/brand/agro-ceo-social.png" in response.text
+    assert 'src="/_vercel/insights/script.js"' in response.text
+    assert "window.va = window.va" in response.text
     assert "Open exceptions" not in response.text
     assert "agro_*" not in response.text
 
@@ -31,10 +33,21 @@ def test_brand_assets_and_legacy_favicon_are_public_with_launch_gate_enabled(tmp
         assert client.get("/assets/field-ledger-paddies.png").content.startswith(b"\x89PNG\r\n\x1a\n")
         assert client.get("/assets/rice-paper.png").content.startswith(b"\x89PNG\r\n\x1a\n")
         assert client.get("/assets/public.css").headers["content-type"].startswith("text/css")
+        assert 'src="/_vercel/insights/script.js"' in client.get("/login").text
         assert client.get("/assets/not-a-file.txt").status_code == 404
         assert client.get("/favicon.svg", follow_redirects=False).headers["location"] == "/favicon.png"
         assert client.get("/favicon.ico", follow_redirects=False).headers["location"] == "/favicon.png"
         assert client.get("/manager", follow_redirects=False).status_code == 303
+
+
+def test_vercel_insights_route_is_never_redirected_through_the_launch_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("VERCEL", "1")
+    with TestClient(create_app(str(tmp_path / "brand.db"), launch_password="pilot-password")) as client:
+        response = client.get("/_vercel/insights/script.js", follow_redirects=False)
+
+    # Vercel serves this reserved route in production.  Locally it is absent,
+    # but it must not become a password redirect that prevents analytics.
+    assert response.status_code == 404
 
 
 def test_public_origin_rejects_paths_and_untrusted_shapes(tmp_path, monkeypatch):
