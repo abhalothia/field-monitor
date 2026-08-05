@@ -98,6 +98,27 @@ version, freshness, and limitations. The browser does not receive provider
 credentials, task identifiers, raw GPS, mobile numbers, photos, or source
 rows.
 
+### Farm Truth review boundary
+
+TrackWick evidence stays in the private source layer and is read-only to the
+Farm Truth workflow. A refresh discovers candidates only from the already
+ingested typed tables; it neither calls TrackWick nor copies, corrects, or
+overwrites those source records.
+
+The manager-reviewed Farm Truth decision is the only bridge from that evidence
+to canonical parcels, operational blocks, crop allocations, scoped people
+relationships, and rights to operate. `Accept` creates one traceable canonical
+set, reviewed source links, and an audit event in one transaction. `Needs
+evidence` and `Reject` record accountable review state but make no canonical
+farm claim.
+
+Canonical Farm Truth and map publication remain separate reviews. Home and
+Farms maps consume only geometry from a separately reviewed, published farm
+manifest. An accepted Farm Truth record without published reviewed geometry
+therefore remains a valid operating record and does not become a pin or
+boundary. TrackWick GPS, addresses, village labels, media locations, and other
+source evidence are never map input.
+
 ## What is live, what is gated
 
 | Capability | State | Gate before it becomes live Fortune data |
@@ -116,14 +137,19 @@ The shortest honest activation sequence is:
 
 1. Name the accountable Fortune manager and create their reviewed people
    record.
-2. Publish a farm manifest with stable source IDs and only the verified
-   geometry Fortune is permitted to use.
-3. Create field, crop-season, and scoped person relationships.
-4. Place the TrackWick configuration in server secrets and run a manager
+2. Place the TrackWick configuration in server secrets and run a manager
    refresh; the importer fails closed if the owner is wrong.
-5. Publish a one-season purchase capture if the business wants to show
+3. Choose one operating unit and season, then review candidates individually
+   through Farm Truth. The first-session success criterion is **25 accepted,
+   evidence-backed records**, not a bulk import.
+4. Separately review and publish a farm manifest containing only geometry
+   Fortune is permitted to use. This publication, not TrackWick evidence or
+   Farm Truth acceptance by itself, supplies Home and Farms maps.
+5. Complete the 25-record manager review and its checks before production
+   rollout; do not use deployment as the review environment.
+6. Publish a one-season purchase capture if the business wants to show
    purchase share.
-6. Add evidence-backed compliance sources before showing any export claim.
+7. Add evidence-backed compliance sources before showing any export claim.
 
 That is enough to make the product more valuable than the current daily
 report without pretending to know more than Fortune's data proves.

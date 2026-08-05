@@ -89,6 +89,27 @@ def _acceptance(unit, season, **overrides):
     return values
 
 
+CANONICAL_CLAIM_TABLES = (
+    "land_parcels",
+    "operational_blocks",
+    "block_parcels",
+    "rights_to_operate",
+    "crop_allocations",
+    "person_operating_relationships",
+    "trackwick_party_person_links",
+    "trackwick_plot_operating_links",
+    "trackwick_task_allocation_links",
+    "audit_events",
+)
+
+
+def _claim_counts(conn):
+    return {
+        table: conn.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
+        for table in CANONICAL_CLAIM_TABLES
+    }
+
+
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
@@ -199,6 +220,173 @@ def test_accept_uses_manager_identity_and_returns_only_stable_canonical_ids(farm
     stored = repository.get_farm_truth_case(app.state.conn, case_id)
     assert stored.reviewed_by_person_id == manager.id
     assert "worker-route" not in json.dumps(accepted.json())
+
+
+def test_end_to_end_review_creates_one_linked_canonical_set_and_exact_retry(
+    farm_truth_api,
+):
+    app, client, manager, unit, season, source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+    source_rows_before = {
+        table: [tuple(row) for row in app.state.conn.execute("SELECT * FROM " + table)]
+        for table in (
+            "trackwick_parties",
+            "trackwick_tasks",
+            "trackwick_visits",
+            "trackwick_registrations",
+            "trackwick_registration_plots",
+            "trackwick_contact_points",
+            "trackwick_location_observations",
+            "trackwick_media_references",
+            "trackwick_visit_findings",
+        )
+    }
+    payload = _acceptance(
+        unit,
+        season,
+        field_worker_party_id="worker-route",
+    )
+
+    accepted = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=payload,
+        headers=TOKEN,
+    )
+    retried = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=payload,
+        headers=TOKEN,
+    )
+
+    assert accepted.status_code == retried.status_code == 200
+    assert retried.json() == accepted.json()
+    canonical = accepted.json()
+    assert canonical["status"] == "accepted"
+    assert _claim_counts(app.state.conn) == {
+        "land_parcels": 1,
+        "operational_blocks": 1,
+        "block_parcels": 1,
+        "rights_to_operate": 1,
+        "crop_allocations": 1,
+        "person_operating_relationships": 2,
+        "trackwick_party_person_links": 2,
+        "trackwick_plot_operating_links": 1,
+        "trackwick_task_allocation_links": 2,
+        "audit_events": 1,
+    }
+
+    parcel = app.state.conn.execute("SELECT * FROM land_parcels").fetchone()
+    block = app.state.conn.execute("SELECT * FROM operational_blocks").fetchone()
+    block_parcel = app.state.conn.execute("SELECT * FROM block_parcels").fetchone()
+    right = app.state.conn.execute("SELECT * FROM rights_to_operate").fetchone()
+    allocation = app.state.conn.execute("SELECT * FROM crop_allocations").fetchone()
+    relationships = app.state.conn.execute(
+        "SELECT * FROM person_operating_relationships ORDER BY role"
+    ).fetchall()
+    party_links = app.state.conn.execute(
+        "SELECT * FROM trackwick_party_person_links ORDER BY party_id"
+    ).fetchall()
+    plot_link = app.state.conn.execute(
+        "SELECT * FROM trackwick_plot_operating_links"
+    ).fetchone()
+    task_links = app.state.conn.execute(
+        "SELECT * FROM trackwick_task_allocation_links ORDER BY task_id"
+    ).fetchall()
+    audit = app.state.conn.execute("SELECT * FROM audit_events").fetchone()
+    stored_case = repository.get_farm_truth_case(app.state.conn, case_id)
+
+    assert parcel["id"] == canonical["land_parcel_id"]
+    assert block["id"] == canonical["operational_block_id"]
+    assert block_parcel["land_parcel_id"] == parcel["id"]
+    assert block_parcel["operational_block_id"] == block["id"]
+    assert right["land_parcel_id"] == parcel["id"]
+    assert allocation["id"] == canonical["crop_allocation_id"]
+    assert allocation["operational_block_id"] == block["id"]
+    assert allocation["season_id"] == season.id
+    assert [(row["role"], row["person_id"]) for row in relationships] == [
+        ("field_operator", canonical["field_worker_person_id"]),
+        ("grower", canonical["grower_person_id"]),
+    ]
+    assert all(row["crop_allocation_id"] == allocation["id"] for row in relationships)
+    assert [(row["party_id"], row["person_id"]) for row in party_links] == [
+        ("farmer-route", canonical["grower_person_id"]),
+        ("worker-route", canonical["field_worker_person_id"]),
+    ]
+    assert all(row["link_status"] == "reviewed" for row in party_links)
+    assert plot_link["plot_id"] == "plot-route"
+    assert plot_link["land_parcel_id"] == parcel["id"]
+    assert plot_link["operational_block_id"] == block["id"]
+    assert plot_link["link_status"] == "reviewed"
+    assert [row["task_id"] for row in task_links] == ["open-route-0", "visit-route-0"]
+    assert all(row["crop_allocation_id"] == allocation["id"] for row in task_links)
+    assert all(row["link_status"] == "reviewed" for row in task_links)
+    assert audit["entity_type"] == "farm_truth_review_case"
+    assert audit["entity_id"] == case_id
+    assert audit["actor_id"] == manager.id
+    assert (audit["from_status"], audit["to_status"]) == ("open", "accepted")
+    assert json.loads(audit["reason"]) == {
+        "action": "farm_truth_accepted",
+        "case_id": case_id,
+        "plot_id": "plot-route",
+        "registration_id": "registration-route",
+        "source_id": source.id,
+        "task_ids": ["open-route-0", "visit-route-0"],
+    }
+    assert stored_case.status == "accepted"
+    assert stored_case.reviewed_by_person_id == manager.id
+    assert stored_case.accepted_land_parcel_id == parcel["id"]
+    assert stored_case.accepted_operational_block_id == block["id"]
+    assert stored_case.accepted_crop_allocation_id == allocation["id"]
+    assert stored_case.accepted_grower_person_id == canonical["grower_person_id"]
+    assert stored_case.accepted_field_worker_person_id == canonical["field_worker_person_id"]
+    assert source_rows_before == {
+        table: [tuple(row) for row in app.state.conn.execute("SELECT * FROM " + table)]
+        for table in source_rows_before
+    }
+
+
+def test_needs_evidence_writes_no_canonical_claims(farm_truth_api):
+    app, client, manager, unit, season, _source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+
+    response = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/needs-evidence",
+        json={
+            **_context(unit, season),
+            "missing_evidence_kind": "right_to_operate",
+            "reason": "Confirm the operating right",
+        },
+        headers=TOKEN,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": case_id,
+        "status": "needs_evidence",
+        "missing_evidence_kind": "right_to_operate",
+    }
+    assert _claim_counts(app.state.conn) == dict.fromkeys(CANONICAL_CLAIM_TABLES, 0)
+    stored = repository.get_farm_truth_case(app.state.conn, case_id)
+    assert stored.status == "needs_evidence"
+    assert stored.owner_person_id == stored.reviewed_by_person_id == manager.id
+
+
+def test_reject_writes_no_canonical_claims(farm_truth_api):
+    app, client, manager, unit, season, _source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+
+    response = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/reject",
+        json={**_context(unit, season), "reason": "Outside the programme"},
+        headers=TOKEN,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": case_id, "status": "rejected"}
+    assert _claim_counts(app.state.conn) == dict.fromkeys(CANONICAL_CLAIM_TABLES, 0)
+    stored = repository.get_farm_truth_case(app.state.conn, case_id)
+    assert stored.status == "rejected"
+    assert stored.reviewed_by_person_id == manager.id
 
 
 def test_accepted_retry_requires_the_same_valid_acceptance_context(farm_truth_api):

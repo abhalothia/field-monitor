@@ -300,6 +300,11 @@ def test_refresh_discovers_one_safe_registration_plot_candidate(ffl_db, farm_tru
     source_rows_before = {
         table: [tuple(row) for row in ffl_db.execute("SELECT * FROM " + table).fetchall()]
         for table in (
+            "trackwick_parties",
+            "trackwick_tasks",
+            "trackwick_visits",
+            "trackwick_registrations",
+            "trackwick_registration_plots",
             "trackwick_contact_points",
             "trackwick_location_observations",
             "trackwick_media_references",

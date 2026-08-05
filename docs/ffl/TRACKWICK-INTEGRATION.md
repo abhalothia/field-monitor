@@ -56,10 +56,31 @@ One task can safely become a farmer-task context row, completed visit, issue obs
 
 The refresh is manual and manager-authorized. Its published records are source context only; farmer, farm, and field-worker basics remain candidates until reviewed. They never create a canonical farm, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
 
+### Candidate evidence used by Farm Truth
+
+Farm Truth discovery reads only the already-ingested typed private tables. One
+candidate is one exact completed registration plus one exact registered plot,
+from the same enabled TrackWick source, with:
+
+- a valid completed registration task and completed registration;
+- a valid linked farmer party;
+- positive reported plot area, or positive registration total area as the
+  explicit fallback;
+- at least one valid completed Farmer Visit observed inside the manager's
+  selected season; and
+- valid in-season visits and linked open work as supporting evidence, including
+  a field-worker candidate only when those typed tasks support that worker.
+
+The candidate card uses only generated labels, bounded counts, display names,
+explicit village/block/district and Gata context, reported area, registration
+timing, crop timing, crop stage, and transparent reason chips. Discovery does
+not fetch fresh provider data and does not write to any TrackWick evidence
+table.
+
 The separate private evidence lane retains only the extra source facts needed
-for a useful operational map and later review: customer/registration mobiles
-in a restricted contact vault, typed tasks/visits/plots, exact source points,
-and remote crop/plot-photo references from TrackWick's approved image host.
+for a useful private evidence board and later review: customer/registration
+mobiles in a restricted contact vault, typed tasks/visits/plots, exact source
+points, and remote crop/plot-photo references from TrackWick's approved image host.
 It marks registration/CRM points as declared and task/visit/photo points as
 observed. Those pins are never farm boundaries, and a refresh never copies a
 photo or sends private evidence to the browser.
@@ -102,5 +123,32 @@ email, free-text comments, unknown photo labels, raw `formDetails`, task URLs,
 and the customer/API credentials. The private lane keeps an approved photo as
 a remote reference only: no copied bytes, EXIF extraction, or AI
 interpretation occurs during sync.
+
+The Farm Truth candidate, decision response, canonical record, and map path
+intentionally exclude all of the following, even when the private evidence
+lane retained a typed reference for restricted source operations:
+
+- phone numbers and other contact values;
+- Aadhaar numbers or Aadhaar-derived material;
+- raw GPS coordinates, provider addresses, and geo-address text;
+- source media, media URLs, image bytes, and EXIF data; and
+- raw form text, free-text answers, raw payloads, provider identifiers, and
+  credentials.
+
+On `Accept`, one transaction creates the canonical parcel/block/allocation,
+dated right, scoped grower relationship, and optional supported field-worker
+relationship. It also creates private `reviewed` source links from the farmer
+and optional worker parties to canonical people, from the exact source plot to
+the canonical parcel/block, and from the selected supporting tasks to the crop
+allocation. One private audit event records the case transition and the source
+receipt IDs needed to trace the decision. Those links and audit metadata are
+server-side provenance; they are not returned by Farm Truth list/detail or
+decision responses. The underlying TrackWick evidence is not changed.
+
+`Needs evidence` records the constrained missing-evidence kind, reason,
+reviewer, owner, and review time on the private case so it can remain
+accountable in Inbox. `Reject` records its reason, reviewer, and review time.
+Neither decision creates a parcel, block, allocation, relationship, right,
+reviewed source link, or acceptance audit event.
 
 TrackWick does not provide an authoritative territory owner, purchase commitment, collection/weighbridge record, grade, lot, residue test, or EU-compliance result. Those require their own reviewed Fortune sources. A pesticide record is a review cue, never proof that the crop is compliant.
