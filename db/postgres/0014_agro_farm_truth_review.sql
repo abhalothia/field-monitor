@@ -90,7 +90,7 @@ BEGIN
     IF NOT (
         (OLD.status = 'open' AND NEW.status IN ('accepting', 'needs_evidence', 'rejected'))
         OR (OLD.status = 'accepting' AND NEW.status = 'accepted')
-        OR (OLD.status = NEW.status
+        OR (OLD.status = 'open' AND NEW.status = 'open'
             AND OLD.review_reason IS NOT DISTINCT FROM NEW.review_reason
             AND OLD.missing_evidence_kind IS NOT DISTINCT FROM NEW.missing_evidence_kind
             AND OLD.owner_person_id IS NOT DISTINCT FROM NEW.owner_person_id

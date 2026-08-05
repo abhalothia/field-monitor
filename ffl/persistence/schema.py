@@ -1049,7 +1049,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
                 'accepting', 'needs_evidence', 'rejected'
             ))
             OR (OLD.status = 'accepting' AND NEW.status = 'accepted')
-            OR (OLD.status = NEW.status
+            OR (OLD.status = 'open' AND NEW.status = 'open'
                 AND OLD.review_reason IS NEW.review_reason
                 AND OLD.missing_evidence_kind IS NEW.missing_evidence_kind
                 AND OLD.owner_person_id IS NEW.owner_person_id

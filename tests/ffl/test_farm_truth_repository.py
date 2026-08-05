@@ -159,6 +159,12 @@ def test_allowed_lifecycle_transitions_and_terminal_decisions(ffl_db):
     assert needs_case.status == "needs_evidence"
     assert needs_case.owner_person_id == reviewer.id
     assert needs_case.missing_evidence_kind == "plot_area"
+    with pytest.raises(sqlite3.IntegrityError, match="invalid farm truth review case transition"):
+        ffl_db.execute(
+            "UPDATE farm_truth_review_cases SET evidence_summary_json = '{}' WHERE id = ?",
+            (needs_case.id,),
+        )
+    ffl_db.rollback()
 
     rejected_case = create_or_refresh_farm_truth_case(
         ffl_db, "source-1", "registration-1", "plot-1", "1" * 64, {"reason_chips": []}
@@ -168,6 +174,12 @@ def test_allowed_lifecycle_transitions_and_terminal_decisions(ffl_db):
     )
     assert rejected_case.status == "rejected"
     assert rejected_case.reviewed_by_person_id == reviewer.id
+    with pytest.raises(sqlite3.IntegrityError, match="invalid farm truth review case transition"):
+        ffl_db.execute(
+            "UPDATE farm_truth_review_cases SET evidence_summary_json = '{}' WHERE id = ?",
+            (rejected_case.id,),
+        )
+    ffl_db.rollback()
     assert ffl_db.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 0
 
 
@@ -181,6 +193,12 @@ def test_acceptance_is_idempotent_and_creates_one_complete_canonical_set(ffl_db)
 
     assert accepted == replayed
     assert accepted.status == "accepted"
+    with pytest.raises(sqlite3.IntegrityError, match="invalid farm truth review case transition"):
+        ffl_db.execute(
+            "UPDATE farm_truth_review_cases SET evidence_summary_json = '{}' WHERE id = ?",
+            (accepted.id,),
+        )
+    ffl_db.rollback()
     assert all((accepted.accepted_land_parcel_id, accepted.accepted_operational_block_id,
                 accepted.accepted_crop_allocation_id, accepted.accepted_grower_person_id))
     assert ffl_db.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 1
