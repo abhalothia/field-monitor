@@ -2072,6 +2072,14 @@ def _get_farm_truth_case_by_candidate(
     return _farm_truth_review_case(row) if row is not None else None
 
 
+def get_farm_truth_case_by_candidate(
+    conn: sqlite3.Connection,
+    plot_id: str,
+    candidate_fingerprint: str,
+) -> Optional[FarmTruthReviewCase]:
+    return _get_farm_truth_case_by_candidate(conn, plot_id, candidate_fingerprint)
+
+
 def create_or_refresh_farm_truth_case(
     conn: sqlite3.Connection,
     source_id: str,
@@ -2161,8 +2169,17 @@ def list_farm_truth_cases(
     return [_farm_truth_review_case(row) for row in rows]
 
 
-def clear_current_farm_truth_open_cases(conn: sqlite3.Connection) -> None:
-    """Remove mutable open cases from the current queue without deleting history."""
+def clear_current_farm_truth_open_cases(
+    conn: sqlite3.Connection,
+    queue_context_keys: Sequence[str],
+) -> None:
+    """Clear selected queue contexts without touching other review contexts."""
+    context_keys = {
+        key for key in queue_context_keys
+        if isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key)
+    }
+    if not context_keys:
+        return
     rows = conn.execute(
         """SELECT id, evidence_summary_json
            FROM farm_truth_review_cases
@@ -2172,9 +2189,17 @@ def clear_current_farm_truth_open_cases(conn: sqlite3.Connection) -> None:
     updates = []
     for row in rows:
         summary = json.loads(row["evidence_summary_json"])
-        if summary.get("_queue_current") is not True:
+        contexts = summary.get("_queue_contexts")
+        if not isinstance(contexts, dict):
             continue
-        summary["_queue_current"] = False
+        changed = False
+        for context_key in context_keys:
+            if contexts.get(context_key) is True:
+                contexts[context_key] = False
+                changed = True
+        if not changed:
+            continue
+        summary["_queue_contexts"] = contexts
         updates.append((_json_value(summary), updated_at, row["id"]))
     if updates:
         conn.executemany(
@@ -2190,13 +2215,14 @@ def list_latest_farm_truth_cases(
     conn: sqlite3.Connection,
     status: Optional[str] = None,
     owner_person_id: Optional[str] = None,
+    queue_context_keys: Optional[Sequence[str]] = None,
 ) -> List[FarmTruthReviewCase]:
     """Return only the most recently refreshed receipt for each source plot.
 
     This intentionally has no queue limit: callers must apply their transparent
-    evidence ordering before taking a bounded browser-facing slice.  Filtering
-    happens after receipt de-duplication so an older open receipt cannot
-    reappear after the newest receipt has reached a review state.
+    evidence ordering before taking a bounded browser-facing slice.  A supplied
+    queue context is filtered before receipt de-duplication so activity in one
+    source/unit/season cannot shadow the current receipt in another context.
     """
     if status is not None and status not in FARM_TRUTH_CASE_STATUSES:
         raise ValueError("invalid farm truth review case status")
@@ -2208,6 +2234,34 @@ def list_latest_farm_truth_cases(
     if owner_person_id is not None:
         where.append("current.owner_person_id = ?")
         params.append(_required_text(owner_person_id, "owner_person_id", 128))
+    if queue_context_keys is not None:
+        context_keys = {
+            key for key in queue_context_keys
+            if isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key)
+        }
+        if not context_keys:
+            return []
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        rows = conn.execute(
+            "SELECT current.* FROM farm_truth_review_cases AS current"
+            + clause
+            + " ORDER BY current.updated_at DESC, current.id",
+            params,
+        ).fetchall()
+        latest: List[FarmTruthReviewCase] = []
+        seen_plots = set()
+        for row in rows:
+            case = _farm_truth_review_case(row)
+            contexts = case.evidence_summary.get("_queue_contexts")
+            if not isinstance(contexts, Mapping) or not any(
+                contexts.get(key) is True for key in context_keys
+            ):
+                continue
+            if case.plot_id in seen_plots:
+                continue
+            seen_plots.add(case.plot_id)
+            latest.append(case)
+        return latest
     clause = " AND " + " AND ".join(where) if where else ""
     rows = conn.execute(
         """SELECT current.*

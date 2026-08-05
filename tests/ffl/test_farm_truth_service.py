@@ -308,8 +308,8 @@ def test_refresh_discovers_one_safe_registration_plot_candidate(ffl_db, farm_tru
     }
 
     queue = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
-    listed = list_farm_truth_case_summaries(ffl_db)
-    detail = get_farm_truth_case_detail(ffl_db, queue[0]["id"])
+    listed = list_farm_truth_case_summaries(ffl_db, unit.id, season.id)
+    detail = get_farm_truth_case_detail(ffl_db, queue[0]["id"], unit.id, season.id)
     serialized = json.dumps([queue, listed, detail], sort_keys=True)
 
     assert queue == listed
@@ -474,7 +474,7 @@ def test_candidate_fingerprint_is_stable_and_changes_with_supporting_receipt(
     assert changed[0]["id"] != first[0]["id"]
     assert len(changed) == 1
     assert reverted == first
-    assert list_farm_truth_case_summaries(ffl_db) == reverted
+    assert list_farm_truth_case_summaries(ffl_db, unit.id, season.id) == reverted
     assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 2
 
 
@@ -500,10 +500,43 @@ def test_refresh_removes_open_case_from_current_queue_when_visit_becomes_ineligi
     refreshed = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
 
     assert refreshed == []
-    assert list_farm_truth_case_summaries(ffl_db) == []
-    assert get_farm_truth_case_detail(ffl_db, case_id) is None
+    assert list_farm_truth_case_summaries(ffl_db, unit.id, season.id) == []
+    assert get_farm_truth_case_detail(ffl_db, case_id, unit.id, season.id) is None
     stored = repository.get_farm_truth_case(ffl_db, case_id)
     assert stored is not None and stored.status == "open"
+    assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 1
+
+
+def test_refresh_in_second_unit_season_does_not_hide_first_context_queue(
+    ffl_db, farm_truth_context
+):
+    actor, first_unit, first_season, source = farm_truth_context
+    _seed_candidate(ffl_db, source.id, "context")
+    first_queue = refresh_farm_truth_cases(
+        ffl_db, first_unit.id, first_season.id, actor.id
+    )
+    second_unit = repository.create_operating_unit(ffl_db, "Second Fortune Farm")
+    second_season = repository.create_season(
+        ffl_db, second_unit.id, "Kharif 2027", "2027-06-01", "2027-11-30"
+    )
+
+    second_queue = refresh_farm_truth_cases(
+        ffl_db, second_unit.id, second_season.id, actor.id
+    )
+
+    assert second_queue == []
+    assert list_farm_truth_case_summaries(
+        ffl_db, first_unit.id, first_season.id
+    ) == first_queue
+    assert get_farm_truth_case_detail(
+        ffl_db, first_queue[0]["id"], first_unit.id, first_season.id
+    ) == first_queue[0]
+    assert list_farm_truth_case_summaries(
+        ffl_db, second_unit.id, second_season.id
+    ) == []
+    assert get_farm_truth_case_detail(
+        ffl_db, first_queue[0]["id"], second_unit.id, second_season.id
+    ) is None
     assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 1
 
 

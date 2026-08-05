@@ -44,7 +44,12 @@ def refresh_farm_truth_cases(
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (actor_id,)).fetchone() is None:
         raise ValueError("actor does not exist")
 
-    repository.clear_current_farm_truth_open_cases(conn)
+    source_ids = _trackwick_source_ids(conn)
+    queue_context_keys = [
+        _queue_context_key(source_id, operating_unit_id, season_id)
+        for source_id in source_ids
+    ]
+    repository.clear_current_farm_truth_open_cases(conn, queue_context_keys)
     candidates = _candidate_rows(conn)
     tasks_by_farmer = _supporting_tasks(conn)
     current_cases = []
@@ -80,6 +85,15 @@ def refresh_farm_truth_cases(
         eligible_tasks.sort(key=lambda task: str(task["id"]))
         fingerprint = _candidate_fingerprint(candidate, eligible_tasks)
         summary = _evidence_summary(candidate, visits, open_work)
+        existing = repository.get_farm_truth_case_by_candidate(
+            conn, str(candidate["plot_id"]), fingerprint
+        )
+        contexts = _queue_contexts(existing.evidence_summary if existing is not None else {})
+        context_key = _queue_context_key(
+            str(candidate["source_id"]), operating_unit_id, season_id
+        )
+        contexts[context_key] = True
+        summary["_queue_contexts"] = contexts
         case = repository.create_or_refresh_farm_truth_case(
             conn,
             source_id=str(candidate["source_id"]),
@@ -97,22 +111,35 @@ def refresh_farm_truth_cases(
 
 def list_farm_truth_case_summaries(
     conn,
+    operating_unit_id: str,
+    season_id: str,
     status: str = "open",
     limit: int = _QUEUE_LIMIT,
 ) -> list[dict[str, Any]]:
     """List the newest receipt per plot as bounded, allowlisted summaries."""
     _validate_queue_limit(limit)
-    cases = repository.list_latest_farm_truth_cases(conn, status=status)
-    if status == "open":
-        cases = [case for case in cases if _case_is_current(case)]
+    _require_season_context(conn, operating_unit_id, season_id)
+    context_keys = [
+        _queue_context_key(source_id, operating_unit_id, season_id)
+        for source_id in _trackwick_source_ids(conn)
+    ]
+    cases = repository.list_latest_farm_truth_cases(
+        conn, status=status, queue_context_keys=context_keys
+    )
     cases.sort(key=_case_sort_key)
     return [_serialize_case(case) for case in cases[:limit]]
 
 
-def get_farm_truth_case_detail(conn, case_id: str) -> Optional[dict[str, Any]]:
+def get_farm_truth_case_detail(
+    conn,
+    case_id: str,
+    operating_unit_id: str,
+    season_id: str,
+) -> Optional[dict[str, Any]]:
     """Return one allowlisted case detail without re-querying source evidence."""
+    _require_season_context(conn, operating_unit_id, season_id)
     case = repository.get_farm_truth_case(conn, case_id)
-    if case is not None and case.status == "open" and not _case_is_current(case):
+    if case is not None and not _case_is_current(case, operating_unit_id, season_id):
         return None
     return _serialize_case(case) if case is not None else None
 
@@ -202,6 +229,15 @@ def _candidate_rows(conn) -> list[Mapping[str, Any]]:
     ).fetchall())
 
 
+def _trackwick_source_ids(conn) -> list[str]:
+    rows = conn.execute(
+        """SELECT id FROM source_registry
+           WHERE source_type = 'trackwick'
+           ORDER BY id"""
+    ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
 def _supporting_tasks(conn) -> dict[tuple[str, str], tuple[Mapping[str, Any], ...]]:
     rows = conn.execute(
         """SELECT
@@ -283,7 +319,6 @@ def _evidence_summary(
     if open_count:
         labels.append("Open follow-up")
     return {
-        "_queue_current": True,
         "place": {
             "village": candidate["plot_village_name"] or candidate["village_name"],
             "block": candidate["block_name"],
@@ -326,8 +361,40 @@ def _serialize_case(case: repository.FarmTruthReviewCase) -> dict[str, Any]:
     }
 
 
-def _case_is_current(case: repository.FarmTruthReviewCase) -> bool:
-    return case.evidence_summary.get("_queue_current") is True
+def _queue_context_key(source_id: str, operating_unit_id: str, season_id: str) -> str:
+    material = json.dumps(
+        [source_id, operating_unit_id, season_id],
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _queue_contexts(summary: Mapping[str, Any]) -> dict[str, bool]:
+    value = summary.get("_queue_contexts")
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: current
+        for key, current in value.items()
+        if isinstance(key, str)
+        and len(key) == 64
+        and isinstance(current, bool)
+    }
+
+
+def _case_is_current(
+    case: repository.FarmTruthReviewCase,
+    operating_unit_id: str,
+    season_id: str,
+) -> bool:
+    context_key = _queue_context_key(case.source_id, operating_unit_id, season_id)
+    return _queue_contexts(case.evidence_summary).get(context_key) is True
+
+
+def _require_season_context(conn, operating_unit_id: str, season_id: str) -> None:
+    season = repository.get_season(conn, season_id)
+    if season is None or season.operating_unit_id != operating_unit_id:
+        raise ValueError("season does not belong to operating unit")
 
 
 def _safe_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
