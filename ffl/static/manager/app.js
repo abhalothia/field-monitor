@@ -38,6 +38,7 @@
   var currentFarmTruthCase = null;
   var farmTruthOpenPending = false;
   var selectedFarmTruthContextKey = "";
+  var farmTruthContextGeneration = 0;
   var localeStorageKey = "ffl.manager.interface-locale";
   var interfaceLocale = window.localStorage.getItem(localeStorageKey) === "hi" ? "hi" : "en";
   var copy = {
@@ -217,10 +218,8 @@
       t("managerUnlocked") : t("managerLocked");
     action.textContent = managerSessionAuthenticated ? t("lockActions") : t("unlockActions");
     if (!managerSessionAuthenticated) {
-      farmTruthCases = [];
       farmTruthInboxCases = [];
-      currentFarmTruthCase = null;
-      selectedFarmTruthContextKey = "";
+      resetFarmTruthDialogState(true);
     }
   }
 
@@ -399,6 +398,32 @@
     })[0] || null;
   }
 
+  function invalidateFarmTruthContext() {
+    farmTruthContextGeneration += 1;
+  }
+
+  function beginFarmTruthRequest() {
+    var context = farmTruthContext();
+    if (!context || !element("farm-truth-dialog").open) {
+      return null;
+    }
+    invalidateFarmTruthContext();
+    return {
+      context: context,
+      key: context.key,
+      generation: farmTruthContextGeneration
+    };
+  }
+
+  function farmTruthOriginIsActive(origin) {
+    var context = farmTruthContext();
+    return Boolean(
+      origin && element("farm-truth-dialog").open && context &&
+      origin.key === selectedFarmTruthContextKey && origin.key === context.key &&
+      origin.generation === farmTruthContextGeneration
+    );
+  }
+
   function farmTruthQuery(context, status) {
     return "?operating_unit_id=" + encodeURIComponent(context.operating_unit_id) +
       "&season_id=" + encodeURIComponent(context.season_id) +
@@ -533,53 +558,89 @@
     prefillFarmTruthAcceptance(item);
   }
 
-  function renderFarmTruthUnavailable() {
+  function clearFarmTruthCaseState() {
     currentFarmTruthCase = null;
     farmTruthCases = [];
     element("farm-truth-progress").textContent = "";
     setHtml("farm-truth-list", "");
     setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthUnavailable")) + "</p>");
     element("farm-truth-decision-panel").hidden = true;
+    setFarmTruthBusy(false);
+  }
+
+  function renderFarmTruthUnavailable() {
+    invalidateFarmTruthContext();
+    clearFarmTruthCaseState();
+  }
+
+  function resetFarmTruthDialogState(clearSelection) {
+    invalidateFarmTruthContext();
+    if (clearSelection) {
+      selectedFarmTruthContextKey = "";
+    }
+    setFarmTruthFeedback("");
+    clearFarmTruthCaseState();
   }
 
   function loadFarmTruthCaseDetail(caseId) {
-    var context = farmTruthContext();
-    if (!context || !caseId) {
-      renderFarmTruthUnavailable();
+    var origin = arguments[1] || beginFarmTruthRequest();
+    if (!origin || !caseId || !farmTruthOriginIsActive(origin)) {
+      if (!origin && element("farm-truth-dialog").open) {
+        renderFarmTruthUnavailable();
+      }
       return Promise.resolve();
     }
     setFarmTruthBusy(true);
-    return fetch(farmTruthCasesUrl + "/" + encodeURIComponent(caseId) + farmTruthQuery(context), {
+    return fetch(farmTruthCasesUrl + "/" + encodeURIComponent(caseId) + farmTruthQuery(origin.context), {
       credentials: "same-origin"
     }).then(farmTruthResponse).then(function (detail) {
+      if (!farmTruthOriginIsActive(origin)) {
+        return;
+      }
       currentFarmTruthCase = detail;
       renderFarmTruthDetail();
-    }).catch(renderFarmTruthUnavailable).finally(function () {
-      setFarmTruthBusy(false);
+    }).catch(function () {
+      if (farmTruthOriginIsActive(origin)) {
+        renderFarmTruthUnavailable();
+      }
+    }).finally(function () {
+      if (farmTruthOriginIsActive(origin)) {
+        setFarmTruthBusy(false);
+      }
     });
   }
 
   function loadFarmTruthCases() {
-    var context = farmTruthContext();
-    if (!context) {
-      renderFarmTruthUnavailable();
+    var origin = arguments[0] || beginFarmTruthRequest();
+    if (!origin || !farmTruthOriginIsActive(origin)) {
+      if (!origin && element("farm-truth-dialog").open) {
+        renderFarmTruthUnavailable();
+      }
       return Promise.resolve();
     }
     return Promise.all([
-      fetch(farmTruthCasesUrl + farmTruthQuery(context, "open"), { credentials: "same-origin" }).then(farmTruthResponse),
-      loadFarmTruthInboxCases()
+      fetch(farmTruthCasesUrl + farmTruthQuery(origin.context, "open"), { credentials: "same-origin" }).then(farmTruthResponse),
+      loadFarmTruthInboxCases(origin)
     ]).then(function (results) {
+      if (!farmTruthOriginIsActive(origin)) {
+        return null;
+      }
       farmTruthCases = Array.isArray(results[0]) ? results[0] : [];
       if (!farmTruthCases.length) {
         currentFarmTruthCase = null;
         renderFarmTruthDetail();
         return null;
       }
-      return loadFarmTruthCaseDetail(farmTruthCases[0].id);
+      return loadFarmTruthCaseDetail(farmTruthCases[0].id, origin);
+    }).catch(function () {
+      if (farmTruthOriginIsActive(origin)) {
+        renderFarmTruthUnavailable();
+      }
     });
   }
 
   function loadFarmTruthInboxCases() {
+    var origin = arguments[0] || null;
     var contexts = farmTruthContexts();
     if (!managerSessionAuthenticated || !contexts.length) {
       farmTruthInboxCases = [];
@@ -591,6 +652,9 @@
         credentials: "same-origin"
       }).then(farmTruthResponse);
     })).then(function (groups) {
+      if (origin && !farmTruthOriginIsActive(origin)) {
+        return [];
+      }
       var known = {};
       farmTruthInboxCases = [].concat.apply([], groups).filter(function (item) {
         if (!item || item.status !== "needs_evidence" || known[item.id]) {
@@ -602,6 +666,9 @@
       renderRiskLedger();
       return farmTruthInboxCases;
     }).catch(function () {
+      if (origin && !farmTruthOriginIsActive(origin)) {
+        return [];
+      }
       farmTruthInboxCases = [];
       renderRiskLedger();
       return [];
@@ -609,9 +676,11 @@
   }
 
   function refreshFarmTruthCases() {
-    var context = farmTruthContext();
-    if (!context) {
-      renderFarmTruthUnavailable();
+    var origin = beginFarmTruthRequest();
+    if (!origin) {
+      if (element("farm-truth-dialog").open) {
+        renderFarmTruthUnavailable();
+      }
       return Promise.resolve();
     }
     setFarmTruthFeedback("");
@@ -619,9 +688,20 @@
     setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthLoading")) + "</p>");
     return fetch(farmTruthRefreshUrl, {
       method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-      body: JSON.stringify(context)
-    }).then(farmTruthResponse).then(loadFarmTruthCases).catch(renderFarmTruthUnavailable).finally(function () {
-      setFarmTruthBusy(false);
+      body: JSON.stringify(origin.context)
+    }).then(farmTruthResponse).then(function () {
+      if (!farmTruthOriginIsActive(origin)) {
+        return null;
+      }
+      return loadFarmTruthCases(origin);
+    }).catch(function () {
+      if (farmTruthOriginIsActive(origin)) {
+        renderFarmTruthUnavailable();
+      }
+    }).finally(function () {
+      if (farmTruthOriginIsActive(origin)) {
+        setFarmTruthBusy(false);
+      }
     });
   }
 
@@ -653,7 +733,11 @@
     if (!context || !caseItem || !form.reportValidity()) {
       return;
     }
-    var payload = { operating_unit_id: context.operating_unit_id, season_id: context.season_id };
+    var origin = beginFarmTruthRequest();
+    if (!origin) {
+      return;
+    }
+    var payload = { operating_unit_id: origin.context.operating_unit_id, season_id: origin.context.season_id };
     if (decision === "accept") {
       payload.field_name = formValue(form, "field_name");
       payload.managed_area_hectares = Number(formValue(form, "managed_area_hectares"));
@@ -675,6 +759,9 @@
       method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     }).then(farmTruthDecisionResponse).then(function () {
+      if (!farmTruthOriginIsActive(origin)) {
+        return null;
+      }
       if (decision === "needs-evidence") {
         farmTruthInboxCases.unshift(Object.assign({}, caseItem, {
           status: "needs_evidence", missing_evidence_kind: payload.missing_evidence_kind
@@ -688,18 +775,27 @@
         showFarmTruthDecisionSuccess(false);
         return null;
       }
-      return loadFarmTruthCaseDetail(farmTruthCases[0].id).then(function () {
-        showFarmTruthDecisionSuccess(true);
+      return loadFarmTruthCaseDetail(farmTruthCases[0].id, origin).then(function () {
+        if (farmTruthOriginIsActive(origin)) {
+          showFarmTruthDecisionSuccess(true);
+        }
       });
     }).catch(function () {
-      setFarmTruthFeedback(t("reviewFailed"), false);
+      if (farmTruthOriginIsActive(origin)) {
+        setFarmTruthFeedback(t("reviewFailed"), false);
+      }
     }).finally(function () {
-      setFarmTruthBusy(false);
+      if (farmTruthOriginIsActive(origin)) {
+        setFarmTruthBusy(false);
+      }
     });
   }
 
   function setSampleMode(enabled) {
     sampleMode = Boolean(enabled);
+    if (sampleMode) {
+      resetFarmTruthDialogState(true);
+    }
   }
 
   function sampleRuntime() {
@@ -1265,6 +1361,10 @@
   function renderPortfolioUnavailable() {
     if (sampleMode) {
       currentPortfolio = samplePortfolio();
+      resetFarmTruthDialogState(true);
+      if (element("farm-truth-dialog").open) {
+        renderFarmTruthContextChooser();
+      }
       renderRiskLedger();
       renderHomeMetrics();
       return;
@@ -1390,6 +1490,10 @@
     }
     if (sampleMode && !listedItems(portfolio.risk_action_ledger).length) {
       currentPortfolio = samplePortfolio();
+      resetFarmTruthDialogState(true);
+      if (element("farm-truth-dialog").open) {
+        renderFarmTruthContextChooser();
+      }
       renderRiskLedger();
       renderHomeMetrics();
       return;
@@ -2078,16 +2182,14 @@
   element("farm-truth-refresh").addEventListener("click", refreshFarmTruthCases);
   element("close-farm-truth").addEventListener("click", function () {
     element("farm-truth-dialog").close();
-    setFarmTruthFeedback("");
+    resetFarmTruthDialogState(true);
   });
   element("farm-truth-dialog").addEventListener("cancel", function () {
-    setFarmTruthFeedback("");
+    resetFarmTruthDialogState(true);
   });
   element("farm-truth-context").addEventListener("change", function (event) {
-    setFarmTruthFeedback("");
+    resetFarmTruthDialogState(true);
     selectedFarmTruthContextKey = event.currentTarget.value;
-    currentFarmTruthCase = null;
-    farmTruthCases = [];
     if (selectedFarmTruthContextKey) {
       loadFarmTruthCases().catch(renderFarmTruthUnavailable);
     } else {

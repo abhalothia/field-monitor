@@ -66,9 +66,27 @@ const document = {
   addEventListener: () => {}
 };
 const fetchCalls = [];
+let heldFetch = null;
+function successfulResponse(body) {
+  return { ok: true, json: () => Promise.resolve(body) };
+}
+function holdNextFetch(predicate) {
+  const hold = { predicate, claimed: false };
+  hold.promise = new Promise((resolve, reject) => {
+    hold.resolve = (body) => resolve(successfulResponse(body));
+    hold.reject = reject;
+  });
+  heldFetch = hold;
+  return hold;
+}
 function fetchStub(url, options) {
-  fetchCalls.push({ url: String(url), options: options || {} });
-  return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  const request = { url: String(url), options: options || {} };
+  fetchCalls.push(request);
+  if (heldFetch && !heldFetch.claimed && heldFetch.predicate(request)) {
+    heldFetch.claimed = true;
+    return heldFetch.promise;
+  }
+  return Promise.resolve(successfulResponse([]));
 }
 const window = {
   document,
@@ -111,7 +129,8 @@ source = source.replace(startup, `  window.__managerTest = {
         selectedFarmTruthContextKey: selectedFarmTruthContextKey,
         farmTruthCases: farmTruthCases,
         currentFarmTruthCase: currentFarmTruthCase,
-        farmTruthOpenPending: farmTruthOpenPending
+        farmTruthOpenPending: farmTruthOpenPending,
+        farmTruthContextGeneration: farmTruthContextGeneration
       };
     },
     farmTruthContexts: farmTruthContexts,
@@ -120,6 +139,8 @@ source = source.replace(startup, `  window.__managerTest = {
     renderPortfolio: renderPortfolio,
     renderFarmTruthDetail: renderFarmTruthDetail,
     renderFarmTruthUnavailable: renderFarmTruthUnavailable,
+    loadFarmTruthCases: loadFarmTruthCases,
+    loadFarmTruthCaseDetail: loadFarmTruthCaseDetail,
     submitFarmTruthDecision: submitFarmTruthDecision,
     farmTruthDecisionResponse: farmTruthDecisionResponse,
     showFarmTruthDecisionSuccess: showFarmTruthDecisionSuccess,
@@ -190,14 +211,15 @@ async function main() {
     [{ id: "unit-new", name: "New Unit", active_allocation_count: 1 }],
     [{ id: "allocation-new", operating_unit_id: "unit-new", season_id: "season-new", crop_name: "Paddy", status: "active" }]
   );
+  const oldPortfolio = portfolio(
+    [{ id: "unit-old", name: "Old Unit", active_allocation_count: 1 }],
+    [{ id: "allocation-old", operating_unit_id: "unit-old", season_id: "season-old", crop_name: "Wheat", status: "active" }]
+  );
   getElement("farm-truth-dialog").open = true;
   getElement("farm-truth-decision-panel").hidden = false;
   getElement("farm-truth-list").innerHTML = "stale card";
   api.setState({
-    currentPortfolio: portfolio(
-      [{ id: "unit-old", name: "Old Unit", active_allocation_count: 1 }],
-      [{ id: "allocation-old", operating_unit_id: "unit-old", season_id: "season-old", crop_name: "Wheat", status: "active" }]
-    ),
+    currentPortfolio: oldPortfolio,
     selectedFarmTruthContextKey: "unit-old\u001fseason-old",
     farmTruthCases: [oldCase],
     currentFarmTruthCase: oldCase
@@ -212,6 +234,88 @@ async function main() {
   assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "portfolio changes must never refresh");
   api.submitFarmTruthDecision({ preventDefault: () => {}, currentTarget: getElement("farm-truth-accept-form") }, "accept");
   assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "cleared stale case must not submit");
+
+  getElement("farm-truth-dialog").open = true;
+  api.setState({
+    currentPortfolio: oldPortfolio,
+    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
+    farmTruthCases: [],
+    currentFarmTruthCase: null,
+    sampleMode: false
+  });
+  fetchCalls.length = 0;
+  const oldListFetch = holdNextFetch((request) => request.url.includes("status=open"));
+  const oldListRequest = api.loadFarmTruthCases();
+  assert.equal(oldListFetch.claimed, true, "old-context list request must be held");
+  api.renderPortfolio(newPortfolio);
+  getElement("farm-truth-feedback").textContent = "new context feedback";
+  getElement("farm-truth-feedback").hidden = false;
+  oldListFetch.resolve([oldCase]);
+  await oldListRequest;
+  assert.equal(api.state().currentFarmTruthCase, null, "late list response must not select an old case");
+  assert.deepEqual(Array.from(api.state().farmTruthCases), [], "late list response must not restore old cards");
+  assert.equal(getElement("farm-truth-decision-panel").hidden, true, "late list response must not restore actions");
+  assert.equal(getElement("farm-truth-list").innerHTML.includes("Old farmer"), false, "late list response must not render an old card");
+  assert.equal(getElement("farm-truth-feedback").textContent, "new context feedback", "late list response must not clear new feedback");
+
+  api.setState({
+    currentPortfolio: oldPortfolio,
+    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
+    farmTruthCases: [oldCase],
+    currentFarmTruthCase: null
+  });
+  getElement("farm-truth-dialog").open = true;
+  const oldDetailFetch = holdNextFetch((request) => request.url.includes("/cases/case-old?"));
+  const oldDetailRequest = api.loadFarmTruthCaseDetail("case-old");
+  assert.equal(oldDetailFetch.claimed, true, "old-context detail request must be held");
+  getElement("close-farm-truth").listeners.click();
+  assert.equal(getElement("farm-truth-dialog").open, false, "dialog close must remove review intent");
+  getElement("farm-truth-feedback").textContent = "replacement feedback";
+  getElement("farm-truth-feedback").hidden = false;
+  oldDetailFetch.resolve(oldCase);
+  await oldDetailRequest;
+  assert.equal(api.state().currentFarmTruthCase, null, "late detail response must not restore an old case");
+  assert.deepEqual(Array.from(api.state().farmTruthCases), [], "dialog invalidation must retain an empty list");
+  assert.equal(getElement("farm-truth-decision-panel").hidden, true, "late detail response must not restore actions");
+  assert.equal(getElement("farm-truth-detail").innerHTML.includes("Old farmer"), false, "late detail response must not render old facts");
+  assert.equal(getElement("farm-truth-feedback").textContent, "replacement feedback", "late detail response must not clear feedback");
+  api.submitFarmTruthDecision({ preventDefault: () => {}, currentTarget: getElement("farm-truth-accept-form") }, "accept");
+  assert.equal(fetchCalls.some((call) => call.options.method === "POST"), false, "stale async work must never enable a decision POST");
+
+  getElement("farm-truth-dialog").open = true;
+  api.setState({
+    currentPortfolio: oldPortfolio,
+    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
+    farmTruthCases: [],
+    currentFarmTruthCase: null
+  });
+  const oldFailureFetch = holdNextFetch((request) => request.url.includes("status=open"));
+  const oldFailureRequest = api.loadFarmTruthCases();
+  api.renderPortfolio(newPortfolio);
+  getElement("farm-truth-feedback").textContent = "newer feedback";
+  getElement("farm-truth-feedback").hidden = false;
+  oldFailureFetch.reject(new Error("stale request failed"));
+  await oldFailureRequest;
+  assert.equal(getElement("farm-truth-feedback").textContent, "newer feedback", "late list failure must not show or clear feedback");
+
+  api.setState({
+    currentPortfolio: oldPortfolio,
+    selectedFarmTruthContextKey: "unit-old\u001fseason-old",
+    farmTruthCases: [oldCase],
+    currentFarmTruthCase: oldCase,
+    sampleMode: true
+  });
+  getElement("farm-truth-dialog").open = true;
+  getElement("farm-truth-decision-panel").hidden = false;
+  getElement("farm-truth-list").innerHTML = "stale sample card";
+  const generationBeforeSampleTakeover = api.state().farmTruthContextGeneration;
+  api.renderPortfolio({ risk_action_ledger: { items: [] } });
+  assert.ok(api.state().farmTruthContextGeneration > generationBeforeSampleTakeover, "sample takeover must invalidate pending requests");
+  assert.equal(api.state().selectedFarmTruthContextKey, "", "sample takeover must clear review selection");
+  assert.equal(api.state().currentFarmTruthCase, null, "sample takeover must clear current case");
+  assert.deepEqual(Array.from(api.state().farmTruthCases), [], "sample takeover must clear case cards");
+  assert.equal(getElement("farm-truth-decision-panel").hidden, true, "sample takeover must hide decisions");
+  assert.equal(getElement("farm-truth-list").innerHTML.includes("stale sample card"), false, "sample takeover must reset the dialog");
 
   getElement("manager-session-dialog").open = true;
   api.setState({ farmTruthOpenPending: true });

@@ -138,6 +138,8 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "farmTruthInboxRows" in app_js
     assert "farmTruthContexts" in app_js
     assert "selectedFarmTruthContextKey" in app_js
+    assert "farmTruthContextGeneration" in app_js
+    assert "farmTruthOriginIsActive" in app_js
     assert ".farm-truth-dialog" in styles_css
     assert ".evidence-chips" in styles_css
     assert ".farm-truth-fields" in styles_css
@@ -210,6 +212,15 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     assert 'setFarmTruthFeedback("")' not in detail
     decision = _function_body(app_js, "submitFarmTruthDecision(event, decision)", "setSampleMode(enabled)")
     assert "showFarmTruthDecisionSuccess" in decision
+    assert "farmTruthOriginIsActive(origin)" in decision
+
+    for function_name, next_name in (
+        ("loadFarmTruthCaseDetail(caseId)", "loadFarmTruthCases()"),
+        ("loadFarmTruthCases()", "loadFarmTruthInboxCases()"),
+        ("refreshFarmTruthCases()", "openFarmTruthReview()"),
+    ):
+        guarded_request = _function_body(app_js, function_name, next_name)
+        assert "farmTruthOriginIsActive(origin)" in guarded_request
 
     close_unlock = _function_body(app_js, "closeManagerSessionDialog()", "toggleManagerSession()")
     assert "farmTruthOpenPending = false" in close_unlock
@@ -220,8 +231,10 @@ def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
     assert close_handler.count("closeManagerSessionDialog") == 2
 
     unavailable = _function_body(app_js, "renderFarmTruthUnavailable()", "loadFarmTruthCaseDetail(caseId)")
+    clear_state = _function_body(app_js, "clearFarmTruthCaseState()", "renderFarmTruthUnavailable()")
     assert "error.message" not in unavailable
-    assert 't("farmTruthUnavailable")' in unavailable
+    assert "invalidateFarmTruthContext()" in unavailable
+    assert 't("farmTruthUnavailable")' in clear_state
     assert "error.message" not in decision
     assert 't("reviewFailed")' in decision
 
