@@ -158,70 +158,29 @@ def _validate_accepted_replay(
     case: repository.FarmTruthReviewCase,
     payload: FarmTruthAcceptanceRequest,
 ) -> None:
-    row = conn.execute(
-        """SELECT
-               parcel.operating_unit_id,
-               parcel.name AS field_name,
-               parcel.area_hectares AS parcel_area_hectares,
-               block.name AS block_name,
-               block.area_hectares AS block_area_hectares,
-               allocation.season_id,
-               allocation.crop_name,
-               allocation.cultivar,
-               allocation.area_hectares AS allocation_area_hectares,
-               right_record.right_type,
-               right_record.starts_on AS right_starts_on,
-               right_record.ends_on AS right_ends_on,
-               grower.starts_on AS grower_effective_on
-           FROM land_parcels AS parcel
-           JOIN operational_blocks AS block ON block.id = ?
-           JOIN crop_allocations AS allocation ON allocation.id = ?
-           JOIN rights_to_operate AS right_record
-             ON right_record.land_parcel_id = parcel.id
-           JOIN person_operating_relationships AS grower
-             ON grower.person_id = ?
-            AND grower.crop_allocation_id = allocation.id
-            AND grower.role = 'grower'
-           WHERE parcel.id = ?""",
-        (
-            case.accepted_operational_block_id,
-            case.accepted_crop_allocation_id,
-            case.accepted_grower_person_id,
-            case.accepted_land_parcel_id,
-        ),
-    ).fetchone()
     season = repository.get_season(conn, payload.season_id)
-    expected_right_end = payload.right_ends_on or (
-        date.fromisoformat(season.ends_on) if season is not None else None
+    effective_right_end = payload.right_ends_on or (
+        season.ends_on if season is not None else None
     )
-    cultivar = payload.cultivar or None
-    matches = row is not None and (
-        row["operating_unit_id"] == payload.operating_unit_id
-        and row["season_id"] == payload.season_id
-        and row["field_name"] == payload.field_name
-        and row["block_name"] == payload.field_name
-        and float(row["parcel_area_hectares"]) == payload.managed_area_hectares
-        and float(row["block_area_hectares"]) == payload.managed_area_hectares
-        and float(row["allocation_area_hectares"]) == payload.managed_area_hectares
-        and row["crop_name"] == payload.crop_name
-        and row["cultivar"] == cultivar
-        and row["grower_effective_on"] == payload.grower_effective_on.isoformat()
-        and row["right_type"] == payload.right_type
-        and row["right_starts_on"] == payload.right_starts_on.isoformat()
-        and row["right_ends_on"] == (
-            expected_right_end.isoformat() if expected_right_end is not None else None
-        )
+    supplied = repository.farm_truth_acceptance_fingerprint(
+        operating_unit_id=payload.operating_unit_id,
+        season_id=payload.season_id,
+        field_name=payload.field_name,
+        managed_area_hectares=payload.managed_area_hectares,
+        crop_name=payload.crop_name,
+        cultivar=payload.cultivar,
+        grower_effective_on=payload.grower_effective_on.isoformat(),
+        right_type=payload.right_type,
+        right_starts_on=payload.right_starts_on.isoformat(),
+        right_ends_on=(
+            effective_right_end.isoformat()
+            if isinstance(effective_right_end, date)
+            else effective_right_end
+        ),
+        field_worker_party_id=payload.field_worker_party_id,
     )
-    if matches and payload.field_worker_party_id is not None:
-        worker_link = conn.execute(
-            """SELECT 1 FROM trackwick_party_person_links
-               WHERE party_id = ? AND person_id = ? AND link_status = 'reviewed'""",
-            (payload.field_worker_party_id, case.accepted_field_worker_person_id),
-        ).fetchone()
-        matches = worker_link is not None
-    elif matches and case.accepted_field_worker_person_id is not None:
-        matches = False
-    if not matches:
+    established = case.evidence_summary.get("_acceptance_fingerprint")
+    if established != supplied:
         raise _conflict("accepted farm truth result does not match this request")
 
 

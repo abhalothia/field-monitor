@@ -11,6 +11,7 @@ from ffl.services import farm_truth
 from tests.ffl.test_farm_truth_service import (
     _all_keys,
     _seed_candidate,
+    _seed_party,
     _seed_sensitive_private_rows,
 )
 
@@ -246,6 +247,102 @@ def test_accepted_retry_requires_the_same_valid_acceptance_context(farm_truth_ap
     assert mismatched_context.status_code == 409
     assert app.state.conn.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 1
     assert app.state.conn.execute("SELECT COUNT(*) FROM crop_allocations").fetchone()[0] == 1
+
+
+def test_accepted_retry_is_anchored_to_its_receipt_not_later_matching_records(
+    farm_truth_api,
+):
+    app, client, manager, unit, season, source = farm_truth_api
+    case_id = _refresh(client, unit, season).json()[0]["id"]
+    original_payload = _acceptance(
+        unit, season, field_worker_party_id="worker-route"
+    )
+    accepted = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=original_payload,
+        headers=TOKEN,
+    )
+    assert accepted.status_code == 200
+    accepted_ids = accepted.json()
+    stored_receipt = repository.get_farm_truth_case(app.state.conn, case_id)
+    assert len(stored_receipt.evidence_summary["_acceptance_fingerprint"]) == 64
+    assert "_acceptance_fingerprint" not in json.dumps(accepted_ids)
+    accepted_detail = client.get(
+        f"/api/v1/farm-truth/cases/{case_id}",
+        params=_context(unit, season),
+        headers=TOKEN,
+    )
+    assert accepted_detail.status_code == 200
+    assert "_acceptance_fingerprint" not in json.dumps(accepted_detail.json())
+
+    repository.create_right_to_operate(
+        app.state.conn,
+        accepted_ids["land_parcel_id"],
+        "managed-later",
+        "2026-05-01",
+        "2026-12-31",
+    )
+    original_grower = repository.list_person_operating_relationships(
+        app.state.conn,
+        person_id=accepted_ids["grower_person_id"],
+        scope_type="crop_allocation",
+        scope_id=accepted_ids["crop_allocation_id"],
+        status="active",
+    )[0]
+    repository.end_person_operating_relationship(
+        app.state.conn,
+        original_grower.id,
+        "2026-06-30",
+        manager.id,
+        "Later relationship history",
+    )
+    repository.create_person_operating_relationship(
+        app.state.conn,
+        accepted_ids["grower_person_id"],
+        "crop_allocation",
+        accepted_ids["crop_allocation_id"],
+        "grower",
+        "2026-07-01",
+        reviewed_by_person_id=manager.id,
+    )
+    _seed_party(
+        app.state.conn, source.id, "worker-later", "field_worker", "Worker later"
+    )
+    app.state.conn.execute(
+        """INSERT INTO trackwick_party_person_links
+           VALUES ('later-worker-link', 'worker-later', ?, 'reviewed', ?, ?, ?)""",
+        (
+            accepted_ids["field_worker_person_id"],
+            manager.id,
+            "2026-08-05T00:00:00+00:00",
+            "2026-08-05T00:00:00+00:00",
+        ),
+    )
+    app.state.conn.commit()
+    app.state.conn.execute("PRAGMA reverse_unordered_selects = ON")
+
+    changed = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=_acceptance(
+            unit,
+            season,
+            grower_effective_on="2026-07-01",
+            right_type="managed-later",
+            right_starts_on="2026-05-01",
+            right_ends_on="2026-12-31",
+            field_worker_party_id="worker-later",
+        ),
+        headers=TOKEN,
+    )
+    identical = client.post(
+        f"/api/v1/farm-truth/cases/{case_id}/accept",
+        json=original_payload,
+        headers=TOKEN,
+    )
+
+    assert changed.status_code == 409
+    assert identical.status_code == 200
+    assert identical.json() == accepted_ids
 
 
 @pytest.mark.parametrize(

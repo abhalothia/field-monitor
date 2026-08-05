@@ -2395,6 +2395,59 @@ def _insert_farm_truth_relationship(
     )
 
 
+def farm_truth_acceptance_fingerprint(
+    operating_unit_id: str,
+    season_id: str,
+    field_name: str,
+    managed_area_hectares: float,
+    crop_name: str,
+    cultivar: Optional[str],
+    grower_effective_on: str,
+    right_type: str,
+    right_starts_on: str,
+    right_ends_on: Optional[str],
+    field_worker_party_id: Optional[str],
+) -> str:
+    """Fingerprint one normalized private acceptance decision request."""
+    operating_unit_id = _required_text(operating_unit_id, "operating_unit_id", 128)
+    season_id = _required_text(season_id, "season_id", 128)
+    field_name = _required_text(field_name, "field_name", 160)
+    crop_name = _required_text(crop_name, "crop_name", 160)
+    cultivar = _optional_text(cultivar, "cultivar", 160)
+    grower_effective_on = _require_iso_date(grower_effective_on, "grower_effective_on")
+    right_type = _required_text(right_type, "right_type", 160)
+    right_starts_on = _require_iso_date(right_starts_on, "right_starts_on")
+    if right_ends_on is not None:
+        right_ends_on = _require_iso_date(right_ends_on, "right_ends_on")
+    if field_worker_party_id is not None:
+        field_worker_party_id = _required_text(
+            field_worker_party_id, "field_worker_party_id", 128
+        )
+    if (
+        not isinstance(managed_area_hectares, (int, float))
+        or isinstance(managed_area_hectares, bool)
+        or not math.isfinite(managed_area_hectares)
+        or managed_area_hectares <= 0
+    ):
+        raise ValueError("managed_area_hectares must be positive and finite")
+    material = {
+        "contract_version": 1,
+        "operating_unit_id": operating_unit_id,
+        "season_id": season_id,
+        "field_name": field_name,
+        "managed_area_hectares": float(managed_area_hectares),
+        "crop_name": crop_name,
+        "cultivar": cultivar,
+        "grower_effective_on": grower_effective_on,
+        "right_type": right_type,
+        "right_starts_on": right_starts_on,
+        "right_ends_on": right_ends_on,
+        "field_worker_party_id": field_worker_party_id,
+    }
+    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def accept_farm_truth_case(
     conn: sqlite3.Connection,
     case_id: str,
@@ -2484,6 +2537,19 @@ def accept_farm_truth_case(
             raise ValueError("season does not belong to the operating unit")
         if right_ends_on is None:
             right_ends_on = season["ends_on"]
+        acceptance_fingerprint = farm_truth_acceptance_fingerprint(
+            operating_unit_id=operating_unit_id,
+            season_id=season_id,
+            field_name=field_name,
+            managed_area_hectares=managed_area_hectares,
+            crop_name=crop_name,
+            cultivar=cultivar,
+            grower_effective_on=grower_effective_on,
+            right_type=right_type,
+            right_starts_on=right_starts_on,
+            right_ends_on=right_ends_on,
+            field_worker_party_id=field_worker_party_id,
+        )
 
         farmer = conn.execute(
             """SELECT party.id, party.display_name
@@ -2639,18 +2705,21 @@ def accept_farm_truth_case(
                 reviewer_id, audit_metadata, reviewed_at,
             ),
         )
+        accepted_evidence_summary = dict(claimed.evidence_summary)
+        accepted_evidence_summary["_acceptance_fingerprint"] = acceptance_fingerprint
         updated = conn.execute(
             """UPDATE farm_truth_review_cases
                SET status = 'accepted', review_reason = ?, reviewed_by_person_id = ?,
                    reviewed_at = ?, accepted_land_parcel_id = ?,
                    accepted_operational_block_id = ?, accepted_crop_allocation_id = ?,
                    accepted_grower_person_id = ?, accepted_field_worker_person_id = ?,
-                   updated_at = ?
+                   evidence_summary_json = ?, updated_at = ?
                WHERE id = ? AND status = 'accepting'""",
             (
                 "Accepted as reviewed Farm Truth", reviewer_id, reviewed_at,
                 land_parcel_id, operational_block_id, crop_allocation_id,
-                grower_person_id, field_worker_person_id, reviewed_at, case_id,
+                grower_person_id, field_worker_person_id,
+                _json_value(accepted_evidence_summary), reviewed_at, case_id,
             ),
         )
         if updated.rowcount != 1:  # pragma: no cover - guarded by the claim
