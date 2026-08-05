@@ -2161,12 +2161,37 @@ def list_farm_truth_cases(
     return [_farm_truth_review_case(row) for row in rows]
 
 
+def clear_current_farm_truth_open_cases(conn: sqlite3.Connection) -> None:
+    """Remove mutable open cases from the current queue without deleting history."""
+    rows = conn.execute(
+        """SELECT id, evidence_summary_json
+           FROM farm_truth_review_cases
+           WHERE status = 'open'"""
+    ).fetchall()
+    _, updated_at = _new_identity()
+    updates = []
+    for row in rows:
+        summary = json.loads(row["evidence_summary_json"])
+        if summary.get("_queue_current") is not True:
+            continue
+        summary["_queue_current"] = False
+        updates.append((_json_value(summary), updated_at, row["id"]))
+    if updates:
+        conn.executemany(
+            """UPDATE farm_truth_review_cases
+               SET evidence_summary_json = ?, updated_at = ?
+               WHERE id = ? AND status = 'open'""",
+            updates,
+        )
+        conn.commit()
+
+
 def list_latest_farm_truth_cases(
     conn: sqlite3.Connection,
     status: Optional[str] = None,
     owner_person_id: Optional[str] = None,
 ) -> List[FarmTruthReviewCase]:
-    """Return only the newest immutable receipt for each source plot.
+    """Return only the most recently refreshed receipt for each source plot.
 
     This intentionally has no queue limit: callers must apply their transparent
     evidence ordering before taking a bounded browser-facing slice.  Filtering
@@ -2190,8 +2215,8 @@ def list_latest_farm_truth_cases(
            WHERE NOT EXISTS (
                SELECT 1 FROM farm_truth_review_cases AS newer
                WHERE newer.plot_id = current.plot_id
-                 AND (newer.created_at > current.created_at
-                      OR (newer.created_at = current.created_at AND newer.id > current.id))
+                 AND (newer.updated_at > current.updated_at
+                      OR (newer.updated_at = current.updated_at AND newer.id > current.id))
            )"""
         + clause
         + " ORDER BY current.updated_at DESC, current.id",

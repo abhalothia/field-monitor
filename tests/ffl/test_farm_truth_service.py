@@ -463,12 +463,48 @@ def test_candidate_fingerprint_is_stable_and_changes_with_supporting_receipt(
     )
     ffl_db.commit()
     changed = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
+    ffl_db.execute(
+        "UPDATE trackwick_tasks SET source_fingerprint = ? WHERE id = 'visit-fingerprint-0'",
+        (_fingerprint("task:visit-fingerprint-0"),),
+    )
+    ffl_db.commit()
+    reverted = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
 
     assert replay == first
     assert changed[0]["id"] != first[0]["id"]
     assert len(changed) == 1
-    assert list_farm_truth_case_summaries(ffl_db) == changed
+    assert reverted == first
+    assert list_farm_truth_case_summaries(ffl_db) == reverted
     assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("ineligibility", ["outside_season", "invalid_visit"])
+def test_refresh_removes_open_case_from_current_queue_when_visit_becomes_ineligible(
+    ffl_db, farm_truth_context, ineligibility
+):
+    actor, unit, season, source = farm_truth_context
+    _seed_candidate(ffl_db, source.id, "stale")
+    case_id = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)[0]["id"]
+    if ineligibility == "outside_season":
+        ffl_db.execute(
+            "UPDATE trackwick_visits SET observed_at = '2026-05-31T10:00:00+00:00' "
+            "WHERE task_id = 'visit-stale-0'"
+        )
+    else:
+        ffl_db.execute(
+            "UPDATE trackwick_visits SET data_quality_status = 'incomplete' "
+            "WHERE task_id = 'visit-stale-0'"
+        )
+    ffl_db.commit()
+
+    refreshed = refresh_farm_truth_cases(ffl_db, unit.id, season.id, actor.id)
+
+    assert refreshed == []
+    assert list_farm_truth_case_summaries(ffl_db) == []
+    assert get_farm_truth_case_detail(ffl_db, case_id) is None
+    stored = repository.get_farm_truth_case(ffl_db, case_id)
+    assert stored is not None and stored.status == "open"
+    assert ffl_db.execute("SELECT COUNT(*) FROM farm_truth_review_cases").fetchone()[0] == 1
 
 
 def test_refresh_validates_selected_season_and_actor(ffl_db, farm_truth_context):
@@ -493,7 +529,7 @@ def test_owner_inbox_serializer_returns_only_owned_safe_needs_evidence_cases(
         case_id,
         actor.id,
         "plot_area",
-        "Confirm managed plot area",
+        "Call farmer at 9999999999 to confirm the raw source answer",
     )
     other_owner = repository.create_person(ffl_db, "Other owner", "operations_lead")
 
@@ -504,7 +540,7 @@ def test_owner_inbox_serializer_returns_only_owned_safe_needs_evidence_cases(
         "status": "needs_evidence",
         "title": "Farm Truth evidence needed",
         "missing_evidence_kind": "plot_area",
-        "reason": "Confirm managed plot area",
+        "reason": "Confirm plot area",
         "place": {
             "village": "Village inbox",
             "block": "Gabhana",
@@ -512,4 +548,6 @@ def test_owner_inbox_serializer_returns_only_owned_safe_needs_evidence_cases(
         },
         "farmer_display_name": "Farmer inbox",
     }]
+    assert "9999999999" not in json.dumps(inbox)
+    assert "raw source answer" not in json.dumps(inbox)
     assert list_farm_truth_inbox_items(ffl_db, other_owner.id) == []

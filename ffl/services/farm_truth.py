@@ -17,6 +17,13 @@ from ffl.persistence import repository
 
 
 _QUEUE_LIMIT = 50
+_INBOX_REASON_LABELS = {
+    "plot_area": "Confirm plot area",
+    "crop_season": "Confirm crop and season",
+    "right_to_operate": "Confirm right to operate",
+    "farmer_identity": "Confirm farmer identity",
+    "field_worker_assignment": "Confirm field worker assignment",
+}
 
 
 def refresh_farm_truth_cases(
@@ -37,6 +44,7 @@ def refresh_farm_truth_cases(
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (actor_id,)).fetchone() is None:
         raise ValueError("actor does not exist")
 
+    repository.clear_current_farm_truth_open_cases(conn)
     candidates = _candidate_rows(conn)
     tasks_by_farmer = _supporting_tasks(conn)
     current_cases = []
@@ -95,6 +103,8 @@ def list_farm_truth_case_summaries(
     """List the newest receipt per plot as bounded, allowlisted summaries."""
     _validate_queue_limit(limit)
     cases = repository.list_latest_farm_truth_cases(conn, status=status)
+    if status == "open":
+        cases = [case for case in cases if _case_is_current(case)]
     cases.sort(key=_case_sort_key)
     return [_serialize_case(case) for case in cases[:limit]]
 
@@ -102,6 +112,8 @@ def list_farm_truth_case_summaries(
 def get_farm_truth_case_detail(conn, case_id: str) -> Optional[dict[str, Any]]:
     """Return one allowlisted case detail without re-querying source evidence."""
     case = repository.get_farm_truth_case(conn, case_id)
+    if case is not None and case.status == "open" and not _case_is_current(case):
+        return None
     return _serialize_case(case) if case is not None else None
 
 
@@ -126,7 +138,9 @@ def list_farm_truth_inbox_items(
             "status": case.status,
             "title": "Farm Truth evidence needed",
             "missing_evidence_kind": case.missing_evidence_kind,
-            "reason": case.review_reason,
+            "reason": _INBOX_REASON_LABELS.get(
+                case.missing_evidence_kind, "Confirm required evidence"
+            ),
             "place": summary["place"],
             "farmer_display_name": summary["people"]["farmer_display_name"],
         })
@@ -269,6 +283,7 @@ def _evidence_summary(
     if open_count:
         labels.append("Open follow-up")
     return {
+        "_queue_current": True,
         "place": {
             "village": candidate["plot_village_name"] or candidate["village_name"],
             "block": candidate["block_name"],
@@ -309,6 +324,10 @@ def _serialize_case(case: repository.FarmTruthReviewCase) -> dict[str, Any]:
         "status": case.status,
         **_safe_summary(case.evidence_summary),
     }
+
+
+def _case_is_current(case: repository.FarmTruthReviewCase) -> bool:
+    return case.evidence_summary.get("_queue_current") is True
 
 
 def _safe_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
