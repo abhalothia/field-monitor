@@ -90,7 +90,7 @@
       fieldAskReady: "is reviewed; delivery stays independently gated", awaitingFieldAnswer: "Awaiting a reviewable field answer from",
       checkDelivery: "Check delivery eligibility or cancel and reissue it. Do not assume an answer.",
       reviewFieldAnswer: "Review any response and retained proof. The linked work stays open until a human closes it.",
-      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", reviewCandidates: "Review candidates", farmTruthTitle: "Review farm candidates", farmTruthLoading: "Loading candidates…", farmTruthEmpty: "No farm candidate is waiting for review.", farmTruthUnavailable: "Farm review is unavailable for the current season.", reviewSeason: "Review season", chooseReviewSeason: "Choose a season", reviewRefresh: "Refresh candidates", candidateProgress: "{current} of {total}", placeFacts: "Place", areaFacts: "Area", cropFacts: "Crop and timing", visitFacts: "Visits and work", evidenceFacts: "Evidence", farmerName: "Farmer", village: "Village", block: "Block", district: "District", gataNumber: "Gata number", plotArea: "Reported plot area", registrationArea: "Reported registration area", cropStage: "Crop stage", transplantedOn: "Transplanted on", latestVisit: "Latest visit", recentVisits: "Recent visits", openFollowUps: "Open follow-ups", fieldWorkers: "Field workers", fieldName: "Field name", managedArea: "Managed area (ha)", cropName: "Crop", cultivarOptional: "Cultivar (optional)", growerEffectiveOn: "Grower effective on", rightType: "Right to operate", rightStartsOn: "Right starts on", rightEndsOn: "Right ends on", acceptCandidate: "Accept", needsEvidence: "Needs evidence", rejectCandidate: "Reject", missingEvidence: "Evidence needed", missingPlotArea: "Plot area", missingCropSeason: "Crop and season", missingRight: "Right to operate", missingFarmer: "Farmer identity", missingWorker: "Field worker assignment", reviewReason: "Reason", evidenceNeeded: "Farm Truth evidence needed", reviewSaved: "Decision saved.", reviewNext: "Opening the next candidate.", reviewFailed: "The decision could not be saved.", managerOwner: "You", bigha: "bigha", acres: "acres", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
+      openFieldAsks: "Open field asks", noFieldRelationship: "No field relationship recorded.", fieldRelationshipPending: "Field relationship setup is pending.", fieldRelationshipUnavailable: "Field relationship summary unavailable.", noReviewedPeople: "No reviewed people records are available yet.", noReviewedFarmer: "No reviewed farmer record is available yet. Programme coverage stays separate.", noReviewedWorker: "No reviewed field worker record is available yet. Daily source activity stays aggregate until reviewed.", noActiveCrop: "No active crop allocation has been recorded yet.", addFieldAndCrop: "Add a verified field and a crop allocation to start the operating loop.", noVerifiedFields: "No verified fields yet.", farmsSummarySingle: "1 reviewed field · {location}", farmsSummaryMultiple: "{count} reviewed fields", reviewCandidates: "Review candidates", farmTruthTitle: "Review farm candidates", farmTruthLoading: "Loading candidates…", farmTruthEmpty: "No farm candidate is waiting for review.", farmTruthUnavailable: "Farm review is unavailable for the current season.", reviewSeason: "Review season", chooseReviewSeason: "Choose a season", reviewContextLabel: "{unit} · {crops}", activeSeason: "Active season", reviewRefresh: "Refresh candidates", candidateProgress: "{current} of {total}", placeFacts: "Place", areaFacts: "Area", cropFacts: "Crop and timing", visitFacts: "Visits and work", evidenceFacts: "Evidence", farmerName: "Farmer", village: "Village", block: "Block", district: "District", gataNumber: "Gata number", plotArea: "Reported plot area", registrationArea: "Reported registration area", cropStage: "Crop stage", transplantedOn: "Transplanted on", latestVisit: "Latest visit", recentVisits: "Recent visits", openFollowUps: "Open follow-ups", fieldWorkers: "Field workers", fieldName: "Field name", managedArea: "Managed area (ha)", cropName: "Crop", cultivarOptional: "Cultivar (optional)", growerEffectiveOn: "Grower effective on", rightType: "Right to operate", rightStartsOn: "Right starts on", rightEndsOn: "Right ends on", acceptCandidate: "Accept", needsEvidence: "Needs evidence", rejectCandidate: "Reject", missingEvidence: "Evidence needed", missingPlotArea: "Plot area", missingCropSeason: "Crop and season", missingRight: "Right to operate", missingFarmer: "Farmer identity", missingWorker: "Field worker assignment", reviewReason: "Reason", evidenceNeeded: "Farm Truth evidence needed", reviewSaved: "Decision saved.", reviewNext: "Opening the next candidate.", reviewFailed: "The decision could not be saved.", managerOwner: "You", bigha: "bigha", acres: "acres", actionsUnavailable: "Actions are unavailable. Home is still usable.", decisionQueueUnavailable: "The decision queue is unavailable right now.", riskActionUnavailable: "Risk and action context is unavailable right now."
     },
     hi: {
       navHome: "मुख्य", navFarms: "खेत", navFarmers: "किसान", navWorkers: "फील्ड टीम", navInbox: "इनबॉक्स", navSettings: "सेटिंग्स",
@@ -141,7 +141,7 @@
       fieldAskReady: "की समीक्षा हो चुकी है; भेजना अलग से स्वीकृत होगा", awaitingFieldAnswer: "समीक्षा योग्य उत्तर की प्रतीक्षा",
       checkDelivery: "भेजने की पात्रता जाँचें या इसे रद्द करके फिर से जारी करें। उत्तर मान कर न चलें।",
       reviewFieldAnswer: "किसी भी उत्तर और सुरक्षित प्रमाण की समीक्षा करें। मानव बंद होने तक जुड़ा काम खुला रहता है।",
-      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", reviewCandidates: "उम्मीदवारों की समीक्षा करें", farmTruthTitle: "खेत उम्मीदवारों की समीक्षा", farmTruthLoading: "उम्मीदवार लोड हो रहे हैं…", farmTruthEmpty: "समीक्षा के लिए कोई खेत उम्मीदवार बाकी नहीं है।", farmTruthUnavailable: "मौजूदा मौसम के लिए खेत समीक्षा उपलब्ध नहीं है।", reviewSeason: "समीक्षा मौसम", chooseReviewSeason: "मौसम चुनें", reviewRefresh: "उम्मीदवार ताज़ा करें", candidateProgress: "{total} में से {current}", placeFacts: "स्थान", areaFacts: "क्षेत्र", cropFacts: "फसल और समय", visitFacts: "मुलाक़ातें और काम", evidenceFacts: "प्रमाण", farmerName: "किसान", village: "गाँव", block: "ब्लॉक", district: "ज़िला", gataNumber: "गाटा संख्या", plotArea: "दर्ज प्लॉट क्षेत्र", registrationArea: "दर्ज पंजीकरण क्षेत्र", cropStage: "फसल अवस्था", transplantedOn: "रोपाई की तारीख", latestVisit: "नवीनतम मुलाक़ात", recentVisits: "हाल की मुलाक़ातें", openFollowUps: "खुले अनुवर्ती काम", fieldWorkers: "फील्ड कर्मी", fieldName: "खेत का नाम", managedArea: "प्रबंधित क्षेत्र (हेक्टेयर)", cropName: "फसल", cultivarOptional: "किस्म (वैकल्पिक)", growerEffectiveOn: "किसान की प्रभावी तारीख", rightType: "संचालन अधिकार", rightStartsOn: "अधिकार शुरू होने की तारीख", rightEndsOn: "अधिकार समाप्त होने की तारीख", acceptCandidate: "स्वीकार करें", needsEvidence: "प्रमाण चाहिए", rejectCandidate: "अस्वीकार करें", missingEvidence: "आवश्यक प्रमाण", missingPlotArea: "प्लॉट क्षेत्र", missingCropSeason: "फसल और मौसम", missingRight: "संचालन अधिकार", missingFarmer: "किसान की पहचान", missingWorker: "फील्ड कर्मी की जिम्मेदारी", reviewReason: "कारण", evidenceNeeded: "खेत सत्य के लिए प्रमाण चाहिए", reviewSaved: "निर्णय सहेजा गया।", reviewNext: "अगला उम्मीदवार खोला जा रहा है।", reviewFailed: "निर्णय सहेजा नहीं जा सका।", managerOwner: "आप", bigha: "बीघा", acres: "एकड़", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
+      openFieldAsks: "खेत की जानकारी खोलें", noFieldRelationship: "कोई खेत संबंध दर्ज नहीं है।", fieldRelationshipPending: "खेत संबंध सेट करना बाकी है।", fieldRelationshipUnavailable: "खेत संबंध सारांश उपलब्ध नहीं है।", noReviewedPeople: "अभी कोई समीक्षित व्यक्ति रिकॉर्ड उपलब्ध नहीं है।", noReviewedFarmer: "अभी कोई समीक्षित किसान रिकॉर्ड उपलब्ध नहीं है। कार्यक्रम कवरेज अलग रहती है।", noReviewedWorker: "अभी कोई समीक्षित फील्ड कर्मी रिकॉर्ड उपलब्ध नहीं है। समीक्षा तक दैनिक स्रोत गतिविधि केवल समग्र रहती है।", noActiveCrop: "अभी कोई सक्रिय फसल आवंटन दर्ज नहीं है।", addFieldAndCrop: "परिचालन शुरू करने के लिए एक सत्यापित खेत और फसल आवंटन जोड़ें।", noVerifiedFields: "अभी कोई सत्यापित खेत नहीं है।", farmsSummarySingle: "1 समीक्षित खेत · {location}", farmsSummaryMultiple: "{count} समीक्षित खेत", reviewCandidates: "उम्मीदवारों की समीक्षा करें", farmTruthTitle: "खेत उम्मीदवारों की समीक्षा", farmTruthLoading: "उम्मीदवार लोड हो रहे हैं…", farmTruthEmpty: "समीक्षा के लिए कोई खेत उम्मीदवार बाकी नहीं है।", farmTruthUnavailable: "मौजूदा मौसम के लिए खेत समीक्षा उपलब्ध नहीं है।", reviewSeason: "समीक्षा मौसम", chooseReviewSeason: "मौसम चुनें", reviewContextLabel: "{unit} · {crops}", activeSeason: "सक्रिय मौसम", reviewRefresh: "उम्मीदवार ताज़ा करें", candidateProgress: "{total} में से {current}", placeFacts: "स्थान", areaFacts: "क्षेत्र", cropFacts: "फसल और समय", visitFacts: "मुलाक़ातें और काम", evidenceFacts: "प्रमाण", farmerName: "किसान", village: "गाँव", block: "ब्लॉक", district: "ज़िला", gataNumber: "गाटा संख्या", plotArea: "दर्ज प्लॉट क्षेत्र", registrationArea: "दर्ज पंजीकरण क्षेत्र", cropStage: "फसल अवस्था", transplantedOn: "रोपाई की तारीख", latestVisit: "नवीनतम मुलाक़ात", recentVisits: "हाल की मुलाक़ातें", openFollowUps: "खुले अनुवर्ती काम", fieldWorkers: "फील्ड कर्मी", fieldName: "खेत का नाम", managedArea: "प्रबंधित क्षेत्र (हेक्टेयर)", cropName: "फसल", cultivarOptional: "किस्म (वैकल्पिक)", growerEffectiveOn: "किसान की प्रभावी तारीख", rightType: "संचालन अधिकार", rightStartsOn: "अधिकार शुरू होने की तारीख", rightEndsOn: "अधिकार समाप्त होने की तारीख", acceptCandidate: "स्वीकार करें", needsEvidence: "प्रमाण चाहिए", rejectCandidate: "अस्वीकार करें", missingEvidence: "आवश्यक प्रमाण", missingPlotArea: "प्लॉट क्षेत्र", missingCropSeason: "फसल और मौसम", missingRight: "संचालन अधिकार", missingFarmer: "किसान की पहचान", missingWorker: "फील्ड कर्मी की जिम्मेदारी", reviewReason: "कारण", evidenceNeeded: "खेत सत्य के लिए प्रमाण चाहिए", reviewSaved: "निर्णय सहेजा गया।", reviewNext: "अगला उम्मीदवार खोला जा रहा है।", reviewFailed: "निर्णय सहेजा नहीं जा सका।", managerOwner: "आप", bigha: "बीघा", acres: "एकड़", actionsUnavailable: "कार्रवाइयाँ उपलब्ध नहीं हैं। मुख्य पृष्ठ फिर भी उपयोगी है।", decisionQueueUnavailable: "निर्णय सूची अभी उपलब्ध नहीं है।", riskActionUnavailable: "जोखिम और कार्रवाई संदर्भ अभी उपलब्ध नहीं है।"
     }
   };
 
@@ -294,6 +294,16 @@
       });
   }
 
+  function closeManagerSessionDialog() {
+    farmTruthOpenPending = false;
+    var dialog = element("manager-session-dialog");
+    if (dialog.open) {
+      dialog.close();
+    }
+    element("manager-session-form").reset();
+    setManagerSessionFeedback("");
+  }
+
   function toggleManagerSession() {
     if (!managerSessionAuthenticated) {
       openManagerSessionDialog();
@@ -309,35 +319,64 @@
   }
 
   function farmTruthContexts() {
-    var unit = currentRuntime && currentRuntime.operating_unit;
-    var allocations = currentRuntime && Array.isArray(currentRuntime.allocations) ? currentRuntime.allocations : [];
-    if (!unit || !unit.id) {
+    var scope = currentPortfolio && currentPortfolio.scope;
+    var activeFarms = scope && scope.active_farms && Array.isArray(scope.active_farms.items) ? scope.active_farms.items : [];
+    var allocations = scope && scope.active_allocations && Array.isArray(scope.active_allocations.items) ? scope.active_allocations.items : [];
+    if (!scope || scope.availability !== "available" || !activeFarms.length || !allocations.length) {
       return [];
     }
-    var known = {};
-    return allocations.filter(function (item) {
-      var key = item && item.season_id ? unit.id + "\u001f" + item.season_id : "";
-      if (!key || known[key]) {
-        return false;
+    var unitNames = {};
+    activeFarms.forEach(function (unit) {
+      if (unit && unit.id && unit.name) {
+        unitNames[unit.id] = unit.name;
       }
-      known[key] = true;
-      return true;
-    }).map(function (item) {
+    });
+    var grouped = {};
+    allocations.forEach(function (item) {
+      if (!item || !item.operating_unit_id || !item.season_id || !unitNames[item.operating_unit_id]) {
+        return;
+      }
+      var key = item.operating_unit_id + "\u001f" + item.season_id;
+      if (!grouped[key]) {
+        grouped[key] = {
+          key: key,
+          operating_unit_id: item.operating_unit_id,
+          season_id: item.season_id,
+          unit_name: unitNames[item.operating_unit_id],
+          crop_names: []
+        };
+      }
+      if (item.crop_name && grouped[key].crop_names.indexOf(item.crop_name) === -1) {
+        grouped[key].crop_names.push(item.crop_name);
+      }
+    });
+    var contexts = Object.keys(grouped).sort().map(function (key) {
+      var context = grouped[key];
+      context.crop_names.sort();
       return {
-        key: unit.id + "\u001f" + item.season_id,
-        operating_unit_id: unit.id,
-        season_id: item.season_id,
-        label: (unit.name || unit.id) + " · " + item.season_id
+        key: context.key,
+        operating_unit_id: context.operating_unit_id,
+        season_id: context.season_id,
+        label: message("reviewContextLabel", {
+          unit: context.unit_name,
+          crops: context.crop_names.join(", ") || t("activeSeason")
+        })
       };
     });
+    var labelCounts = {};
+    contexts.forEach(function (context) {
+      labelCounts[context.label] = (labelCounts[context.label] || 0) + 1;
+    });
+    return contexts.some(function (context) { return labelCounts[context.label] > 1; }) ? [] : contexts;
   }
 
   function renderFarmTruthContextChooser() {
     var contexts = farmTruthContexts();
     var select = element("farm-truth-context");
     var existing = contexts.some(function (context) { return context.key === selectedFarmTruthContextKey; });
-    if (contexts.length === 1) {
-      selectedFarmTruthContextKey = contexts[0].key;
+    var soleContext = contexts.length === 1 ? contexts.find(function () { return true; }) : null;
+    if (soleContext) {
+      selectedFarmTruthContextKey = soleContext.key;
     } else if (!existing) {
       selectedFarmTruthContextKey = "";
     }
@@ -384,6 +423,10 @@
     feedback.textContent = value || "";
     feedback.hidden = !value;
     feedback.classList.toggle("is-saved", Boolean(saved));
+  }
+
+  function showFarmTruthDecisionSuccess(hasNext) {
+    setFarmTruthFeedback(t("reviewSaved") + (hasNext ? " " + t("reviewNext") : ""), true);
   }
 
   function setFarmTruthBusy(busy) {
@@ -482,16 +525,15 @@
         return "<span>" + escapeHtml(chip) + "</span>";
       }).join("") + "</div></article>");
     element("farm-truth-decision-panel").hidden = false;
-    setFarmTruthFeedback("");
     prefillFarmTruthAcceptance(item);
   }
 
-  function renderFarmTruthUnavailable(error) {
+  function renderFarmTruthUnavailable() {
     currentFarmTruthCase = null;
     farmTruthCases = [];
     element("farm-truth-progress").textContent = "";
     setHtml("farm-truth-list", "");
-    setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(error && error.message ? error.message : t("farmTruthUnavailable")) + "</p>");
+    setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthUnavailable")) + "</p>");
     element("farm-truth-decision-panel").hidden = true;
   }
 
@@ -567,6 +609,7 @@
       renderFarmTruthUnavailable();
       return Promise.resolve();
     }
+    setFarmTruthFeedback("");
     setFarmTruthBusy(true);
     setHtml("farm-truth-detail", '<p class="farm-truth-empty">' + escapeHtml(t("farmTruthLoading")) + "</p>");
     return fetch(farmTruthRefreshUrl, {
@@ -589,6 +632,7 @@
       dialog.showModal();
     }
     var contexts = renderFarmTruthContextChooser();
+    setFarmTruthFeedback("");
     if (contexts.length === 1) {
       refreshFarmTruthCases();
     } else {
@@ -636,13 +680,14 @@
       renderRiskLedger();
       if (!farmTruthCases.length) {
         renderFarmTruthDetail();
-        setFarmTruthFeedback(t("reviewSaved"), true);
+        showFarmTruthDecisionSuccess(false);
         return null;
       }
-      setFarmTruthFeedback(t("reviewSaved") + " " + t("reviewNext"), true);
-      return loadFarmTruthCaseDetail(farmTruthCases[0].id);
-    }).catch(function (error) {
-      setFarmTruthFeedback(error.message || t("reviewFailed"), false);
+      return loadFarmTruthCaseDetail(farmTruthCases[0].id).then(function () {
+        showFarmTruthDecisionSuccess(true);
+      });
+    }).catch(function () {
+      setFarmTruthFeedback(t("reviewFailed"), false);
     }).finally(function () {
       setFarmTruthBusy(false);
     });
@@ -1220,6 +1265,13 @@
       return;
     }
     currentPortfolio = null;
+    if (managerSessionAuthenticated) {
+      loadFarmTruthInboxCases();
+    }
+    if (element("farm-truth-dialog").open) {
+      renderFarmTruthContextChooser();
+      renderFarmTruthUnavailable();
+    }
     if (currentRuntime) {
       renderDailyDirection();
     }
@@ -1338,6 +1390,12 @@
       return;
     }
     currentPortfolio = portfolio;
+    if (managerSessionAuthenticated) {
+      loadFarmTruthInboxCases();
+    }
+    if (element("farm-truth-dialog").open) {
+      renderFarmTruthContextChooser();
+    }
     if (currentRuntime) {
       renderDailyDirection();
     }
@@ -1529,10 +1587,10 @@
   function renderBestMap() {
     var reviewed = currentFortuneMap && Array.isArray(currentFortuneMap.features) ? currentFortuneMap.features : [];
     var count = reviewed.length;
-    element("home-map-status").textContent = sampleMode ? t("sampleLocation") :
-      (count ? formatCount(count) + " " + (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry"));
-    element("home-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("mapManifestNote") : t("mapPrivacyNote"));
-    element("farm-map-note").textContent = sampleMode ? t("sampleGeometry") : (count ? t("farmMapNote") : t("farmMapPrivacyNote"));
+    element("home-map-status").textContent = count ? formatCount(count) + " " +
+      (count === 1 ? t("reviewedField") : t("reviewedFields")) : t("noReviewedGeometry");
+    element("home-map-note").textContent = count ? t("mapManifestNote") : t("mapPrivacyNote");
+    element("farm-map-note").textContent = count ? t("farmMapNote") : t("farmMapPrivacyNote");
     var manifest = { type: "FeatureCollection", features: reviewed };
     renderMapCanvas("home-map-canvas", manifest);
     renderMapCanvas("farm-map-canvas", manifest);
@@ -1540,7 +1598,7 @@
 
   function renderFortuneMapUnavailable() {
     currentFortuneMap = { type: "FeatureCollection", features: [] };
-    element("home-map-status").textContent = managerSessionAuthenticated ? t("mapUnavailable") : t("unlockMap");
+    element("home-map-status").textContent = t("noReviewedGeometry");
     element("home-map-note").textContent = managerSessionAuthenticated ?
       t("mapLoadFailed") : t("mapAccessRequired");
     element("farm-map-note").textContent = element("home-map-note").textContent;
@@ -1894,9 +1952,6 @@
     renderDailyDirection();
     renderHomeMetrics();
     restoreConnectedRecord();
-    if (managerSessionAuthenticated) {
-      loadFarmTruthInboxCases();
-    }
   }
 
   function renderRuntimeUnavailable() {
@@ -1910,7 +1965,7 @@
     renderProgramme(sampleProgramme(), { state: "sample" });
     renderRiskLedger();
     renderSampleWeather();
-    renderFortuneMap({ type: "FeatureCollection", features: [] });
+    renderFortuneMapUnavailable();
     renderHomeMetrics();
     restoreConnectedRecord();
   }
@@ -2019,6 +2074,7 @@
     setFarmTruthFeedback("");
   });
   element("farm-truth-context").addEventListener("change", function (event) {
+    setFarmTruthFeedback("");
     selectedFarmTruthContextKey = event.currentTarget.value;
     currentFarmTruthCase = null;
     farmTruthCases = [];
@@ -2031,6 +2087,7 @@
   element("farm-truth-list").addEventListener("click", function (event) {
     var card = event.target.closest("[data-farm-truth-case]");
     if (card) {
+      setFarmTruthFeedback("");
       loadFarmTruthCaseDetail(card.getAttribute("data-farm-truth-case"));
     }
   });
@@ -2045,13 +2102,11 @@
   });
   element("manager-session-action").addEventListener("click", toggleManagerSession);
   element("close-manager-session").addEventListener("click", function () {
-    element("manager-session-dialog").close();
-    element("manager-session-form").reset();
-    setManagerSessionFeedback("");
+    closeManagerSessionDialog();
   });
-  element("manager-session-dialog").addEventListener("cancel", function () {
-    element("manager-session-form").reset();
-    setManagerSessionFeedback("");
+  element("manager-session-dialog").addEventListener("cancel", function (event) {
+    event.preventDefault();
+    closeManagerSessionDialog();
   });
   element("manager-session-form").addEventListener("submit", submitManagerSession);
   element("close-record-dialog").addEventListener("click", function () {

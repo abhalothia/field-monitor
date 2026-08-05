@@ -427,7 +427,7 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
 .evidence-chips span { border: 1px solid rgba(63, 92, 69, .24); border-radius: 999px; background: #e1e8d3; color: #345841; font: 700 .61rem Manrope, Arial, sans-serif; padding: 6px 9px; }
 .farm-truth-decision-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px 24px 24px; }
 .farm-truth-decision-panel[hidden] { display: none; }
-.farm-truth-feedback { grid-column: 1 / -1; margin: 0; border-left: 3px solid #a4472b; background: #f3dfd0; color: #743520; font-size: .75rem; line-height: 1.45; padding: 10px 12px; }
+.farm-truth-feedback { margin: 16px 24px 0; border-left: 3px solid #a4472b; background: #f3dfd0; color: #743520; font-size: .75rem; line-height: 1.45; padding: 10px 12px; }
 .farm-truth-feedback.is-saved { border-left-color: #5b7c3b; background: #e0e9cf; color: #254b38; }
 .farm-truth-form { min-width: 0; border: 1px solid rgba(24, 57, 46, .2); background: rgba(255, 251, 241, .48); padding: 16px; }
 .farm-truth-form:first-of-type { grid-column: 1 / -1; }
@@ -549,6 +549,7 @@ button.directory-card.is-connected { border-color: #173f2c; box-shadow: inset 3p
   .farm-truth-detail { padding: 18px; }
   .farm-truth-facts, .farm-truth-fields, .farm-truth-decision-panel { grid-template-columns: 1fr; }
   .farm-truth-decision-panel { padding: 18px; }
+  .farm-truth-feedback { margin-right: 18px; margin-left: 18px; }
   .farm-truth-form, .farm-truth-form:first-of-type { grid-column: 1; }
   .farm-truth-submit { width: 100%; justify-content: center; }
 }

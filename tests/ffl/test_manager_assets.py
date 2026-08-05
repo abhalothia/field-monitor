@@ -1,6 +1,10 @@
 from pathlib import Path
 
 
+def _function_body(source, name, next_name):
+    return source.split("function " + name, 1)[1].split("function " + next_name, 1)[0]
+
+
 def test_manager_assets_define_the_fortune_coo_operating_views():
     root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
     index_html = (root / "index.html").read_text()
@@ -123,6 +127,7 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
         "acceptCandidate", "needsEvidence", "rejectCandidate", "evidenceNeeded",
         "reviewSaved", "reviewNext", "reviewReason", "reviewRefresh", "reviewSeason",
         "chooseReviewSeason", "farmTruthLoading", "reviewFailed",
+        "reviewContextLabel", "activeSeason",
     ):
         assert app_js.count(copy_key + ":") == 2
     assert "loadFarmTruthCases" in app_js
@@ -156,3 +161,65 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert "private_storage_uri" not in app_js
     assert "evidence_artifact_id" not in app_js
     assert "content_base64" not in app_js
+
+
+def test_farm_truth_review_behaviors_fail_closed_and_retain_feedback():
+    root = Path(__file__).resolve().parents[2] / "ffl" / "static" / "manager"
+    index_html = (root / "index.html").read_text()
+    app_js = (root / "app.js").read_text()
+
+    contexts = _function_body(app_js, "farmTruthContexts()", "renderFarmTruthContextChooser()")
+    assert "currentPortfolio.scope" in contexts
+    assert "active_allocations" in contexts
+    assert "active_farms" in contexts
+    assert "currentRuntime" not in contexts
+    assert "label:" in contexts
+    assert "label: (unit.name || unit.id) + \" · \" + item.season_id" not in contexts
+    assert "labelCounts" in contexts
+    assert "labelCounts[context.label] > 1" in contexts
+
+    chooser = _function_body(app_js, "renderFarmTruthContextChooser()", "farmTruthContext()")
+    assert "contexts.length === 1" in chooser
+    assert "selectedFarmTruthContextKey" in chooser
+    assert "contexts[0]" not in chooser
+    open_review = _function_body(
+        app_js, "openFarmTruthReview()", "submitFarmTruthDecision(event, decision)"
+    )
+    assert 'if (contexts.length === 1)' in open_review
+    assert "refreshFarmTruthCases()" in open_review
+    assert "renderFarmTruthUnavailable()" in open_review
+    render_portfolio = _function_body(app_js, "renderPortfolio(portfolio)", "sourceBoardReady()")
+    assert "renderFarmTruthContextChooser()" in render_portfolio
+    assert "refreshFarmTruthCases()" not in render_portfolio
+
+    best_map = _function_body(app_js, "renderBestMap()", "renderFortuneMapUnavailable()")
+    assert "sampleMode" not in best_map
+    assert "sampleLocation" not in best_map
+    assert "sampleGeometry" not in best_map
+    unavailable_map = _function_body(app_js, "renderFortuneMapUnavailable()", "loadFortuneMap()")
+    assert 't("noReviewedGeometry")' in unavailable_map
+    runtime_unavailable = _function_body(app_js, "renderRuntimeUnavailable()", "loadActionCentre()")
+    assert "renderFortuneMapUnavailable()" in runtime_unavailable
+    assert "renderFortuneMap({" not in runtime_unavailable
+
+    assert index_html.index('id="farm-truth-feedback"') < index_html.index(
+        'id="farm-truth-decision-panel"'
+    )
+    detail = _function_body(app_js, "renderFarmTruthDetail()", "renderFarmTruthUnavailable()")
+    assert 'setFarmTruthFeedback("")' not in detail
+    decision = _function_body(app_js, "submitFarmTruthDecision(event, decision)", "setSampleMode(enabled)")
+    assert "showFarmTruthDecisionSuccess" in decision
+
+    close_unlock = _function_body(app_js, "closeManagerSessionDialog()", "toggleManagerSession()")
+    assert "farmTruthOpenPending = false" in close_unlock
+    assert "dialog.close()" in close_unlock
+    close_handler = app_js.split('element("close-manager-session").addEventListener', 1)[1].split(
+        'element("manager-session-form").addEventListener', 1
+    )[0]
+    assert close_handler.count("closeManagerSessionDialog") == 2
+
+    unavailable = _function_body(app_js, "renderFarmTruthUnavailable()", "loadFarmTruthCaseDetail(caseId)")
+    assert "error.message" not in unavailable
+    assert 't("farmTruthUnavailable")' in unavailable
+    assert "error.message" not in decision
+    assert 't("reviewFailed")' in decision
