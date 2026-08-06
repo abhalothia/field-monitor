@@ -134,31 +134,93 @@ def list_entity_directory(
         raise ValueError("state must be reviewed or reported")
 
     if kind == "farm":
+        predicates = ["farm.status = 'active'"]
+        params: list[Any] = []
+        if query is not None:
+            predicates.append("lower(farm.name) LIKE ?")
+            params.append("%" + query.lower() + "%")
+        if crop is not None:
+            predicates.append(
+                """EXISTS (
+                       SELECT 1 FROM farm_fields AS membership
+                       JOIN crop_allocations AS allocation
+                         ON allocation.operational_block_id = membership.operational_block_id
+                       WHERE membership.farm_id = farm.id AND membership.status = 'active'
+                         AND allocation.status = 'active'
+                         AND lower(allocation.crop_name) LIKE ?
+                   )"""
+            )
+            params.append("%" + crop.lower() + "%")
+        params.append(limit)
         rows = conn.execute(
-            "SELECT id, name FROM farms WHERE status = 'active' ORDER BY name, id"
+            """SELECT farm.id, farm.name FROM farms AS farm
+               WHERE """ + " AND ".join(predicates) + " ORDER BY farm.name, farm.id LIMIT ?",
+            tuple(params),
         ).fetchall()
         items = [_farm_directory_item(conn, row, bounds) for row in rows]
     elif kind == "field":
+        predicates = ["farm_fields.status = 'active'", "farms.status = 'active'"]
+        params = []
+        if query is not None:
+            predicates.append("lower(block.name) LIKE ?")
+            params.append("%" + query.lower() + "%")
+        if crop is not None:
+            predicates.append(
+                """EXISTS (
+                       SELECT 1 FROM crop_allocations AS allocation
+                       WHERE allocation.operational_block_id = block.id
+                         AND allocation.status = 'active'
+                         AND lower(allocation.crop_name) LIKE ?
+                   )"""
+            )
+            params.append("%" + crop.lower() + "%")
+        params.append(limit)
         rows = conn.execute(
             """SELECT block.id, block.name
                FROM operational_blocks AS block
                JOIN farm_fields ON farm_fields.operational_block_id = block.id
-                 AND farm_fields.status = 'active'
-               JOIN farms ON farms.id = farm_fields.farm_id AND farms.status = 'active'
-               ORDER BY block.name, block.id"""
+               JOIN farms ON farms.id = farm_fields.farm_id
+               WHERE """ + " AND ".join(predicates) + " ORDER BY block.name, block.id LIMIT ?",
+            tuple(params),
         ).fetchall()
         items = [_field_directory_item(conn, row, bounds) for row in rows]
     else:
         role = _person_kind_role(kind)
+        predicates = [
+            "relationship.role = ?", "relationship.status = 'active'",
+            "relationship.reviewed_by_person_id IS NOT NULL",
+        ]
+        params = [role]
+        if query is not None:
+            predicates.append("lower(people.name) LIKE ?")
+            params.append("%" + query.lower() + "%")
+        if crop is not None:
+            predicates.append(
+                """EXISTS (
+                       SELECT 1 FROM crop_allocations AS filter_allocation
+                       WHERE filter_allocation.operational_block_id = block.id
+                         AND filter_allocation.status = 'active'
+                         AND lower(filter_allocation.crop_name) LIKE ?
+                   )"""
+            )
+            params.append("%" + crop.lower() + "%")
+        params.append(limit)
         rows = conn.execute(
             """SELECT DISTINCT people.id, people.name
                FROM people
                JOIN person_operating_relationships AS relationship
                  ON relationship.person_id = people.id
-               WHERE relationship.role = ? AND relationship.status = 'active'
-                 AND relationship.reviewed_by_person_id IS NOT NULL
-               ORDER BY people.name, people.id""",
-            (role,),
+               JOIN operational_blocks AS block ON (
+                    relationship.operational_block_id = block.id
+                    OR relationship.crop_allocation_id IN (
+                        SELECT id FROM crop_allocations WHERE operational_block_id = block.id
+                    )
+               )
+               JOIN farm_fields
+                 ON farm_fields.operational_block_id = block.id AND farm_fields.status = 'active'
+               JOIN farms ON farms.id = farm_fields.farm_id AND farms.status = 'active'
+               WHERE """ + " AND ".join(predicates) + " ORDER BY people.name, people.id LIMIT ?",
+            tuple(params),
         ).fetchall()
         items = [
             {
@@ -169,16 +231,7 @@ def list_entity_directory(
         ]
         items = [item for item in items if item["assignment_count"]]
 
-    if query is not None:
-        normalized_query = query.casefold()
-        items = [item for item in items if normalized_query in item["name"].casefold()]
-    if crop is not None:
-        normalized_crop = crop.casefold()
-        items = [
-            item for item in items
-            if any(normalized_crop in value.casefold() for value in item.get("crops", []))
-        ]
-    return items[:limit]
+    return items
 
 
 def _record_date_bounds(
@@ -279,10 +332,6 @@ def _farm_people(conn, farm_id: str) -> list[dict[str, Any]]:
                 OR relationship.crop_allocation_id IN (
                     SELECT id FROM crop_allocations WHERE operational_block_id = block.id
                 )
-                OR relationship.land_parcel_id IN (
-                    SELECT land_parcel_id FROM block_parcels WHERE operational_block_id = block.id
-                )
-                OR relationship.operating_unit_id = block.operating_unit_id
             )
            JOIN people AS person ON person.id = relationship.person_id
            WHERE farm_fields.farm_id = ? AND farm_fields.status = 'active'
@@ -307,10 +356,6 @@ def _field_people(conn, block_id: str) -> list[dict[str, Any]]:
                 OR relationship.crop_allocation_id IN (
                     SELECT id FROM crop_allocations WHERE operational_block_id = block.id
                 )
-                OR relationship.land_parcel_id IN (
-                    SELECT land_parcel_id FROM block_parcels WHERE operational_block_id = block.id
-                )
-                OR relationship.operating_unit_id = block.operating_unit_id
             )
            JOIN people AS person ON person.id = relationship.person_id
            WHERE block.id = ?
@@ -377,10 +422,6 @@ def _person_assignments(conn, person_id: str, role: str) -> list[dict[str, str]]
                 OR relationship.crop_allocation_id IN (
                     SELECT id FROM crop_allocations WHERE operational_block_id = block.id
                 )
-                OR relationship.land_parcel_id IN (
-                    SELECT land_parcel_id FROM block_parcels WHERE operational_block_id = block.id
-                )
-                OR relationship.operating_unit_id = block.operating_unit_id
            )
            JOIN farm_fields
              ON farm_fields.operational_block_id = block.id AND farm_fields.status = 'active'
@@ -481,7 +522,7 @@ def _reported_updates_for_fields(
                         AND allocation.operational_block_id IN (""" + placeholders + ")"
     task_rows = conn.execute(
         """WITH linked AS (""" + linked_tasks + """)
-           SELECT task.id, task.task_type, task.task_status,
+           SELECT task.id,
                   COALESCE(task.provider_completed_at, task.provider_started_at,
                            task.provider_created_at, task.created_at) AS occurred_at,
                   block.id AS field_id, block.name AS field_name
@@ -496,7 +537,7 @@ def _reported_updates_for_fields(
             "id": row["id"], "occurred_at": row["occurred_at"], "kind": "trackwick_task",
             "state": "reported", "farm_id": farm_id, "field_id": row["field_id"],
             "field_name": row["field_name"],
-            "summary": "{0} · {1}".format(row["task_type"], row["task_status"]),
+            "summary": "TrackWick task reported",
             "actor": None, "action": {"kind": "review_in_farm_truth", "id": row["id"]},
         }
         for row in task_rows

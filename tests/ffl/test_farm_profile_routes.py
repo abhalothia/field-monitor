@@ -129,6 +129,37 @@ def test_field_worker_context_lists_safe_assignments(ffl_db, worker):
         farm_profiles.person_context(ffl_db, worker.id, "grower")
 
 
+def test_farm_and_field_people_do_not_promote_unit_or_parcel_relationships(
+    ffl_db, users, farm, crop_allocation,
+):
+    parcel = repository.create_land_parcel(
+        ffl_db, crop_allocation.operating_unit_id, "North Parcel", 5.0,
+    )
+    repository.link_block_parcel(ffl_db, crop_allocation.operational_block_id, parcel.id)
+    unit_worker = repository.create_person(ffl_db, "Unit Worker", "field_operator")
+    parcel_farmer = repository.create_person(ffl_db, "Parcel Farmer", "grower")
+    repository.create_person_operating_relationship(
+        ffl_db, unit_worker.id, "operating_unit", crop_allocation.operating_unit_id,
+        "field_operator", "2026-06-01", reviewed_by_person_id=users.manager.id,
+    )
+    repository.create_person_operating_relationship(
+        ffl_db, parcel_farmer.id, "land_parcel", parcel.id, "grower", "2026-06-01",
+        reviewed_by_person_id=users.manager.id,
+    )
+
+    farm_people = farm_profiles.farm_record(ffl_db, farm.id)["people"]
+    field_people = farm_profiles.field_record(
+        ffl_db, crop_allocation.operational_block_id,
+    )["people"]
+
+    assert unit_worker.id not in {person["id"] for person in farm_people}
+    assert parcel_farmer.id not in {person["id"] for person in farm_people}
+    assert unit_worker.id not in {person["id"] for person in field_people}
+    assert parcel_farmer.id not in {person["id"] for person in field_people}
+    assert farm_profiles.person_context(ffl_db, unit_worker.id, "field_worker") is None
+    assert farm_profiles.person_context(ffl_db, parcel_farmer.id, "farmer") is None
+
+
 def test_field_record_has_reviewed_geometry_state_and_crop_seasons(
     ffl_db, farm, crop_allocation,
 ):
@@ -192,8 +223,11 @@ def test_reported_updates_require_reviewed_allocation_link_and_redact_source_val
                 id, source_id, provider_task_id, task_type, task_status,
                 provider_completed_at, source_fingerprint, mapping_version,
                 data_quality_status, first_seen_at, last_seen_at, created_at
-            ) VALUES (?, ?, ?, 'Farmer Visit', 'completed', ?, ?, 'v1', 'valid', ?, ?, ?)""",
-            (task_id, source.id, "private-provider-" + task_id, now, "a" * 64, now, now, now),
+            ) VALUES (?, ?, ?, ?, 'completed', ?, ?, 'v1', 'valid', ?, ?, ?)""",
+            (
+                task_id, source.id, "private-provider-" + task_id,
+                "RAW SENTINEL TASK TYPE 8842", now, "a" * 64, now, now, now,
+            ),
         )
         ffl_db.execute(
             """INSERT INTO trackwick_visits (
@@ -228,6 +262,9 @@ def test_reported_updates_require_reviewed_allocation_link_and_redact_source_val
 
     updates = farm_profiles.farm_record(ffl_db, farm.id)["updates"]
     source_updates = [item for item in updates if item["state"] == "reported"]
+    field_updates = farm_profiles.field_record(
+        ffl_db, crop_allocation.operational_block_id,
+    )["updates"]
 
     assert {item["kind"] for item in source_updates} == {
         "trackwick_task", "trackwick_visit", "disease_finding",
@@ -241,6 +278,11 @@ def test_reported_updates_require_reviewed_allocation_link_and_redact_source_val
     assert finding["finding_kind"] == "disease"
     assert finding["declared_severity"] == "high"
     serialized = repr(source_updates)
+    assert "RAW SENTINEL TASK TYPE 8842" not in serialized
+    assert "RAW SENTINEL TASK TYPE 8842" not in repr(field_updates)
+    assert next(item for item in source_updates if item["kind"] == "trackwick_task")["summary"] == (
+        "TrackWick task reported"
+    )
     assert "raw-disease-value" not in serialized
     assert "raw-source-field" not in serialized
     assert "private-provider" not in serialized
