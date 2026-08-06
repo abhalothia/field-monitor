@@ -251,7 +251,7 @@ type FieldRecord = {
   name: string;
   area_hectares?: number | null;
   farm?: { id: string; name: string } | null;
-  geometry: { state: string };
+  geometry: { state: string; message?: string };
   allocations: Array<{
     id: string;
     season_id: string;
@@ -1001,11 +1001,16 @@ function FieldRecordPanel({ record, openFarm, openPerson }: {
       <h3>Crop seasons</h3>
       {record.allocations.length ? <div className="entity-chip-list">{record.allocations.map((allocation) => <span className="entity-chip crop-season-chip" key={allocation.id}><strong>{allocation.crop_name}{allocation.cultivar ? ` · ${allocation.cultivar}` : ""}</strong>{allocation.season_name} · {allocation.starts_on} to {allocation.ends_on} · {roleName(allocation.status)}</span>)}</div> : <p className="empty-copy">No crop season is recorded for this Field.</p>}
     </section>
-    <section>
-      <h3>People</h3>
+      <section>
+        <h3>People</h3>
       {record.people.length ? <ul className="entity-link-list">{record.people.map((person, index) => <li key={`${person.id}-${person.role}-${index}`}><button id={`field-person-${record.id}-${person.id}-${index}`} className="context-link" type="button" onClick={(event) => openPerson(person.kind, person.id, event.currentTarget.id)}><strong>{person.name}</strong><span>{roleName(person.role)}</span></button></li>)}</ul> : <p className="empty-copy">No reviewed people are attached to this Field.</p>}
-    </section>
-    <section>
+      </section>
+      <section>
+        <h3>Geometry</h3>
+        <p className="profile-context">{record.geometry.message || "A reviewed field boundary is required before this Field can appear on a map."}</p>
+        <p className="context-limitation">TrackWick source points, village context, and reported areas never become a Field boundary.</p>
+      </section>
+      <section>
       <h3>Updates</h3>
       <EntityUpdates updates={record.updates} />
     </section>
