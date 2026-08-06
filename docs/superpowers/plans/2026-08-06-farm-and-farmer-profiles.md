@@ -535,7 +535,7 @@ Expected: all tests pass, the browser route is provably redacted, all reviewed
 truth uses reviewed grower relationships, and the production web build exits
 0.
 
-- [ ] **Step 6: Commit the closure**
+- [x] **Step 6: Commit the closure**
 
 ~~~bash
 git add ffl/services/trackwick_board.py ffl/api/trackwick_routes.py ffl/services/farm_profiles.py ffl/api/routes.py apps/web/components/command-centre.tsx tests/ffl/test_trackwick_board.py tests/ffl/test_farm_profile_routes.py tests/ffl/test_api.py docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md
@@ -551,7 +551,7 @@ git commit -m "fix: close farm profile safety boundaries"
 - Consumes: Tasks 1–3.
 - Produces: verified code ready for main-branch auto-deploy.
 
-- [ ] **Step 1: Compare code to the approved design**
+- [x] **Step 1: Compare code to the approved design**
 
 Verify these exact points against
 docs/superpowers/specs/2026-08-06-farm-and-farmer-profiles-design.md:
@@ -565,19 +565,19 @@ No field-worker product surface
 WhatsApp Coming soon is visible and non-functional
 ~~~
 
-- [ ] **Step 2: Run the complete FFL suite**
+- [x] **Step 2: Run the complete FFL suite**
 
 Run: .venv/bin/pytest -q tests/ffl
 
 Expected: exit 0. Record the final pass count and any warnings.
 
-- [ ] **Step 3: Run production web verification**
+- [x] **Step 3: Run production web verification**
 
 Run: pnpm --dir apps/web typecheck && pnpm --dir apps/web build
 
 Expected: exit 0 for both TypeScript and production Next build.
 
-- [ ] **Step 4: Inspect final diff for forbidden changes**
+- [x] **Step 4: Inspect final diff for forbidden changes**
 
 Run: git diff 7c06fd4..HEAD --check && git diff 7c06fd4..HEAD --stat && git status --short
 
