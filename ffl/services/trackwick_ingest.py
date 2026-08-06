@@ -186,8 +186,11 @@ def refresh_live_trackwick(
                 commit=False,
             )
             conn.commit()
-        except Exception:
+        except Exception as error:
             conn.rollback()
+            reason_code = _safe_reason_code(
+                "persistence_" + error.__class__.__name__.lower()
+            )
             failed = repository.create_source_run(
                 conn,
                 source.id,
@@ -195,9 +198,9 @@ def refresh_live_trackwick(
                 mapping_version=LIVE_MAPPING_VERSION,
                 status="failed",
                 fetched_at=_now(),
-                error_summary="persistence_failed",
+                error_summary=reason_code,
             )
-            return TrackwickRefreshResult(source, failed, "failed", "persistence_failed", 0, 0)
+            return TrackwickRefreshResult(source, failed, "failed", reason_code, 0, 0)
     return TrackwickRefreshResult(
         source,
         run,

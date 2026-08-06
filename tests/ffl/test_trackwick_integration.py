@@ -584,3 +584,27 @@ def test_trackwick_refresh_requires_an_accountable_operations_owner(ffl_db):
 
     with pytest.raises(ValueError, match="authorised Fortune operations lead"):
         refresh_live_trackwick(ffl_db, grower.id, config=CONFIG, credential_resolver=lambda _: "unused")
+
+
+def test_trackwick_refresh_records_a_safe_persistence_failure_class(
+    ffl_db, owner, monkeypatch
+):
+    def fail_private_evidence(*_args, **_kwargs):
+        raise RuntimeError("provider data must never be logged here")
+
+    monkeypatch.setattr(
+        repository, "upsert_trackwick_private_records", fail_private_evidence
+    )
+
+    result = refresh_live_trackwick(
+        ffl_db,
+        owner.id,
+        config=CONFIG,
+        credential_resolver=lambda _: "runtime-key",
+        transport=RecordingTransport(),
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    assert result.state == "failed"
+    assert result.reason_code == "persistence_runtimeerror"
+    assert result.source_run.error_summary == "persistence_runtimeerror"
