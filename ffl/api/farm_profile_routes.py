@@ -102,6 +102,26 @@ def get_field(
     return record
 
 
+@router.get("/people")
+def list_people(
+    request: Request,
+    kind: str = "farmer",
+    query: str | None = Query(default=None, max_length=80),
+    crop: str | None = Query(default=None, max_length=80),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    _manager_id: str = Depends(require_manager),
+) -> list[dict]:
+    """List only people with an openable canonical Farm assignment."""
+    if kind not in {"farmer", "field_worker"}:
+        _invalid("kind must be farmer or field_worker")
+    _validate_date_window(date_from, date_to)
+    return farm_profiles.list_entity_directory(
+        _connection(request), kind, query, crop, date_from, date_to, limit, "reviewed",
+    )
+
+
 @router.get("/people/{kind}/{person_id}")
 def get_person(
     request: Request,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 type View = "home" | "fields" | "farmers" | "actions" | "settings";
 type Language = "en" | "hi";
@@ -116,9 +116,11 @@ type TrackwickBoard = {
   inbox: TrackwickWork[];
 };
 type ReviewedFarmerCard = {
+  state: "reviewed";
+  kind: "farmer";
   id: string;
   name: string;
-  relationshipRoles: string[];
+  assignment_count: number;
 };
 type ProcurementHistory = {
   state: "not_loaded" | "published";
@@ -312,6 +314,7 @@ type State = {
   session: ManagerSession | null;
   readiness: PilotReadiness | null;
   trackwick: TrackwickBoard | null;
+  canonicalFarmers: ReviewedFarmerCard[];
   procurementHistory: ProcurementHistory | null;
   loading: boolean;
   error: string | null;
@@ -326,6 +329,7 @@ const EMPTY_STATE: State = {
   session: null,
   readiness: null,
   trackwick: null,
+  canonicalFarmers: [],
   procurementHistory: null,
   loading: true,
   error: null,
@@ -436,9 +440,12 @@ export function CommandCentre({ view }: { view: View }) {
       return;
     }
     const session = results[4].status === "fulfilled" ? results[4].value.value : null;
-    const trackwick = session?.authenticated
-      ? await readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value).catch(() => null)
-      : null;
+    const [trackwick, canonicalFarmers] = session?.authenticated
+      ? await Promise.all([
+          readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value).catch(() => null),
+          readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100").then(({ value }) => value).catch(() => []),
+        ])
+      : [null, []];
     setState({
       profile: results[0].status === "fulfilled" ? results[0].value.value : null,
       portfolio: results[1].status === "fulfilled" ? results[1].value.value : null,
@@ -447,6 +454,7 @@ export function CommandCentre({ view }: { view: View }) {
       session,
       readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
       trackwick,
+      canonicalFarmers,
       procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : null,
       loading: false,
       needsLaunchLogin: false,
@@ -455,23 +463,6 @@ export function CommandCentre({ view }: { view: View }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-
-  const farmers = useMemo(() => {
-    const peopleById = new Map((state.runtime?.people || []).map((person) => [person.id, person]));
-    const rolesByPerson = new Map<string, Set<string>>();
-    for (const relationship of state.runtime?.person_operating_relationships?.items || []) {
-      if (relationship.role !== "grower") continue;
-      const roles = rolesByPerson.get(relationship.person_id) || new Set<string>();
-      roles.add(relationship.role);
-      rolesByPerson.set(relationship.person_id, roles);
-    }
-    const cards: ReviewedFarmerCard[] = [];
-    for (const [personId, roles] of rolesByPerson) {
-      const person = peopleById.get(personId);
-      if (person) cards.push({ id: person.id, name: person.name, relationshipRoles: Array.from(roles) });
-    }
-    return cards;
-  }, [state.runtime]);
 
   async function openFarmerProfile(id: string, recordState: FarmerProfile["state"], openerId: string) {
     if (!state.session?.authenticated) return;
@@ -551,7 +542,7 @@ export function CommandCentre({ view }: { view: View }) {
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
-      {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
+      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
@@ -1014,7 +1005,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">{farmers.length ? "Reviewed grower relationships" : sourceFarmers.length ? "Reported farmers" : "Reviewed grower relationships"}</p><h2>{farmers.length ? "Farmers on this operating record" : sourceFarmers.length ? "Farmers reported by TrackWick" : "Farmers on this operating record"}</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.relationshipRoles.map(roleName).join(" · ")} relationship</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to this operating record yet." : "Farmers appear here only after a reviewed grower relationship is recorded."}</p>}
+    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
   </section>;
 }
 

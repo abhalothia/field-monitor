@@ -405,6 +405,11 @@ def test_farm_profile_returns_reviewed_truth_and_not_source_context(ffl_db, user
 
     assert profile["state"] == "reviewed"
     assert profile["kind"] == "farm"
+    assert profile["compatibility"] == {
+        "state": "noncanonical",
+        "id_kind": "operational_block",
+        "message": "Compatibility response: this id identifies a Field, not a canonical Farm.",
+    }
     assert profile["current"] == {"crop_name": "Rice", "cultivar": "Pusa 1121"}
     assert profile["people"] == [{
         "id": grower.id, "name": "Asha Grower", "role": "grower", "starts_on": "2026-06-01",
@@ -453,9 +458,15 @@ def test_reviewed_farmer_profile_lists_linked_farm_crop_and_open_work(
     assert profile["farms"] == [{
         "id": crop_allocation.operational_block_id,
         "name": "North Block",
+        "compatibility_kind": "operational_block_not_canonical_farm",
         "current": {"crop_name": "Rice", "cultivar": "Pusa 1121"},
         "open_work_count": 0,
     }]
+    assert profile["compatibility"] == {
+        "state": "noncanonical",
+        "farms_id_kind": "operational_block",
+        "message": "Compatibility response: farms entries identify Fields, not canonical Farms.",
+    }
 
 
 def test_reviewed_farm_profile_context_uses_only_non_draft_signal_timestamp(
@@ -616,10 +627,23 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         app.state.conn, grower.id, "crop_allocation", allocation.id, "grower",
         "2026-06-01", reviewed_by_person_id=manager.id,
     )
+    parcel = repository.create_land_parcel(app.state.conn, unit.id, "North Parcel", 5.0)
+    repository.link_block_parcel(app.state.conn, block.id, parcel.id)
+    unit_only = repository.create_person(app.state.conn, "Unit-only Grower", "grower")
+    parcel_only = repository.create_person(app.state.conn, "Parcel-only Grower", "grower")
+    repository.create_person_operating_relationship(
+        app.state.conn, unit_only.id, "operating_unit", unit.id, "grower",
+        "2026-06-01", reviewed_by_person_id=manager.id,
+    )
+    repository.create_person_operating_relationship(
+        app.state.conn, parcel_only.id, "land_parcel", parcel.id, "grower",
+        "2026-06-01", reviewed_by_person_id=manager.id,
+    )
     headers = {"X-FFL-Manager-Token": "manager-secret"}
 
     with TestClient(app) as client:
         denied = client.get("/api/v1/farms")
+        denied_people = client.get("/api/v1/people?kind=farmer")
         invalid_person_kind = client.get("/api/v1/people/unknown/person-1", headers=headers)
         invalid_kind = client.get("/api/v1/farms?kind=unknown", headers=headers)
         invalid_query = client.get("/api/v1/farms?query=" + "x" * 81, headers=headers)
@@ -635,6 +659,8 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
             "/api/v1/people/field_worker/" + worker.id, headers=headers,
         )
         farmer_record = client.get("/api/v1/people/farmer/" + grower.id, headers=headers)
+        farmer_directory = client.get("/api/v1/people?kind=farmer", headers=headers)
+        invalid_people_kind = client.get("/api/v1/people?kind=unknown", headers=headers)
         linked_farm_records = [
             client.get("/api/v1/farms/" + assignment["farm_id"], headers=headers)
             for assignment in farmer_record.json()["assignments"]
@@ -642,8 +668,10 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         absent_farm = client.get("/api/v1/farms/missing", headers=headers)
         absent_field = client.get("/api/v1/fields/missing", headers=headers)
         absent_person = client.get("/api/v1/people/farmer/missing", headers=headers)
+        legacy_farm = client.get("/api/v1/farm-profiles/" + block.id, headers=headers)
+        legacy_farmer = client.get("/api/v1/farmer-profiles/" + grower.id, headers=headers)
 
-    assert denied.status_code == 403
+    assert denied.status_code == denied_people.status_code == 403
     assert all(response.status_code == 422 for response in (
         invalid_person_kind, invalid_kind, invalid_query, invalid_crop, invalid_limit, invalid_dates,
     ))
@@ -653,8 +681,21 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
     }]
     assert farm_record.status_code == field_record.status_code == person_record.status_code == 200
     assert farmer_record.status_code == 200
+    assert invalid_people_kind.status_code == 422
+    assert farmer_directory.json() == [{
+        "state": "reviewed", "kind": "farmer", "id": grower.id,
+        "name": "Asha Grower", "assignment_count": 1,
+    }]
+    assert unit_only.id not in repr(farmer_directory.json())
+    assert parcel_only.id not in repr(farmer_directory.json())
     assert linked_farm_records and all(response.status_code == 200 for response in linked_farm_records)
     assert {response.json()["id"] for response in linked_farm_records} == {farm.id}
+    assert legacy_farm.json()["compatibility"]["id_kind"] == "operational_block"
+    assert legacy_farm.json()["compatibility"]["state"] == "noncanonical"
+    assert legacy_farmer.json()["compatibility"]["farms_id_kind"] == "operational_block"
+    assert legacy_farmer.json()["farms"][0]["compatibility_kind"] == (
+        "operational_block_not_canonical_farm"
+    )
     assert "provider_identifier" not in repr([
         farm_record.json(), field_record.json(), person_record.json(), directory.json(),
     ])
@@ -719,6 +760,7 @@ def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label(
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
     assert 'readJson<PersonContext>("/api/v1/people/farmer/" + id)' in source
+    assert 'readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100")' in source
     assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
     assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' not in source
     assert 'href={`/fields?farm=${encodeURIComponent(farm.id)}`}' in source
@@ -726,6 +768,7 @@ def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label(
     assert "reported candidate" in source
     assert "item.label" in source
     assert "item.task_type" not in source
+    assert "runtime?.person_operating_relationships" not in source
 
 
 def test_command_centre_mobile_farm_facts_are_one_column_with_row_dividers():

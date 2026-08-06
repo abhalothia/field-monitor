@@ -685,7 +685,7 @@ def _field_directory_item(
 
 
 def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
-    """Return reviewed operational context for one canonical farm block."""
+    """Compatibility response for an operational block, never a canonical Farm."""
     block = conn.execute(
         "SELECT id, name, area_hectares, operating_unit_id FROM operational_blocks WHERE id = ?", (block_id,)
     ).fetchone()
@@ -696,6 +696,11 @@ def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
     return {
         "state": "reviewed",
         "kind": "farm",
+        "compatibility": {
+            "state": "noncanonical",
+            "id_kind": "operational_block",
+            "message": "Compatibility response: this id identifies a Field, not a canonical Farm.",
+        },
         "id": block["id"],
         "name": block["name"],
         "current": _current_crop(allocations),
@@ -708,7 +713,7 @@ def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
 
 
 def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
-    """Return the canonical, reviewed relationships for one person."""
+    """Compatibility response whose legacy farms collection contains block ids."""
     person = conn.execute(
         "SELECT id, name FROM people WHERE id = ?", (person_id,)
     ).fetchone()
@@ -719,6 +724,11 @@ def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
     return {
         "state": "reviewed",
         "kind": "farmer",
+        "compatibility": {
+            "state": "noncanonical",
+            "farms_id_kind": "operational_block",
+            "message": "Compatibility response: farms entries identify Fields, not canonical Farms.",
+        },
         "id": person["id"],
         "name": person["name"],
         "relationships": relationships,
@@ -946,6 +956,7 @@ def _linked_farms_for_reviewed_relationships(conn, person_id: str) -> list[dict[
         farms.append({
             "id": block["id"],
             "name": block["name"],
+            "compatibility_kind": "operational_block_not_canonical_farm",
             "current": _current_crop(allocations),
             "open_work_count": _open_work_count_for_allocations(
                 conn, [allocation["id"] for allocation in allocations]
