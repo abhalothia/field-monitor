@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ffl.api.import_routes import router as import_router
 from ffl.api.farm_manifest_routes import router as farm_manifest_router
+from ffl.api.farm_profile_routes import router as farm_profile_router
 from ffl.api.farm_truth_routes import router as farm_truth_router
 from ffl.api.field_information_request_routes import router as field_information_request_router
 from ffl.api.field_capture_routes import router as field_capture_router
@@ -454,6 +455,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(trackolap_router)
     app.include_router(trackwick_router)
     app.include_router(farm_truth_router)
+    app.include_router(farm_profile_router)
     app.include_router(portal_router)
     app.include_router(password_identity_router)
     return app

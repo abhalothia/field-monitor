@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
+from ffl.app import create_app
 from ffl.persistence import repository
 from ffl.services import farm_profiles
 
@@ -93,3 +95,18 @@ def test_reported_farmer_profile_is_safe_context_not_a_login(ffl_db, populated_t
     assert "9999999999" not in serialized
     assert "latitude" not in serialized
     assert "remote_url" not in serialized
+
+
+def test_profile_routes_require_manager_and_distinguish_absence(tmp_path):
+    app = create_app(str(tmp_path / "profiles.db"), manager_api_token="manager-secret")
+    with TestClient(app) as client:
+        manager = repository.create_person(app.state.conn, "Fortune COO", "operations_lead")
+        app.state.manager_person_id = manager.id
+        denied = client.get("/api/v1/farm-profiles/missing")
+        absent = client.get(
+            "/api/v1/farm-profiles/missing", headers={"X-FFL-Manager-Token": "manager-secret"}
+        )
+
+    assert denied.status_code == 403
+    assert absent.status_code == 404
+    assert absent.json() == {"detail": "farm profile not found"}
