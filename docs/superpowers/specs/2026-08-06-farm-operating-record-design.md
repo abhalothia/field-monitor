@@ -7,6 +7,35 @@ connects people, field work, dated updates, evidence, and supply history.
 Every view is a different useful cut of that same record; the product does
 not create separate mini-products for farmers, workers, disease, or history.
 
+A canonical **Farm** is a new parent entity above the current operational
+blocks. An operational block becomes the field-level unit used for crop
+allocations and work; parcels remain its physical land components. This makes
+one Farm able to contain many geo-locatable Fields without reinterpreting an
+existing block as both a business farm and a field.
+
+## Canonical entity graph
+
+```text
+Operating unit
+  └─ Farm
+      └─ Field (existing operational block)
+          └─ Parcel(s) and reviewed geometry
+          └─ Crop allocation(s): one field + one crop + one season
+
+Person ── many-to-many, time-bounded role ── Farm / Field / Crop allocation
+```
+
+- **Farm** is the command record and owns no inferred geometry.
+- **Field** is geo-locatable only through reviewed parcel geometry. A
+  TrackWick coordinate stays a reported evidence point, not a boundary.
+- **Farmer** and **field worker** are both people with time-bounded,
+  many-to-many roles. A worker may serve many farmers and fields; a farmer may
+  be related to many fields and farms.
+- **Crop allocation** is the only place a crop lives operationally. It is not
+  owned by a person; people are related to it through their reviewed role.
+- **Disease/pest finding** is a dated event on a field/crop allocation. It is
+  never promoted into a disease profile from raw source text.
+
 ## The one record
 
 The farm profile opens as an in-place panel and always answers five questions:
@@ -40,7 +69,9 @@ The first release has only two new product behaviours:
 The Farm Record has four small sections: **Now**, **People**, **Updates**, and
 **Context**. Farmers and field workers are links or labels inside People;
 disease is a dated finding inside Updates; historical procurement is the
-Context section. Nothing receives its own dashboard or separate data model.
+Context section. Every core entity has a stable profile URL, but only Farm and
+Field are top-level operating destinations; nothing receives a separate
+dashboard or duplicated data model.
 
 Home and Actions simply link to the relevant Farm Record. Farmers remains a
 lightweight finder until the farm record is proved useful. Settings retains
@@ -66,10 +97,14 @@ rendered. There is no “farm health” score.
 
 ## Data model and read models
 
-No duplicate canonical tables are created.
+The foundation adds a private canonical `agro_farms` relation and a
+time-bounded `agro_farm_fields` membership relation. Existing
+`agro_operational_blocks` remain field-level units; existing crop allocations,
+work, field signals, and reviewed person relationships remain valid. A
+backfill is review-first: no TrackWick registration creates a Farm or Field.
 
-- Existing `operational_blocks`, allocations, reviewed relationships, work,
-  and field signals remain the reviewed layer.
+- Existing operational blocks, parcels, allocations, reviewed relationships,
+  work, and field signals remain the reviewed layer.
 - Existing TrackWick typed tables remain the reported source lane.
 - Existing procurement cohorts remain history.
 - New server-side profile DTOs compose those sources into bounded read models:
@@ -92,13 +127,17 @@ not join raw records itself.
 
 ## Delivery order
 
-1. Extend the existing farm profile service with four safe sections: Now,
-   People, Updates, and Context.
-2. Add one manager-only Farm Record endpoint and bounded Fields filters.
-3. Render the four sections in the existing in-place farm profile panel.
-4. Make Home and Actions open the matching Farm Record where an ID exists.
-5. Test redaction, state separation, filter bounds, date ordering, and empty
-   paths; then deploy.
+1. Add Farm and Farm-to-Field canonical foundation migrations, runtime grants,
+   repository helpers, and review-first migration tests.
+2. Extend the profile service with Farm, Field, Farmer, and Field Worker
+   records that share the same safe context rules.
+3. Add manager-only list/detail endpoints with bounded filters and stable
+   profile URLs.
+4. Render the four Farm Record sections and concise entity profiles in the
+   existing web shell.
+5. Make Home and Actions open the matching Farm Record where an ID exists.
+6. Test redaction, relationship cardinality, source/canonical separation,
+   filter bounds, date ordering, and empty paths; then deploy.
 
 ## Non-goals
 
