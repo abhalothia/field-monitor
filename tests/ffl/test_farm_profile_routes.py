@@ -509,6 +509,67 @@ def test_profile_routes_require_manager_and_distinguish_absence(tmp_path):
     assert absent.json() == {"detail": "farm profile not found"}
 
 
+def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(tmp_path):
+    app = create_app(str(tmp_path / "entities.db"), manager_api_token="manager-secret")
+    manager = repository.create_person(app.state.conn, "Fortune COO", "operations_lead")
+    app.state.manager_person_id = manager.id
+    unit = repository.create_operating_unit(app.state.conn, "Fortune operating unit")
+    block = repository.create_operational_block(app.state.conn, unit.id, "North Field", 5.0)
+    season = repository.create_season(
+        app.state.conn, unit.id, "Kharif 2026", "2026-06-01", "2026-11-30",
+    )
+    allocation = repository.create_crop_allocation(
+        app.state.conn, unit.id, block.id, season.id, "Rice", "Pusa 1121", 5.0,
+    )
+    farm = repository.create_farm(app.state.conn, unit.id, "Fortune Farm", manager.id)
+    repository.assign_field_to_farm(app.state.conn, farm.id, block.id, "2026-06-01", manager.id)
+    worker = repository.create_person(app.state.conn, "Nisha Field Worker", "field_operator")
+    repository.create_person_operating_relationship(
+        app.state.conn, worker.id, "crop_allocation", allocation.id, "field_operator",
+        "2026-06-01", reviewed_by_person_id=manager.id,
+    )
+    headers = {"X-FFL-Manager-Token": "manager-secret"}
+
+    with TestClient(app) as client:
+        denied = client.get("/api/v1/farms")
+        invalid_person_kind = client.get("/api/v1/people/unknown/person-1", headers=headers)
+        invalid_kind = client.get("/api/v1/farms?kind=unknown", headers=headers)
+        invalid_query = client.get("/api/v1/farms?query=" + "x" * 81, headers=headers)
+        invalid_crop = client.get("/api/v1/farms?crop=" + "x" * 81, headers=headers)
+        invalid_limit = client.get("/api/v1/farms?limit=101", headers=headers)
+        invalid_dates = client.get(
+            "/api/v1/farms?date_from=2026-08-02&date_to=2026-08-01", headers=headers,
+        )
+        directory = client.get("/api/v1/farms?query=Fortune&crop=Rice", headers=headers)
+        farm_record = client.get("/api/v1/farms/" + farm.id, headers=headers)
+        field_record = client.get("/api/v1/fields/" + block.id, headers=headers)
+        person_record = client.get(
+            "/api/v1/people/field_worker/" + worker.id, headers=headers,
+        )
+        absent_farm = client.get("/api/v1/farms/missing", headers=headers)
+        absent_field = client.get("/api/v1/fields/missing", headers=headers)
+        absent_person = client.get("/api/v1/people/farmer/missing", headers=headers)
+
+    assert denied.status_code == 403
+    assert all(response.status_code == 422 for response in (
+        invalid_person_kind, invalid_kind, invalid_query, invalid_crop, invalid_limit, invalid_dates,
+    ))
+    assert directory.json() == [{
+        "state": "reviewed", "kind": "farm", "id": farm.id, "name": "Fortune Farm",
+        "field_count": 1, "crops": ["Rice"], "open_work_count": 0, "latest_update_at": None,
+    }]
+    assert farm_record.status_code == field_record.status_code == person_record.status_code == 200
+    assert "provider_identifier" not in repr([
+        farm_record.json(), field_record.json(), person_record.json(), directory.json(),
+    ])
+    assert "contact_value" not in repr([
+        farm_record.json(), field_record.json(), person_record.json(), directory.json(),
+    ])
+    assert absent_farm.json() == {"detail": "farm record not found"}
+    assert absent_field.json() == {"detail": "field record not found"}
+    assert absent_person.json() == {"detail": "person record not found"}
+
+
 def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
