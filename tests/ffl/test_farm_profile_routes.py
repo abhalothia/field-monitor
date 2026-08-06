@@ -122,3 +122,12 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert "WhatsApp updates" in source
     assert "Coming soon" in source
     assert "disabled-connection" in source
+    assert "canOpenProfiles={Boolean(state.session?.authenticated)}" in source
+    assert 'aria-disabled="true">Manager access required' in source
+    assert "new Map<string, ReviewedFarmCard>()" in source
+    assert "allocation.operational_block_id" in source
+    assert "peopleById.get(personId)" in source
+    assert "isFarmer(person.role) &&" not in source
+    assert "profileOpener.current = openerId" in source
+    assert "document.getElementById(openerId)?.focus()" in source
+    assert '<div className="disabled-connection" aria-disabled="true">' in source

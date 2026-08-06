@@ -117,6 +117,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .field-card p { color: var(--muted); font-size: .7rem; min-height: 2.3em; margin-bottom: 20px; }
 .field-card .card-detail { min-height: 0; margin: -9px 0 17px; color: #71806d; font-family: "DM Mono", monospace; font-size: .59rem; letter-spacing: .02em; text-transform: uppercase; }
 .profile-open { min-height: 36px; border: 0; background: transparent; cursor: pointer; padding: 7px 0 3px; text-align: left; }
+.profile-locked { display: inline-flex; align-items: center; width: fit-content; min-height: 36px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .035em; text-transform: uppercase; }
 .empty-state { border: 1px dashed rgba(20, 61, 45, .35); color: var(--muted); padding: 28px; }
 .empty-state strong { color: var(--ink-soft); font-size: .9rem; }
 .empty-state p, .empty-copy { color: var(--muted); font-size: .77rem; line-height: 1.5; }
@@ -128,7 +129,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .person-row h3 { font-size: .78rem; margin: 0 0 3px; }
 .person-row p { color: var(--muted); font-size: .67rem; margin: 0; text-transform: capitalize; }
 .person-summary { min-width: 0; flex: 1; }
-.person-row .profile-open { flex: 0 0 auto; margin-left: auto; }
+.person-row .profile-open, .person-row .profile-locked { flex: 0 0 auto; margin-left: auto; }
 .access-flow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .access-flow-grid article { min-height: 176px; border: 1px solid rgba(20, 61, 45, .17); background: rgba(220, 231, 211, .3); padding: 16px; }
 .access-flow-grid h3 { margin: 17px 0 7px; color: var(--ink); font-size: .84rem; }
@@ -249,7 +250,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .single-stage h2 { font-size: clamp(2.8rem, 15vw, 4.2rem); }
   .single-surface { padding: 22px 18px; }
   .person-row { align-items: flex-start; flex-wrap: wrap; }
-  .person-row .profile-open { flex-basis: calc(100% - 46px); margin-left: 46px; }
+  .person-row .profile-open, .person-row .profile-locked { flex-basis: calc(100% - 46px); margin-left: 46px; }
   .profile-facts > div { grid-template-columns: 1fr; gap: 4px; }
   .settings-rows > div { grid-template-columns: 1fr; gap: 3px; }
   .account-form { grid-template-columns: 1fr; }

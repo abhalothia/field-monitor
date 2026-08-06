@@ -127,6 +127,17 @@ type TrackwickBoard = {
   field_workers: TrackwickWorker[];
   inbox: TrackwickWork[];
 };
+type ReviewedFarmCard = {
+  id: string;
+  name: string;
+  status: string;
+  crops: string[];
+};
+type ReviewedFarmerCard = {
+  id: string;
+  name: string;
+  relationshipRoles: string[];
+};
 type ProcurementHistory = {
   state: "not_loaded" | "published";
   summary?: {
@@ -294,12 +305,34 @@ function isFarmer(role: string) {
   return /farmer|grower/i.test(role);
 }
 
+function reviewedFarmsFromRuntime(runtime: Runtime | null) {
+  const farms = new Map<string, ReviewedFarmCard>();
+  for (const allocation of runtime?.allocations || []) {
+    const id = allocation.operational_block_id;
+    if (!id) continue;
+    const crop = `${allocation.crop_name || "Crop not set"}${allocation.cultivar ? ` · ${allocation.cultivar}` : ""}`;
+    const existing = farms.get(id);
+    if (existing) {
+      if (!existing.crops.includes(crop)) existing.crops.push(crop);
+      continue;
+    }
+    farms.set(id, {
+      id,
+      name: allocation.operational_block_name || "Reviewed farm",
+      status: allocation.status,
+      crops: [crop],
+    });
+  }
+  return Array.from(farms.values());
+}
+
 export function CommandCentre({ view }: { view: View }) {
   const [language, setLanguage] = useState<Language>("en");
   const [state, setState] = useState<State>(EMPTY_STATE);
   const [managerBusy, setManagerBusy] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const profileRequest = useRef(0);
+  const profileOpener = useRef<string | null>(null);
   const t = WORDS[language];
 
   const load = useCallback(async () => {
@@ -351,15 +384,25 @@ export function CommandCentre({ view }: { view: View }) {
   }, [state.session?.authenticated]);
 
   const farmers = useMemo(() => {
-    const reviewedGrowerIds = new Set(
-      state.runtime?.person_operating_relationships?.items
-        .filter((relationship) => isFarmer(relationship.role))
-        .map((relationship) => relationship.person_id) || [],
-    );
-    return state.runtime?.people.filter((person) => isFarmer(person.role) && reviewedGrowerIds.has(person.id)) || [];
+    const peopleById = new Map((state.runtime?.people || []).map((person) => [person.id, person]));
+    const rolesByPerson = new Map<string, Set<string>>();
+    for (const relationship of state.runtime?.person_operating_relationships?.items || []) {
+      if (!isFarmer(relationship.role)) continue;
+      const roles = rolesByPerson.get(relationship.person_id) || new Set<string>();
+      roles.add(relationship.role);
+      rolesByPerson.set(relationship.person_id, roles);
+    }
+    const cards: ReviewedFarmerCard[] = [];
+    for (const [personId, roles] of rolesByPerson) {
+      const person = peopleById.get(personId);
+      if (person) cards.push({ id: person.id, name: person.name, relationshipRoles: Array.from(roles) });
+    }
+    return cards;
   }, [state.runtime]);
 
-  async function openFarmProfile(id: string, recordState: FarmProfile["state"]) {
+  async function openFarmProfile(id: string, recordState: FarmProfile["state"], openerId: string) {
+    if (!state.session?.authenticated) return;
+    profileOpener.current = openerId;
     const request = ++profileRequest.current;
     setProfileSelection({ kind: "farm", loading: true, error: null, profile: null });
     try {
@@ -376,7 +419,9 @@ export function CommandCentre({ view }: { view: View }) {
     }
   }
 
-  async function openFarmerProfile(id: string, recordState: FarmerProfile["state"]) {
+  async function openFarmerProfile(id: string, recordState: FarmerProfile["state"], openerId: string) {
+    if (!state.session?.authenticated) return;
+    profileOpener.current = openerId;
     const request = ++profileRequest.current;
     setProfileSelection({ kind: "farmer", loading: true, error: null, profile: null });
     try {
@@ -394,8 +439,13 @@ export function CommandCentre({ view }: { view: View }) {
   }
 
   function closeProfile() {
+    const openerId = profileOpener.current;
     profileRequest.current += 1;
+    profileOpener.current = null;
     setProfileSelection(null);
+    window.requestAnimationFrame(() => {
+      if (openerId) document.getElementById(openerId)?.focus();
+    });
   }
 
   async function endManagerSession() {
@@ -440,8 +490,8 @@ export function CommandCentre({ view }: { view: View }) {
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
-      {view === "fields" ? <FieldsView t={t} state={state} selection={profileSelection?.kind === "farm" ? profileSelection : null} openProfile={openFarmProfile} closeProfile={closeProfile} /> : null}
-      {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
+      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} selection={state.session?.authenticated && profileSelection?.kind === "farm" ? profileSelection : null} openProfile={openFarmProfile} closeProfile={closeProfile} /> : null}
+      {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={state.session?.authenticated && profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
@@ -494,30 +544,32 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   </section>;
 }
 
-function FieldsView({ t, state, selection, openProfile, closeProfile }: {
+function FieldsView({ t, state, canOpenProfiles, selection, openProfile, closeProfile }: {
   t: Translation;
   state: State;
+  canOpenProfiles: boolean;
   selection: ProfileSelection | null;
-  openProfile: (id: string, recordState: FarmProfile["state"]) => Promise<void>;
+  openProfile: (id: string, recordState: FarmProfile["state"], openerId: string) => Promise<void>;
   closeProfile: () => void;
 }) {
-  const fields = state.runtime?.allocations || [];
+  const fields = reviewedFarmsFromRuntime(state.runtime);
   const verifiedFeatures = state.map?.features || [];
   const waitingForFarm = state.readiness?.counts.operating_units === 0;
   const reportedFarms = state.trackwick?.farms || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface fields-stage">
     <div className="surface-heading"><div><p className="eyebrow">{fields.length ? t.fieldMap : reportedFarms.length ? "Reported farm context" : t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : reportedFarms.length ? "Reported farms, ready for review" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length || reportedFarms.length)}</span></div>
-    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.operational_block_name || "Reviewed field"}</h3><p>{field.crop_name || "Crop not set"}{field.cultivar ? ` · ${field.cultivar}` : ""}</p><button type="button" className="text-link profile-open" onClick={() => void openProfile(field.operational_block_id, "reviewed")} aria-label={`Open ${field.operational_block_name || "reviewed field"} profile`}>Open profile <span aria-hidden="true">→</span></button></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} openProfile={openProfile} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
+    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.name}</h3><p>{field.crops.join(" · ")}</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farm-${field.id}`} label={`Open ${field.name} profile`} text="Open profile" open={(openerId) => void openProfile(field.id, "reviewed", openerId)} /></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
     {state.session?.authenticated && verifiedFeatures.length ? <ReviewedGeometry features={verifiedFeatures} /> : null}
   </section>;
 }
 
-function ReportedFarmCandidates({ farms, openProfile }: {
+function ReportedFarmCandidates({ farms, canOpenProfiles, openProfile }: {
   farms: TrackwickFarm[];
-  openProfile: (id: string, recordState: FarmProfile["state"]) => Promise<void>;
+  canOpenProfiles: boolean;
+  openProfile: (id: string, recordState: FarmProfile["state"], openerId: string) => Promise<void>;
 }) {
-  return <><p className="surface-copy">These are TrackWick-reported farms, not AGRO CEO fields or boundaries.</p><div className="field-card-grid">{farms.slice(0, 6).map((farm) => <article className="field-card" key={farm.id}><span className="status-chip">reported</span><h3>{farm.place}</h3><p>{farm.farmer_name} · {farm.reported_area_acres ? `${farm.reported_area_acres} acres` : "area not reported"}</p><p className="card-detail">{farm.reported_plot_count ? `${farm.reported_plot_count} reported plots · ` : ""}{farm.open_work} open source work</p><button type="button" className="text-link profile-open" onClick={() => void openProfile(farm.id, "reported")} aria-label={`Open reported farm profile for ${farm.place}`}>Open reported profile <span aria-hidden="true">→</span></button></article>)}</div></>;
+  return <><p className="surface-copy">These are TrackWick-reported farms, not AGRO CEO fields or boundaries.</p><div className="field-card-grid">{farms.slice(0, 6).map((farm) => <article className="field-card" key={farm.id}><span className="status-chip">reported</span><h3>{farm.place}</h3><p>{farm.farmer_name} · {farm.reported_area_acres ? `${farm.reported_area_acres} acres` : "area not reported"}</p><p className="card-detail">{farm.reported_plot_count ? `${farm.reported_plot_count} reported plots · ` : ""}{farm.open_work} open source work</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farm-${farm.id}`} label={`Open reported farm profile for ${farm.place}`} text="Open reported profile" open={(openerId) => void openProfile(farm.id, "reported", openerId)} /></article>)}</div></>;
 }
 
 function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<string, unknown> }> }) {
@@ -525,27 +577,40 @@ function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<
   return <div className="geometry-list"><p>{features.length} reviewed feature{features.length === 1 ? "" : "s"} are available to the manager map.</p>{features.slice(0, 8).map((feature, index) => <span key={`${String(feature.properties?.plot_label || "field")}-${index}`}>{String(feature.properties?.plot_label || "Reviewed field")}</span>)}</div>;
 }
 
-function FarmersView({ farmers, readiness, trackwick, selection, openProfile, closeProfile }: {
-  farmers: Runtime["people"];
+function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection, openProfile, closeProfile }: {
+  farmers: ReviewedFarmerCard[];
   readiness: PilotReadiness | null;
   trackwick: TrackwickBoard | null;
+  canOpenProfiles: boolean;
   selection: ProfileSelection | null;
-  openProfile: (id: string, recordState: FarmerProfile["state"]) => Promise<void>;
+  openProfile: (id: string, recordState: FarmerProfile["state"], openerId: string) => Promise<void>;
   closeProfile: () => void;
 }) {
   const sourceFarmers = trackwick?.farmers || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">{farmers.length ? "Reviewed grower relationships" : sourceFarmers.length ? "Reported farmers" : "Reviewed grower relationships"}</p><h2>{farmers.length ? "Farmers on this operating record" : sourceFarmers.length ? "Farmers reported by TrackWick" : "Farmers on this operating record"}</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{roleName(person.role)}</p></div><button type="button" className="text-link profile-open" onClick={() => void openProfile(person.id, "reviewed")} aria-label={`Open ${person.name} farmer profile`}>Open profile <span aria-hidden="true">→</span></button></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to this operating record yet." : "Farmers appear here only after a reviewed grower relationship is recorded."}</p>}
+    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.relationshipRoles.map(roleName).join(" · ")} relationship</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to this operating record yet." : "Farmers appear here only after a reviewed grower relationship is recorded."}</p>}
   </section>;
 }
 
-function ReportedFarmers({ farmers, openProfile }: {
+function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   farmers: TrackwickFarmer[];
-  openProfile: (id: string, recordState: FarmerProfile["state"]) => Promise<void>;
+  canOpenProfiles: boolean;
+  openProfile: (id: string, recordState: FarmerProfile["state"], openerId: string) => Promise<void>;
 }) {
-  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{farmers.slice(0, 6).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><button type="button" className="text-link profile-open" onClick={() => void openProfile(person.id, "reported")} aria-label={`Open reported farmer profile for ${person.name}`}>Open reported profile <span aria-hidden="true">→</span></button></article>)}</div></>;
+  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{farmers.slice(0, 6).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "reported", openerId)} /></article>)}</div></>;
+}
+
+function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
+  canOpenProfiles: boolean;
+  controlId: string;
+  label: string;
+  text: string;
+  open: (openerId: string) => void;
+}) {
+  if (!canOpenProfiles) return <span className="profile-locked" aria-disabled="true">Manager access required</span>;
+  return <button id={controlId} type="button" className="text-link profile-open" onClick={(event) => open(event.currentTarget.id)} aria-label={label}>{text} <span aria-hidden="true">→</span></button>;
 }
 
 function ProfileReading({ selection, close }: { selection: ProfileSelection; close: () => void }) {
