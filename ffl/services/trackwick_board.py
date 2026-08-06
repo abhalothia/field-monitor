@@ -190,9 +190,10 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
     board = manager_board_for_source(conn, source_key=source_key)
     return {
         "source": {"state": board["source"]["state"], "last_synced_at": board["source"]["last_synced_at"]},
-        "counts": {key: board["counts"][key] for key in ("farmers", "farm_candidates", "open_work", "crop_photo_references", "plot_photo_references")},
+        "counts": {key: board["counts"][key] for key in ("farmers", "farm_candidates", "field_workers", "open_work", "crop_photo_references", "plot_photo_references")},
         "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
         "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
+        "field_workers": [{key: row.get(key) for key in ("id", "name", "reported_farmer_reach", "open_work", "completed_work", "latest_activity_at", "latest_attendance_on")} for row in board["field_workers"]],
         "inbox": [{
             "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
             **{key: row.get(key) for key in ("status", "farmer_name", "follow_up_at", "opened_at")},
@@ -425,9 +426,15 @@ def _worker_rows(
         rows.append({
             "id": worker_id,
             "name": worker["display_name"],
+            "reported_farmer_reach": len({
+                str(task["farmer_party_id"])
+                for task in tasks
+                if task["farmer_party_id"] is not None
+            }),
             "open_work": sum(task["task_status"] in _OPEN_TASK_STATUSES for task in tasks),
             "completed_work": sum(task["task_status"] == "completed" for task in tasks),
             "latest_activity_at": _latest_task_at(tasks) or worker["last_seen_at"],
+            "latest_attendance_on": None if day is None else day["observed_on"],
             "latest_attendance": (
                 None if day is None else {
                     "observed_on": day["observed_on"],

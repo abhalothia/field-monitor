@@ -94,6 +94,15 @@ type TrackwickFarmer = {
   latest_activity_at?: string | null;
   crop_photo_references: number;
 };
+type TrackwickFieldWorker = {
+  id: string;
+  name: string;
+  reported_farmer_reach: number;
+  open_work: number;
+  completed_work: number;
+  latest_activity_at?: string | null;
+  latest_attendance_on?: string | null;
+};
 type TrackwickWork = {
   id: string;
   label: string;
@@ -107,12 +116,14 @@ type TrackwickBoard = {
   counts: {
     farmers: number;
     farm_candidates: number;
+    field_workers: number;
     open_work: number;
     crop_photo_references: number;
     plot_photo_references: number;
   };
   farms: TrackwickFarm[];
   farmers: TrackwickFarmer[];
+  field_workers: TrackwickFieldWorker[];
   inbox: TrackwickWork[];
 };
 type ReviewedFarmerCard = {
@@ -296,13 +307,28 @@ type ReportedFarmerProfile = {
   account?: { state: "not_created" };
   limitations?: string[];
 };
-type FarmerProfile = PersonContext | ReportedFarmerProfile;
+type ReportedFieldWorkerProfile = {
+  state: "reported";
+  kind: "field_worker";
+  id: string;
+  name: string;
+  reported?: {
+    reported_farmer_reach?: number;
+    open_work?: number;
+    completed_work?: number;
+    latest_activity_at?: string | null;
+    latest_attendance_on?: string | null;
+  };
+  account?: { state: "not_created" };
+  limitations?: string[];
+};
+type PersonProfile = PersonContext | ReportedFarmerProfile | ReportedFieldWorkerProfile;
 
 type ProfileSelection = {
-  kind: FarmerProfile["kind"];
+  kind: PersonProfile["kind"];
   loading: boolean;
   error: string | null;
-  profile: FarmerProfile | null;
+  profile: PersonProfile | null;
   reauth?: boolean;
 };
 
@@ -464,23 +490,27 @@ export function CommandCentre({ view }: { view: View }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function openFarmerProfile(id: string, recordState: FarmerProfile["state"], openerId: string) {
+  async function openPersonProfile(
+    id: string, kind: PersonKind, recordState: "reviewed" | "reported", openerId: string,
+  ) {
     if (!state.session?.authenticated) return;
     profileOpener.current = openerId;
     const request = ++profileRequest.current;
-    setProfileSelection({ kind: "farmer", loading: true, error: null, profile: null });
+    setProfileSelection({ kind, loading: true, error: null, profile: null });
     try {
       const { value } = recordState === "reviewed"
-        ? await readJson<PersonContext>("/api/v1/people/farmer/" + id)
-        : await readJson<ReportedFarmerProfile>("/api/v1/reported-farmer-profiles/" + id);
+        ? await readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)
+        : kind === "farmer"
+          ? await readJson<ReportedFarmerProfile>("/api/v1/reported-farmer-profiles/" + id)
+          : await readJson<ReportedFieldWorkerProfile>("/api/v1/reported-field-worker-profiles/" + id);
       if (request === profileRequest.current) {
-        setProfileSelection({ kind: "farmer", loading: false, error: null, profile: value });
+        setProfileSelection({ kind, loading: false, error: null, profile: value });
       }
     } catch (error) {
       if (request === profileRequest.current) {
         const reauth = profileReadError(error) === "Manager access expired.";
         if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
-        setProfileSelection({ kind: "farmer", loading: false, error: profileReadError(error), profile: null, reauth });
+        setProfileSelection({ kind, loading: false, error: profileReadError(error), profile: null, reauth });
       }
     }
   }
@@ -542,8 +572,8 @@ export function CommandCentre({ view }: { view: View }) {
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
-      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
-      {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
+      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
+      {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "field_worker" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
   );
@@ -1015,23 +1045,23 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   trackwick: TrackwickBoard | null;
   canOpenProfiles: boolean;
   selection: ProfileSelection | null;
-  openProfile: (id: string, recordState: FarmerProfile["state"], openerId: string) => Promise<void>;
+  openProfile: (id: string, kind: PersonKind, recordState: "reviewed" | "reported", openerId: string) => Promise<void>;
   closeProfile: () => void;
 }) {
   const sourceFarmers = trackwick?.farmers || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">{farmers.length ? "Reviewed grower relationships" : sourceFarmers.length ? "Reported farmers" : "Reviewed grower relationships"}</p><h2>{farmers.length ? "Farmers on this operating record" : sourceFarmers.length ? "Farmers reported by TrackWick" : "Farmers on this operating record"}</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
+    {farmers.length ? <div className="people-list">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
   </section>;
 }
 
 function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   farmers: TrackwickFarmer[];
   canOpenProfiles: boolean;
-  openProfile: (id: string, recordState: FarmerProfile["state"], openerId: string) => Promise<void>;
+  openProfile: (id: string, kind: "farmer", recordState: "reported", openerId: string) => Promise<void>;
 }) {
-  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{farmers.slice(0, 6).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "reported", openerId)} /></article>)}</div></>;
+  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{farmers.slice(0, 6).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div></>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1047,22 +1077,24 @@ function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
 
 function ProfileReading({ selection, close }: { selection: ProfileSelection; close: () => void }) {
   if (selection.profile) return <ProfilePanel profile={selection.profile} close={close} />;
-  return <aside className="single-surface profile-panel" aria-label="farmer profile" aria-busy={selection.loading}>
-    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to farmers</button>
+  const subject = selection.kind === "field_worker" ? "field worker" : "farmer";
+  return <aside className="single-surface profile-panel" aria-label={`${subject} profile`} aria-busy={selection.loading}>
+    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {selection.kind === "field_worker" ? "field work" : "farmers"}</button>
     {selection.loading
-      ? <p className="profile-message" role="status">Reading this farmer profile…</p>
+      ? <p className="profile-message" role="status">Reading this {subject} profile…</p>
       : <p className="profile-message profile-error" role="alert">{selection.error} {selection.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>}
   </aside>;
 }
 
-function ProfilePanel({ profile, close }: { profile: FarmerProfile; close: () => void }) {
+function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () => void }) {
   const reported = profile.state === "reported";
+  const subject = profile.kind === "field_worker" ? "Field worker" : "Farmer";
   return <aside className="single-surface profile-panel" aria-label={`${profile.name} profile`}>
-    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to farmers</button>
-    <p className="eyebrow">{reported ? "Reported context" : "Reviewed grower relationship"}</p>
+    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {profile.kind === "field_worker" ? "field work" : "farmers"}</button>
+    <p className="eyebrow">{reported ? `Reported ${subject} context` : `Reviewed ${subject}`}</p>
     <h2>{profile.name}</h2>
     <p className="profile-context">{profile.limitations?.[0] || "Only reviewed operating relationships are shown here."}</p>
-    <FarmerProfileFacts profile={profile} />
+    <PersonProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
         ? <a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a>
@@ -1071,8 +1103,18 @@ function ProfilePanel({ profile, close }: { profile: FarmerProfile; close: () =>
   </aside>;
 }
 
-function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
+function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
   if (profile.state === "reported") {
+    if (profile.kind === "field_worker") {
+      return <dl className="profile-facts">
+        <div><dt>Reported farmer reach</dt><dd>{count(profile.reported?.reported_farmer_reach)} linked through source work</dd></div>
+        <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
+        <div><dt>Completed source work</dt><dd>{count(profile.reported?.completed_work)}</dd></div>
+        <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
+        <div><dt>Latest attendance</dt><dd>{profile.reported?.latest_attendance_on ? `Reported ${profile.reported.latest_attendance_on}` : "Not reported"}</dd></div>
+        <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
+      </dl>;
+    }
     return <dl className="profile-facts">
       <div><dt>Reported farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
       <div><dt>Reported area</dt><dd>{profile.reported?.reported_area_acres == null ? "Not reported" : `${profile.reported.reported_area_acres} acres`}</dd></div>
@@ -1097,14 +1139,36 @@ function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
   </div>;
 }
 
-function ActionsView({ t, portfolio, trackwick }: { t: Translation; portfolio: Portfolio | null; trackwick: TrackwickBoard | null }) {
+function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, openProfile, closeProfile }: {
+  t: Translation;
+  portfolio: Portfolio | null;
+  trackwick: TrackwickBoard | null;
+  canOpenProfiles: boolean;
+  selection: ProfileSelection | null;
+  openProfile: (id: string, kind: "field_worker", recordState: "reported", openerId: string) => Promise<void>;
+  closeProfile: () => void;
+}) {
   const actions = portfolio?.risk_action_ledger.items || [];
   const sourceWork = trackwick?.inbox || [];
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}</section>;
+  const workers = trackwick?.field_workers || [];
+  if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
   return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
+}
+
+function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
+  workers: TrackwickFieldWorker[];
+  canOpenProfiles: boolean;
+  openProfile: (id: string, kind: "field_worker", recordState: "reported", openerId: string) => Promise<void>;
+}) {
+  return <section className="reported-field-workers">
+    <div className="surface-heading"><div><p className="eyebrow">Reported field workers</p><h2>Source work coverage</h2></div><span className="count-badge">{count(workers.length)}</span></div>
+    <p className="surface-copy">Coverage is derived only from TrackWick source work. It is not a reviewed assignment, account, or farmer relationship.</p>
+    <div className="people-list">{workers.slice(0, 8).map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} reported farmer reach · {count(worker.open_work)} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open reported field worker profile for ${worker.name}`} text="Open reported profile" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>
+  </section>;
 }
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {

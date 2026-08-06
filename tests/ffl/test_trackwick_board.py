@@ -172,7 +172,9 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
 
     safe_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
     safe_serialized = repr(safe_board).lower()
-    assert set(safe_board) == {"source", "counts", "farms", "farmers", "inbox", "limitations"}
+    assert set(safe_board) == {
+        "source", "counts", "farms", "farmers", "field_workers", "inbox", "limitations",
+    }
     assert set(safe_board["farms"][0]) == {
         "id", "farmer_name", "place", "reported_area_acres", "reported_plot_count",
         "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references",
@@ -181,10 +183,19 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "id", "name", "farm_candidates", "reported_area_acres", "open_work",
         "latest_activity_at", "crop_photo_references",
     }
+    assert safe_board["field_workers"] == [{
+        "id": board["field_workers"][0]["id"],
+        "name": "Sanjay Singh",
+        "reported_farmer_reach": 1,
+        "open_work": 1,
+        "completed_work": 1,
+        "latest_activity_at": "2026-08-03T15:30:00+05:30",
+        "latest_attendance_on": "2026-08-03",
+    }]
     assert safe_board["inbox"][0]["label"] == "TrackWick source work"
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
-    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718", "9999999999", "111122223333"):
+    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333"):
         assert forbidden not in safe_serialized
 
     # Production's populated source cache can predate the typed task table.

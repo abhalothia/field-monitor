@@ -777,6 +777,27 @@ def reported_farmer_profile(conn, party_id: str) -> dict[str, Any] | None:
     }
 
 
+def reported_field_worker_profile(conn, party_id: str) -> dict[str, Any] | None:
+    """Return safe reported worker context without creating an account claim."""
+    row = next(
+        (item for item in command_centre_board_for_source(conn)["field_workers"] if item["id"] == party_id),
+        None,
+    )
+    if row is None:
+        return None
+    return {
+        "state": "reported",
+        "kind": "field_worker",
+        "id": row["id"],
+        "name": row["name"],
+        "reported": _reported_field_worker_summary(row),
+        "account": {"state": "not_created"},
+        "limitations": [
+            "Reported source work is not a reviewed field-worker assignment or sign-in."
+        ],
+    }
+
+
 def _active_allocations(conn, block_id: str) -> list[Mapping[str, Any]]:
     return list(conn.execute(
         """SELECT id, crop_name, cultivar
@@ -1018,5 +1039,18 @@ def _reported_farmer_summary(row: Mapping[str, Any]) -> dict[str, Any]:
             "open_work",
             "latest_activity_at",
             "crop_photo_references",
+        )
+    }
+
+
+def _reported_field_worker_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: row[key]
+        for key in (
+            "reported_farmer_reach",
+            "open_work",
+            "completed_work",
+            "latest_activity_at",
+            "latest_attendance_on",
         )
     }
