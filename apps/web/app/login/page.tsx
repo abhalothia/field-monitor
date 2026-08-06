@@ -15,7 +15,6 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [setupAccess, setSetupAccess] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -23,13 +22,11 @@ function LoginForm() {
     setStatus(null);
     try {
       const requestedNext = searchParams.get("next");
-      const response = await fetch(setupAccess ? "/api/v1/launch/login" : "/api/v1/identity/login", {
+      const response = await fetch("/api/v1/identity/login", {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: setupAccess
-          ? JSON.stringify({ password, next_path: requestedNext?.startsWith("/") ? requestedNext : "/home" })
-          : JSON.stringify({ login_id: loginId, password }),
+        body: JSON.stringify({ login_id: loginId, password }),
       });
       const payload = (await response.json().catch(() => null)) as { detail?: string; next_path?: string } | null;
       if (!response.ok) throw new Error(payload?.detail || "That ID or password did not open this workspace.");
@@ -50,13 +47,12 @@ function LoginForm() {
         <h1 id="login-title">Your work, ready.</h1>
         <p className="muted">Sign in with the AGRO CEO ID your farm admin gave you.</p>
         <form onSubmit={submit} className="auth-form">
-          {!setupAccess ? <><label htmlFor="login-id">AGRO CEO ID</label><input id="login-id" autoComplete="username" autoCapitalize="none" value={loginId} onChange={(event) => setLoginId(event.target.value)} required autoFocus /></> : null}
-          <label htmlFor="password">{setupAccess ? "Admin setup password" : "Password"}</label>
-          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required autoFocus={setupAccess} />
+          <label htmlFor="login-id">AGRO CEO ID</label><input id="login-id" autoComplete="username" autoCapitalize="none" value={loginId} onChange={(event) => setLoginId(event.target.value)} required autoFocus />
+          <label htmlFor="password">Password</label>
+          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           {status ? <p className="form-error" role="alert">{status}</p> : null}
           <button className="primary-action" disabled={submitting}>{submitting ? "Opening…" : "Sign in"} <span aria-hidden="true">→</span></button>
         </form>
-        <button className="auth-switch" type="button" onClick={() => { setSetupAccess((current) => !current); setStatus(null); }}>{setupAccess ? "Use a named ID instead" : "Setting up the first admin?"}</button>
         <p className="hindi" lang="hi">अपना एग्रो सीईओ आईडी और पासवर्ड डालें</p>
       </section>
     </main>

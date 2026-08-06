@@ -188,9 +188,7 @@ function isFarmer(role: string) {
 export function CommandCentre({ view }: { view: View }) {
   const [language, setLanguage] = useState<Language>("en");
   const [state, setState] = useState<State>(EMPTY_STATE);
-  const [managerSecret, setManagerSecret] = useState("");
   const [managerBusy, setManagerBusy] = useState(false);
-  const [managerError, setManagerError] = useState<string | null>(null);
   const t = WORDS[language];
 
   const load = useCallback(async () => {
@@ -253,25 +251,6 @@ export function CommandCentre({ view }: { view: View }) {
   const farmers = useMemo(() => state.runtime?.people.filter((person) => isFarmer(person.role)) || [], [state.runtime]);
   const team = useMemo(() => state.runtime?.people.filter((person) => !isFarmer(person.role)) || [], [state.runtime]);
 
-  async function submitManagerSession(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setManagerBusy(true);
-    setManagerError(null);
-    try {
-      const response = await fetch("/api/v1/manager-session/login", {
-        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ secret: managerSecret }),
-      });
-      if (!response.ok) throw new Error("That manager secret was not accepted.");
-      setManagerSecret("");
-      await load();
-    } catch (error) {
-      setManagerError(error instanceof Error ? error.message : "Manager access could not be opened.");
-    } finally {
-      setManagerBusy(false);
-    }
-  }
-
   async function endManagerSession() {
     setManagerBusy(true);
     try {
@@ -317,7 +296,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "fields" ? <FieldsView t={t} state={state} /> : null}
       {view === "farmers" ? <FarmersView farmers={farmers} team={team} readiness={state.readiness} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} /> : null}
-      {view === "settings" ? <SettingsView t={t} state={state} managerSecret={managerSecret} setManagerSecret={setManagerSecret} managerBusy={managerBusy} managerError={managerError} submit={submitManagerSession} logout={endManagerSession} /> : null}
+      {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
   );
 }
@@ -379,8 +358,8 @@ function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
   return <ol className="action-list">{items.map((item) => <li key={`${item.entity.type}-${item.entity.id}`}><span className={`severity ${item.severity}`}>{item.severity}</span><div><h3>{item.title}</h3><p>{actionLine(item)}</p></div><Link className="text-link" href={item.allocation_id ? `/fields?field=${encodeURIComponent(item.allocation_id)}` : "/actions"}>Open <span aria-hidden="true">→</span></Link></li>)}</ol>;
 }
 
-function SettingsView({ t, state, managerSecret, setManagerSecret, managerBusy, managerError, submit, logout }: {
-  t: Translation; state: State; managerSecret: string; setManagerSecret: (value: string) => void; managerBusy: boolean; managerError: string | null; submit: (event: FormEvent<HTMLFormElement>) => Promise<void>; logout: () => Promise<void>;
+function SettingsView({ t, state, managerBusy, logout }: {
+  t: Translation; state: State; managerBusy: boolean; logout: () => Promise<void>;
 }) {
   const session = state.session;
   const communications = state.communications;
@@ -392,7 +371,7 @@ function SettingsView({ t, state, managerSecret, setManagerSecret, managerBusy, 
       <div><strong>Data</strong><span>{state.readiness ? `${state.readiness.progress.completed} of ${state.readiness.progress.total} first records are confirmed.` : "Not available."}</span></div>
       <div><strong>Messaging</strong><span>{communications?.status === "ready" ? "Ready for reviewed requests." : "Paused until the dedicated WhatsApp gate is complete."}</span></div>
     </div>
-    {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <details className="bootstrap-access"><summary>Use temporary admin setup access</summary><form className="manager-form" onSubmit={submit}><label htmlFor="manager-secret">Manager setup secret</label><input id="manager-secret" type="password" autoComplete="off" value={managerSecret} onChange={(event) => setManagerSecret(event.target.value)} required /><button className="primary-action" disabled={managerBusy}>{managerBusy ? "Opening…" : t.unlock}</button>{managerError ? <p className="form-error" role="alert">{managerError}</p> : null}</form></details>}
+    {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
   </section>;
 }
 
