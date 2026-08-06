@@ -9,7 +9,7 @@ from ffl.integrations.trackolap.trackwick import (
     normalise_trackwick_private_evidence,
 )
 from ffl.persistence import repository
-from ffl.services.trackwick_board import manager_board_for_source
+from ffl.services.trackwick_board import command_centre_board_for_source, manager_board_for_source
 
 
 def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_primitives(ffl_db, owner):
@@ -157,6 +157,20 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert "111122223333" not in serialized
     assert "provider_identifier" not in serialized
     assert "remote_url" not in serialized
+
+    safe_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
+    safe_serialized = repr(safe_board).lower()
+    assert set(safe_board) == {"source", "counts", "farms", "farmers", "inbox", "limitations"}
+    assert set(safe_board["farms"][0]) == {
+        "id", "farmer_name", "place", "reported_area_acres", "reported_plot_count",
+        "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references",
+    }
+    assert set(safe_board["farmers"][0]) == {
+        "id", "name", "farm_candidates", "reported_area_acres", "open_work",
+        "latest_activity_at", "crop_photo_references",
+    }
+    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718", "9999999999", "111122223333"):
+        assert forbidden not in safe_serialized
 
 
 def test_manager_board_is_empty_and_honest_before_a_trackwick_source_exists(ffl_db):

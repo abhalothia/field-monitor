@@ -617,7 +617,7 @@ function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
   text: string;
   open: (openerId: string) => void;
 }) {
-  if (!canOpenProfiles) return <span className="profile-locked" aria-disabled="true">Manager access required</span>;
+  if (!canOpenProfiles) return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;
   return <button id={controlId} type="button" className="text-link profile-open" onClick={(event) => open(event.currentTarget.id)} aria-label={label}>{text} <span aria-hidden="true">→</span></button>;
 }
 

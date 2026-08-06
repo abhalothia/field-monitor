@@ -53,6 +53,7 @@ One task can safely become a farmer-task context row, completed visit, issue obs
 - `GET /api/v1/trackwick/health`
 - `GET /api/v1/trackwick/metrics`
 - `GET /api/v1/trackwick/board`
+- `GET /api/v1/trackwick/command-centre-board`
 
 The refresh is manual and manager-authorized. Its published records are source context only; farmer, farm, and field-worker basics remain candidates until reviewed. They never create a canonical farm, complete work, make a pesticide recommendation, or create an agronomic/compliance verdict.
 
@@ -85,12 +86,14 @@ It marks registration/CRM points as declared and task/visit/photo points as
 observed. Those pins are never farm boundaries, and a refresh never copies a
 photo or sends private evidence to the browser.
 
-`/board` is a manager-only working view, not a public data export. It permits
-only the current source graph needed to operate: named farmers and field
-workers, reported farm candidates, open TrackWick work, photo *counts*, and
-GPS source points. It never serialises contacts, source/provider IDs, raw
-forms, addresses, remote image URLs, or image bytes. A board point is visibly
-labelled source evidence—not a field boundary or a verified Fortune farm.
+`/board` and `/command-centre-board` are manager-only browser projections, not
+private evidence exports. They contain only named reported farmers, reported
+farm candidates, redacted source-work labels/dates, and photo *counts*. They
+never serialise field workers, maps or GPS/location values, contacts,
+source/provider IDs or statuses, raw forms, addresses, remote image URLs, or
+image bytes. Exact source points and worker context remain server-internal
+evidence for the reviewed Farm Truth workflow; they never become a field
+boundary or verified Fortune farm.
 
 Severity stays `unknown` unless Fortune explicitly adds a low/moderate/high/critical field to the Farmer Visit form and supplies its exact label in `FFL_TRACKWICK_SEVERITY_FORM_KEY`. AGRO CEO never infers severity from a pest or disease name. New submissions then carry the field worker's stated severity; existing source records remain unchanged.
 

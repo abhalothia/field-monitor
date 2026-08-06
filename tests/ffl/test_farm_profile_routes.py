@@ -285,7 +285,7 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert "Coming soon" in source
     assert "disabled-connection" in source
     assert "canOpenProfiles={Boolean(state.session?.authenticated)}" in source
-    assert 'aria-disabled="true">Manager access required' in source
+    assert 'className="profile-locked" href="/manager">Manager access required' in source
     assert "new Map<string, ReviewedFarmCard>()" in source
     assert "allocation.operational_block_id" in source
     assert "peopleById.get(personId)" in source
@@ -310,6 +310,7 @@ def test_command_centre_renders_profile_context_without_field_worker_surface():
     assert 'session: { authenticated: false }' in source
     assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
     assert 'selection={profileSelection?.kind === "farm" ? profileSelection : null}' in source
+    assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
 
 
 def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):
@@ -319,3 +320,15 @@ def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, 
         reviewed_by_person_id=users.manager.id,
     )
     assert farm_profiles.farmer_profile(ffl_db, person.id) is None
+
+
+def test_farm_profile_people_include_reviewed_operating_unit_roles(ffl_db, users, crop_allocation):
+    operator = repository.create_person(ffl_db, "Unit Operator", "field_operator")
+    repository.create_person_operating_relationship(
+        ffl_db, operator.id, "operating_unit", crop_allocation.operating_unit_id, "field_operator", "2026-06-01",
+        reviewed_by_person_id=users.manager.id,
+    )
+
+    profile = farm_profiles.farm_profile(ffl_db, crop_allocation.operational_block_id)
+
+    assert {person["id"] for person in profile["people"]} == {operator.id}

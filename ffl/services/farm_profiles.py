@@ -20,7 +20,7 @@ _FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field s
 def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
     """Return reviewed operational context for one canonical farm block."""
     block = conn.execute(
-        "SELECT id, name, area_hectares FROM operational_blocks WHERE id = ?", (block_id,)
+        "SELECT id, name, area_hectares, operating_unit_id FROM operational_blocks WHERE id = ?", (block_id,)
     ).fetchone()
     if block is None:
         return None
@@ -32,7 +32,7 @@ def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
         "id": block["id"],
         "name": block["name"],
         "current": _current_crop(allocations),
-        "people": _reviewed_people_for_block(conn, block["id"], allocations),
+        "people": _reviewed_people_for_block(conn, block["id"], block["operating_unit_id"], allocations),
         "work": _reviewed_work_for_allocations(conn, [row["id"] for row in allocations]),
         "open_work_count": _open_work_count_for_allocations(conn, [row["id"] for row in allocations]),
         "location": _published_geometry_state(conn, block["id"]),
@@ -118,11 +118,11 @@ def _current_crop(allocations: Sequence[Mapping[str, Any]]) -> dict[str, Any] | 
 
 
 def _reviewed_people_for_block(
-    conn, block_id: str, allocations: Sequence[Mapping[str, Any]],
+    conn, block_id: str, operating_unit_id: str, allocations: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     allocation_ids = [row["id"] for row in allocations]
     allocation_predicate = "0 = 1"
-    params: list[Any] = [block_id, block_id, block_id]
+    params: list[Any] = [block_id, block_id, operating_unit_id]
     if allocation_ids:
         placeholders = ", ".join("?" for _ in allocation_ids)
         allocation_predicate = "relationship.crop_allocation_id IN (" + placeholders + ")"
@@ -146,9 +146,9 @@ def _reviewed_people_for_block(
            ORDER BY relationship.starts_on, person.name, relationship.role, relationship.id""",
         tuple(params),
     ).fetchall()
-    unique: dict[str, dict[str, Any]] = {}
+    unique: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        unique.setdefault(row["id"], {
+        unique.setdefault((row["id"], row["role"]), {
             "id": row["id"],
             "name": row["name"],
             "role": row["role"],
