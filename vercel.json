@@ -5,5 +5,11 @@
       "maxDuration": 60,
       "includeFiles": "{ffl/static/**,db/postgres/*.sql}"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/v1/trackwick/cron-refresh",
+      "schedule": "15 2 * * *"
+    }
+  ]
 }

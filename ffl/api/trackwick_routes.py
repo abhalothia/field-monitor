@@ -8,6 +8,8 @@ mobile numbers, remote media URLs, or addresses.
 
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -88,6 +90,25 @@ def refresh_trackwick_source(
         result = trackwick_ingest.refresh_live_trackwick(_connection(request), manager_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
+    return {
+        "source_key": result.source.source_key,
+        "state": result.state,
+        "valid_count": result.valid_count,
+        "quarantined_count": result.quarantined_count,
+    }
+
+
+@router.post("/cron-refresh")
+def refresh_trackwick_source_on_schedule(request: Request) -> dict:
+    """Run the same private refresh from Vercel Cron, never from the browser."""
+    expected = os.environ.get("CRON_SECRET")
+    presented = request.headers.get("authorization", "")
+    if not expected or not hmac.compare_digest(presented, "Bearer " + expected):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="cron authorization is required")
+    manager_id = request.app.state.manager_person_id
+    if not manager_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="refresh owner is unavailable")
+    result = trackwick_ingest.refresh_live_trackwick(_connection(request), manager_id)
     return {
         "source_key": result.source.source_key,
         "state": result.state,

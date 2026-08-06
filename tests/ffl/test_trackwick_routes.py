@@ -46,6 +46,28 @@ def test_trackwick_refresh_without_server_configuration_is_safe(tmp_path):
     }
 
 
+def test_trackwick_cron_refresh_requires_only_the_server_cron_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "cron-secret")
+    app = create_app(str(tmp_path / "trackwick-cron.db"))
+    with TestClient(app) as client:
+        manager = repository.create_person(app.state.conn, "Fortune COO", "operations_lead")
+        app.state.manager_person_id = manager.id
+        denied = client.post("/api/v1/trackwick/cron-refresh")
+        allowed = client.post(
+            "/api/v1/trackwick/cron-refresh",
+            headers={"Authorization": "Bearer cron-secret"},
+        )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+    assert allowed.json() == {
+        "source_key": "trackwick-fortune-paddy",
+        "state": "unavailable",
+        "valid_count": 0,
+        "quarantined_count": 0,
+    }
+
+
 def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     app = create_app(str(tmp_path / "command-centre-board.db"), manager_api_token="manager-secret")
     with TestClient(app) as client:
