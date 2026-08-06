@@ -210,6 +210,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .profile-action .primary-action { margin-top: 0; }
 .profile-message { max-width: 50ch; color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 0; }
 .profile-error { color: #8b402c; }
+.reported-field-workers { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }
+.reported-field-workers .surface-heading { margin-bottom: 12px; }
 
 .farm-directory { max-width: 1120px; }
 .directory-filters { display: grid; grid-template-columns: minmax(130px, .72fr) minmax(210px, 1.45fr) minmax(145px, .9fr) minmax(145px, .9fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }

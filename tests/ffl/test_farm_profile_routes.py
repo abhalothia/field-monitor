@@ -63,6 +63,43 @@ def populated_trackwick_source(ffl_db, owner):
         ),
     )
     ffl_db.execute(
+        """INSERT INTO trackwick_parties (
+            id, source_id, party_kind, provider_identifier, display_name,
+            source_fingerprint, mapping_version, data_quality_status,
+            first_seen_at, last_seen_at, created_at
+        ) VALUES (?, ?, 'field_worker', ?, ?, ?, ?, 'valid', ?, ?, ?)""",
+        (
+            "reported-worker-1", source.id, "provider-worker-1", "Sanjay Singh",
+            "e" * 64, "trackwick-live-v4", "2026-08-03T10:00:00+05:30",
+            "2026-08-03T10:00:00+05:30", "2026-08-03T10:00:00+05:30",
+        ),
+    )
+    ffl_db.execute(
+        """INSERT INTO trackwick_tasks (
+            id, source_id, provider_task_id, farmer_party_id, field_worker_party_id,
+            task_type, task_status, provider_created_at, source_fingerprint,
+            mapping_version, data_quality_status, first_seen_at, last_seen_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, 'valid', ?, ?, ?)""",
+        (
+            "reported-worker-task-1", source.id, "provider-worker-task-1", "reported-farmer-1",
+            "reported-worker-1", "private worker task", "2026-08-04T10:00:00+05:30",
+            "f" * 64, "trackwick-live-v4", "2026-08-04T10:00:00+05:30",
+            "2026-08-04T10:00:00+05:30", "2026-08-04T10:00:00+05:30",
+        ),
+    )
+    ffl_db.execute(
+        """INSERT INTO trackwick_worker_days (
+            id, source_id, field_worker_party_id, observed_on, attendance_status,
+            source_fingerprint, mapping_version, data_quality_status,
+            first_seen_at, last_seen_at, created_at
+        ) VALUES (?, ?, ?, '2026-08-04', 'present', ?, ?, 'valid', ?, ?, ?)""",
+        (
+            "reported-worker-day-1", source.id, "reported-worker-1", "1" * 64,
+            "trackwick-live-v4", "2026-08-04T10:00:00+05:30",
+            "2026-08-04T10:00:00+05:30", "2026-08-04T10:00:00+05:30",
+        ),
+    )
+    ffl_db.execute(
         """INSERT INTO trackwick_location_observations (
             id, source_id, party_id, provider_location_key, location_kind, location_confidence, latitude, longitude,
             observed_at, source_fingerprint, mapping_version, data_quality_status,
@@ -75,7 +112,7 @@ def populated_trackwick_source(ffl_db, owner):
         ),
     )
     ffl_db.commit()
-    return {"farmer_id": "reported-farmer-1"}
+    return {"farmer_id": "reported-farmer-1", "worker_id": "reported-worker-1"}
 
 
 @pytest.fixture
@@ -432,6 +469,35 @@ def test_reported_farmer_profile_is_safe_context_not_a_login(ffl_db, populated_t
     assert "remote_url" not in serialized
 
 
+def test_reported_field_worker_profile_is_safe_context_not_an_assignment(
+    ffl_db, populated_trackwick_source,
+):
+    profile = farm_profiles.reported_field_worker_profile(
+        ffl_db, populated_trackwick_source["worker_id"],
+    )
+
+    assert profile == {
+        "state": "reported",
+        "kind": "field_worker",
+        "id": "reported-worker-1",
+        "name": "Sanjay Singh",
+        "reported": {
+            "reported_farmer_reach": 1,
+            "open_work": 1,
+            "completed_work": 0,
+            "latest_activity_at": "2026-08-04T10:00:00+05:30",
+            "latest_attendance_on": "2026-08-04",
+        },
+        "account": {"state": "not_created"},
+        "limitations": [
+            "Reported source work is not a reviewed field-worker assignment or sign-in."
+        ],
+    }
+    serialized = repr(profile)
+    assert "private worker task" not in serialized
+    assert "9999999999" not in serialized
+
+
 def test_reviewed_farmer_profile_lists_linked_farm_crop_and_open_work(
     ffl_db, users, crop_allocation
 ):
@@ -713,7 +779,7 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
     assert 'readJson<FieldRecord>("/api/v1/fields/" + id)' in source
     assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
-    assert 'readJson<PersonContext>("/api/v1/people/farmer/" + id)' in source
+    assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
     assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
     assert "WhatsApp updates" in source
     assert "Coming soon" in source
@@ -769,13 +835,15 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
 def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
-    assert 'readJson<PersonContext>("/api/v1/people/farmer/" + id)' in source
+    assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
     assert 'readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100")' in source
     assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
     assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' not in source
     assert 'href={`/fields?farm=${encodeURIComponent(farm.id)}`}' in source
     assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
+    assert 'readJson<ReportedFieldWorkerProfile>("/api/v1/reported-field-worker-profiles/" + id)' in source
     assert "reported candidate" in source
+    assert "Reported field workers" in source
     assert "item.label" in source
     assert "item.task_type" not in source
     assert "runtime?.person_operating_relationships" not in source

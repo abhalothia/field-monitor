@@ -183,3 +183,13 @@ def get_reported_farmer_profile(
     if profile is None:
         raise HTTPException(status_code=404, detail="reported farmer profile not found")
     return profile
+
+
+@router.get("/reported-field-worker-profiles/{party_id}")
+def get_reported_field_worker_profile(
+    request: Request, party_id: str, _manager_id: str = Depends(require_manager),
+) -> dict:
+    profile = farm_profiles.reported_field_worker_profile(_connection(request), party_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="reported field worker profile not found")
+    return profile

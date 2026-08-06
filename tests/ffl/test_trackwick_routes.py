@@ -115,5 +115,5 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     assert allowed.json()["inbox"][0]["label"] == "TrackWick source work"
     assert "task_type" not in allowed.json()["inbox"][0]
     assert "raw action sentinel 4419" not in serialized
-    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718"):
+    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718"):
         assert forbidden not in serialized
