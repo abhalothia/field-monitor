@@ -103,6 +103,13 @@ type TrackwickFieldWorker = {
   latest_activity_at?: string | null;
   latest_attendance_on?: string | null;
 };
+type TrackwickSignal = {
+  id: string;
+  finding_kind: "disease" | "pest";
+  declared_severity: "unknown" | "low" | "moderate" | "high" | "critical";
+  observed_at: string;
+  farmer_name?: string | null;
+};
 type TrackwickWork = {
   id: string;
   label: string;
@@ -124,6 +131,7 @@ type TrackwickBoard = {
   farms: TrackwickFarm[];
   farmers: TrackwickFarmer[];
   field_workers: TrackwickFieldWorker[];
+  signals: TrackwickSignal[];
   inbox: TrackwickWork[];
 };
 type ReviewedFarmerCard = {
@@ -1151,8 +1159,9 @@ function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, open
   const actions = portfolio?.risk_action_ledger.items || [];
   const sourceWork = trackwick?.inbox || [];
   const workers = trackwick?.field_workers || [];
+  const signals = trackwick?.signals || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}{signals.length ? <ReportedSignalQueue signals={signals} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
@@ -1168,6 +1177,31 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
     <div className="surface-heading"><div><p className="eyebrow">Reported field workers</p><h2>Source work coverage</h2></div><span className="count-badge">{count(workers.length)}</span></div>
     <p className="surface-copy">Coverage is derived only from TrackWick source work. It is not a reviewed assignment, account, or farmer relationship.</p>
     <div className="people-list">{workers.slice(0, 8).map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} reported farmer reach · {count(worker.open_work)} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open reported field worker profile for ${worker.name}`} text="Open reported profile" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>
+  </section>;
+}
+
+function ReportedSignalQueue({ signals }: { signals: TrackwickSignal[] }) {
+  const [kind, setKind] = useState<"all" | TrackwickSignal["finding_kind"]>("all");
+  const [severity, setSeverity] = useState<"all" | TrackwickSignal["declared_severity"]>("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const filtered = signals.filter((signal) => {
+    const observedOn = signal.observed_at.slice(0, 10);
+    return (kind === "all" || signal.finding_kind === kind)
+      && (severity === "all" || signal.declared_severity === severity)
+      && (!from || observedOn >= from)
+      && (!to || observedOn <= to);
+  });
+  return <section className="reported-signal-queue">
+    <div className="surface-heading"><div><p className="eyebrow">Reported field signals</p><h2>Disease &amp; pest reports</h2></div><span className="count-badge">{count(filtered.length)}</span></div>
+    <p className="surface-copy">Declared TrackWick observations only. A report is not a diagnosis, verified field attribution, or AGRO CEO action.</p>
+    <div className="signal-filters" aria-label="Filter reported field signals">
+      <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">All reports</option><option value="disease">Disease</option><option value="pest">Pest</option></select></label>
+      <label>Severity<select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)}><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="moderate">Moderate</option><option value="low">Low</option><option value="unknown">Not declared</option></select></label>
+      <label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+      <label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+    </div>
+    {filtered.length ? <ol className="action-list reported-signal-list">{filtered.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol> : <p className="empty-copy">No reported signals match these filters.</p>}
   </section>;
 }
 
