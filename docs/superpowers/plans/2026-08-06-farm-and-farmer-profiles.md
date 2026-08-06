@@ -467,7 +467,7 @@ git commit -m "fix: grant safe profile runtime reads"
 - Consumes: Tasks 1–3.
 - Produces: verified code ready for main-branch auto-deploy.
 
-- [ ] **Step 1: Compare code to the approved design**
+- [x] **Step 1: Compare code to the approved design**
 
 Verify these exact points against
 docs/superpowers/specs/2026-08-06-farm-and-farmer-profiles-design.md:
@@ -481,19 +481,19 @@ No field-worker product surface
 WhatsApp Coming soon is visible and non-functional
 ~~~
 
-- [ ] **Step 2: Run the complete FFL suite**
+- [x] **Step 2: Run the complete FFL suite**
 
 Run: .venv/bin/pytest -q tests/ffl
 
 Expected: exit 0. Record the final pass count and any warnings.
 
-- [ ] **Step 3: Run production web verification**
+- [x] **Step 3: Run production web verification**
 
 Run: pnpm --dir apps/web typecheck && pnpm --dir apps/web build
 
 Expected: exit 0 for both TypeScript and production Next build.
 
-- [ ] **Step 4: Inspect final diff for forbidden changes**
+- [x] **Step 4: Inspect final diff for forbidden changes**
 
 Run: git diff 7c06fd4..HEAD --check && git diff 7c06fd4..HEAD --stat && git status --short
 
