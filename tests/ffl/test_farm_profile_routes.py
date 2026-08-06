@@ -78,6 +78,197 @@ def populated_trackwick_source(ffl_db, owner):
     return {"farmer_id": "reported-farmer-1"}
 
 
+@pytest.fixture
+def farm(ffl_db, users, crop_allocation):
+    result = repository.create_farm(
+        ffl_db, crop_allocation.operating_unit_id, "FFL Pilot", users.manager.id,
+    )
+    repository.assign_field_to_farm(
+        ffl_db, result.id, crop_allocation.operational_block_id, "2026-06-01", users.manager.id,
+    )
+    return result
+
+
+@pytest.fixture
+def worker(ffl_db, users, farm, crop_allocation):
+    result = repository.create_person(ffl_db, "Nisha Field Worker", "field_operator")
+    repository.create_person_operating_relationship(
+        ffl_db, result.id, "crop_allocation", crop_allocation.id, "field_operator",
+        "2026-06-02", reviewed_by_person_id=users.manager.id,
+    )
+    return result
+
+
+def test_farm_record_has_four_sections_and_labels_reported_events(ffl_db, farm):
+    record = farm_profiles.farm_record(ffl_db, farm.id)
+
+    assert set(record) == {
+        "state", "kind", "id", "name", "now", "people", "updates", "context", "limitations",
+    }
+    assert record["kind"] == "farm"
+    assert all(item["state"] in {"reviewed", "reported"} for item in record["updates"])
+    assert record["context"] == {
+        "state": "not_attributed",
+        "message": "Historical purchase cohorts are not attributed to this farm.",
+    }
+    assert "contact_value" not in repr(record)
+    assert "provider_identifier" not in repr(record)
+    assert "longitude" not in repr(record)
+
+
+def test_field_worker_context_lists_safe_assignments(ffl_db, worker):
+    profile = farm_profiles.person_context(ffl_db, worker.id, "field_worker")
+
+    assert profile["kind"] == "field_worker"
+    assert profile["name"] == "Nisha Field Worker"
+    assert all(set(row) == {
+        "farm_id", "farm_name", "field_id", "field_name", "role", "starts_on",
+    } for row in profile["assignments"])
+    assert profile["assignments"][0]["role"] == "field_operator"
+    with pytest.raises(ValueError, match="kind must be farmer or field_worker"):
+        farm_profiles.person_context(ffl_db, worker.id, "grower")
+
+
+def test_field_record_has_reviewed_geometry_state_and_crop_seasons(
+    ffl_db, farm, crop_allocation,
+):
+    record = farm_profiles.field_record(ffl_db, crop_allocation.operational_block_id)
+
+    assert record["state"] == "reviewed"
+    assert record["kind"] == "field"
+    assert record["farm"] == {"id": farm.id, "name": farm.name}
+    assert record["geometry"] == {"state": "not_published"}
+    assert record["allocations"] == [{
+        "id": crop_allocation.id,
+        "season_id": crop_allocation.season_id,
+        "season_name": "Kharif 2026",
+        "crop_name": "Rice",
+        "cultivar": "Pusa 1121",
+        "area_hectares": 5.0,
+        "status": "active",
+        "starts_on": "2026-06-01",
+        "ends_on": "2026-11-30",
+    }]
+
+
+def test_farm_updates_are_parsed_ordered_bounded_and_keep_canonical_details_private(
+    ffl_db, users, farm, crop_allocation,
+):
+    template = repository.create_signal_template(
+        ffl_db, "Bounded observation", 1, "published", "[]", users.lead.id,
+        "2026-08-01T00:00:00+00:00",
+    )
+    for index in range(31):
+        repository.create_field_signal(
+            ffl_db, crop_allocation.id, template.id, 1,
+            "2026-08-{0:02d}T09:00:00+05:30".format(index % 28 + 1),
+            users.operator.id, {"raw_private_value": "never return this"},
+        )
+    repository.create_field_signal(
+        ffl_db, crop_allocation.id, template.id, 1,
+        "2026-08-03T04:00:00+00:00", users.operator.id, {},
+    )
+
+    updates = farm_profiles.farm_record(ffl_db, farm.id)["updates"]
+
+    assert len(updates) == 30
+    assert updates[0]["occurred_at"] == "2026-08-28T09:00:00+05:30"
+    assert "never return this" not in repr(updates)
+    instants = [farm_profiles._timestamp_instant(item["occurred_at"]) for item in updates]
+    assert instants == sorted(instants, reverse=True)
+
+
+def test_reported_updates_require_reviewed_allocation_link_and_redact_source_values(
+    ffl_db, owner, users, farm, crop_allocation,
+):
+    source = repository.create_source_registry(
+        ffl_db, "profile-trackwick", "Profile TrackWick", "trackwick", "reported context",
+        "partner", owner.id, ["farm_candidate_context"], "v1", "v1", {}, enabled=True,
+    )
+    now = "2026-08-04T10:00:00+05:30"
+    for task_id, link_status in (("reviewed-task", "reviewed"), ("proposed-task", "proposed")):
+        ffl_db.execute(
+            """INSERT INTO trackwick_tasks (
+                id, source_id, provider_task_id, task_type, task_status,
+                provider_completed_at, source_fingerprint, mapping_version,
+                data_quality_status, first_seen_at, last_seen_at, created_at
+            ) VALUES (?, ?, ?, 'Farmer Visit', 'completed', ?, ?, 'v1', 'valid', ?, ?, ?)""",
+            (task_id, source.id, "private-provider-" + task_id, now, "a" * 64, now, now, now),
+        )
+        ffl_db.execute(
+            """INSERT INTO trackwick_visits (
+                task_id, source_id, observed_at, kit_status, source_fingerprint,
+                mapping_version, data_quality_status, first_seen_at, last_seen_at, created_at
+            ) VALUES (?, ?, ?, 'unknown', ?, 'v1', 'valid', ?, ?, ?)""",
+            (task_id, source.id, now, "b" * 64, now, now, now),
+        )
+        ffl_db.execute(
+            """INSERT INTO trackwick_visit_findings (
+                id, visit_task_id, source_id, finding_kind, reported_value, source_field,
+                declared_severity, observed_at, source_fingerprint, mapping_version,
+                data_quality_status, first_seen_at, last_seen_at, created_at
+            ) VALUES (?, ?, ?, 'disease', ?, ?, 'high', ?, ?, 'v1', 'valid', ?, ?, ?)""",
+            (
+                "finding-" + task_id, task_id, source.id, "raw-disease-value",
+                "raw-source-field", now, "c" * 64, now, now, now,
+            ),
+        )
+        ffl_db.execute(
+            """INSERT INTO trackwick_task_allocation_links (
+                id, task_id, crop_allocation_id, link_status, reviewed_by_person_id,
+                reviewed_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "allocation-link-" + task_id, task_id, crop_allocation.id, link_status,
+                users.manager.id if link_status == "reviewed" else None,
+                now if link_status == "reviewed" else None, now,
+            ),
+        )
+    ffl_db.commit()
+
+    updates = farm_profiles.farm_record(ffl_db, farm.id)["updates"]
+    source_updates = [item for item in updates if item["state"] == "reported"]
+
+    assert {item["kind"] for item in source_updates} == {
+        "trackwick_task", "trackwick_visit", "disease_finding",
+    }
+    assert {item["id"] for item in source_updates} == {
+        "reviewed-task", "visit-reviewed-task", "finding-reviewed-task",
+    }
+    assert all(item["state"] == "reported" for item in source_updates)
+    finding = next(item for item in source_updates if item["kind"] == "disease_finding")
+    assert finding["summary"] == "High disease finding reported"
+    assert finding["finding_kind"] == "disease"
+    assert finding["declared_severity"] == "high"
+    serialized = repr(source_updates)
+    assert "raw-disease-value" not in serialized
+    assert "raw-source-field" not in serialized
+    assert "private-provider" not in serialized
+
+
+@pytest.mark.parametrize("start,end", [
+    ("2026-08-02", "2026-08-01"),
+    ("not-a-date", "2026-08-01"),
+    ("2025-01-01", "2026-08-02"),
+])
+def test_farm_record_rejects_invalid_date_window(ffl_db, start, end):
+    with pytest.raises(ValueError):
+        farm_profiles.farm_record(ffl_db, "missing", start, end)
+
+
+def test_entity_directory_is_bounded_and_rejects_invalid_filters(ffl_db, farm):
+    directory = farm_profiles.list_entity_directory(ffl_db, "farm", query="Pilot", limit=1)
+
+    assert len(directory) == 1
+    assert {key: directory[0][key] for key in ("state", "kind", "id", "name")} == {
+        "state": "reviewed", "kind": "farm", "id": farm.id, "name": "FFL Pilot",
+    }
+    with pytest.raises(ValueError, match="query must be at most 80 characters"):
+        farm_profiles.list_entity_directory(ffl_db, "farm", query="x" * 81)
+    with pytest.raises(ValueError, match="limit must be between 1 and 100"):
+        farm_profiles.list_entity_directory(ffl_db, "farm", limit=101)
+
+
 def test_farm_profile_returns_reviewed_truth_and_not_source_context(ffl_db, users, crop_allocation):
     grower = repository.create_person(ffl_db, "Asha Grower", "grower")
     repository.create_person_operating_relationship(
