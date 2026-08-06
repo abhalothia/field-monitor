@@ -16,8 +16,8 @@
 * { box-sizing: border-box; }
 html { background: var(--paper); }
 body { min-height: 100vh; margin: 0; background: radial-gradient(circle at 8% 2%, rgba(255,255,255,.72), transparent 27rem), linear-gradient(135deg, rgba(232, 222, 197, .48), transparent 42%), var(--paper); color: var(--ink); font-family: Manrope, Arial, sans-serif; }
-button, input { font: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid rgba(184, 129, 35, .7); outline-offset: 3px; }
+button, input, select { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid rgba(184, 129, 35, .7); outline-offset: 3px; }
 a { color: inherit; text-decoration: none; }
 h1, h2, h3, p { margin-top: 0; }
 
@@ -49,6 +49,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .auth-form .primary-action, .manager-form .primary-action { width: fit-content; margin-top: 8px; }
 .form-error { color: #9d412b; font-size: .76rem; line-height: 1.4; }
 .hindi { margin: 40px 0 0; color: #617160; font-size: .75rem; }
+.auth-switch { width: fit-content; border: 0; border-bottom: 1px solid currentColor; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: .72rem; font-weight: 800; margin-top: 22px; padding: 0 0 2px; }
 
 .command-shell { width: min(1480px, 100%); margin: 0 auto; padding: 20px clamp(18px, 4vw, 62px) 66px; }
 .command-header { min-height: 56px; border-bottom: 1px solid var(--line); }
@@ -146,6 +147,49 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .status-dot.failed, .status-dot.unavailable { background: var(--clay); }
 .session-wall-card .primary-action { margin-top: 14px; }
 
+/* Each command view intentionally carries one operating subject.  The
+   component can grow vertically for a real list, but an empty/new farm state
+   reads as one calm desktop or mobile screen instead of a dashboard collage. */
+.single-stage, .single-surface { width: min(100%, 1060px); border: 1px solid var(--line); box-shadow: 0 12px 38px rgba(59, 68, 43, .06); }
+.single-stage { display: flex; min-height: clamp(340px, 48vh, 510px); flex-direction: column; align-items: flex-start; background: linear-gradient(135deg, rgba(225, 234, 209, .88), rgba(249, 247, 236, .92)); padding: clamp(28px, 5vw, 62px); }
+.single-stage h2 { max-width: 13ch; margin: 13px 0 14px; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.7rem, 5vw, 5.1rem); font-weight: 400; letter-spacing: -.065em; line-height: .89; }
+.single-stage > p:not(.eyebrow) { max-width: 53ch; color: var(--ink-soft); font-size: .9rem; line-height: 1.6; }
+.single-stage .primary-action { margin-top: auto; }
+.single-stage footer { margin-top: 24px; color: #70806c; font-family: "DM Mono", monospace; font-size: .62rem; letter-spacing: .04em; text-transform: uppercase; }
+.single-surface { min-height: min(510px, calc(100vh - 214px)); background: rgba(250, 247, 236, .8); padding: clamp(22px, 3vw, 38px); }
+.fields-stage, .people-stage, .actions-surface, .settings-stage { max-width: 1060px; }
+.fields-stage .geometry-list { margin-top: 18px; }
+.people-stage { max-width: 720px; }
+.people-stage .people-list { max-width: 580px; }
+.actions-surface { max-width: 960px; }
+.settings-stage { max-width: 760px; }
+.settings-rows { display: grid; margin: 24px 0; }
+.settings-rows > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; border-top: 1px solid rgba(20, 61, 45, .14); padding: 13px 0; }
+.settings-rows > div:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
+.settings-rows strong { font-size: .77rem; }
+.settings-rows span { color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.bootstrap-access, .account-manager { border-top: 1px solid rgba(20, 61, 45, .17); margin-top: 24px; padding-top: 17px; }
+.bootstrap-access summary, .account-manager summary { color: var(--ink-soft); cursor: pointer; font-size: .76rem; font-weight: 800; }
+.settings-actions { display: flex; align-items: center; gap: 18px; margin-top: 25px; }
+.account-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 18px; }
+.account-form label { display: grid; gap: 7px; }
+.account-form select { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius: 2px; background: rgba(255, 253, 244, .7); color: var(--ink); padding: 10px 12px; }
+.account-form .primary-action { grid-column: 1 / -1; justify-self: start; margin-top: 0; }
+.account-list { display: grid; list-style: none; margin: 20px 0 0; padding: 0; }
+.account-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; border-top: 1px solid rgba(20, 61, 45, .14); color: var(--muted); font-size: .68rem; padding: 10px 0; }
+.account-list span:first-child { color: var(--ink); font-weight: 800; }
+.account-list span:last-child { font-family: "DM Mono", monospace; font-size: .58rem; text-transform: uppercase; }
+
+.personal-shell { display: grid; min-height: 100svh; grid-template-rows: auto 1fr; margin: 0 auto; max-width: 760px; padding: 20px clamp(18px, 5vw, 52px) 36px; }
+.personal-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); color: var(--muted); font-family: "DM Mono", monospace; font-size: .62rem; padding-bottom: 14px; text-transform: uppercase; }
+.personal-stage { align-self: center; padding: 54px 0; }
+.personal-stage h1 { margin: 10px 0 30px; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(3.4rem, 9vw, 6.2rem); font-weight: 400; letter-spacing: -.07em; line-height: .85; }
+.personal-empty { margin-bottom: 8px; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.7rem; letter-spacing: -.04em; }
+.personal-item { max-width: 560px; border: 1px solid var(--line); background: rgba(220, 231, 211, .48); padding: 24px; }
+.personal-item h2 { margin: 8px 0 12px; font-family: "DM Serif Display", Georgia, serif; font-size: 2rem; font-weight: 400; letter-spacing: -.05em; line-height: 1; }
+.personal-item > p:not(.eyebrow) { color: var(--muted); font-size: .78rem; line-height: 1.5; }
+.personal-item footer { border-top: 1px solid rgba(20, 61, 45, .16); color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .6rem; margin-top: 20px; padding-top: 12px; text-transform: uppercase; }
+
 @media (max-width: 860px) {
   .command-header { flex-wrap: wrap; padding-bottom: 11px; }
   .command-nav { order: 3; width: 100%; overflow-x: auto; }
@@ -156,6 +200,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .hero-grid, .home-lower-grid, .people-layout, .settings-grid, .access-flow-grid { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .today-card, .programme-card { min-height: 270px; }
+  .single-surface { min-height: 0; }
 }
 
 @media (max-width: 520px) {
@@ -173,4 +218,13 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .section-heading > p { text-align: left; }
   .action-list li { grid-template-columns: auto minmax(0, 1fr); }
   .action-list .text-link { grid-column: 2; justify-self: start; }
+  .single-stage { min-height: 440px; padding: 30px 24px; }
+  .single-stage h2 { font-size: clamp(2.8rem, 15vw, 4.2rem); }
+  .single-surface { padding: 22px 18px; }
+  .settings-rows > div { grid-template-columns: 1fr; gap: 3px; }
+  .account-form { grid-template-columns: 1fr; }
+  .account-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .account-list span:last-child { display: none; }
+  .personal-shell { padding: 16px 22px 28px; }
+  .personal-stage { padding: 42px 0; }
 }

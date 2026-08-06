@@ -15,6 +15,7 @@ from ffl.manager_session_auth import (
     manager_session_matches_secret,
 )
 from ffl.portal_auth import active_portal_session, end_portal_session
+from ffl.password_identity import active_password_principal
 
 
 router = APIRouter(prefix="/api/v1/manager-session")
@@ -58,6 +59,13 @@ def manager_session_status(request: Request) -> dict:
             "auth_method": "phone",
         }
     active = active_manager_session(request.app, request.session)
+    password_principal = active_password_principal(request)
+    if password_principal is not None and password_principal.is_manager:
+        return {
+            "authenticated": True,
+            "expires_at": password_principal.expires_at,
+            "auth_method": "id_password",
+        }
     if active is None:
         return {"authenticated": False}
     if not _configured_manager_is_valid(request):
@@ -85,6 +93,12 @@ def manager_session_logout(request: Request) -> dict:
     if portal_principal is not None and portal_principal.is_manager:
         end_portal_session(request.session)
         request.session.pop(SESSION_FLAG, None)
+        return {"status": "signed_out"}
+    password_principal = active_password_principal(request)
+    if password_principal is not None and password_principal.is_manager:
+        # A password manager session is its own login, so "lock" must not
+        # leave a still-valid manager cookie behind.
+        request.session.clear()
         return {"status": "signed_out"}
     request.session.pop(MANAGER_SESSION_FLAG, None)
     return {"status": "signed_out"}

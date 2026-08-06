@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import HTTPException, Request, status
 
 from ffl.manager_session_auth import active_manager_session
+from ffl.password_identity import active_password_principal
 from ffl.portal import (
     customer_portal_for_hostname,
     hostname_from_host_header,
@@ -54,6 +55,12 @@ def require_manager(request: Request) -> str:
     manager_id = request.app.state.manager_person_id
     presented = request.headers.get("x-ffl-manager-token")
     session = active_manager_session(request.app, request.session)
+    password_principal = active_password_principal(request)
+    if password_principal is not None and password_principal.is_manager:
+        # The private password-identity row is re-checked on this request.
+        # A signed cookie alone, browser-provided role, or ordinary farmer /
+        # field-worker account can never pass this manager boundary.
+        return password_principal.person_id
     legacy_header_matches = bool(expected and presented and hmac.compare_digest(expected, presented))
     # The legacy header is retained solely for existing server-to-server and
     # test callers.  The manager browser never receives, stores, or sends it;

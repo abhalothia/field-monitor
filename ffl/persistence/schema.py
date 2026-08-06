@@ -663,6 +663,31 @@ def create_schema(conn: sqlite3.Connection) -> None:
             )
         );
 
+        -- ID/password access is deliberately separate from imported contacts,
+        -- operating roles, and the optional phone portal.  A signed browser
+        -- cookie carries only this opaque identity id and a session binding;
+        -- active role and status are re-read here for every protected request.
+        CREATE TABLE IF NOT EXISTS password_identities (
+            id TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL UNIQUE REFERENCES people(id),
+            login_id TEXT NOT NULL UNIQUE CHECK (
+                login_id = lower(login_id)
+                AND length(login_id) BETWEEN 3 AND 64
+            ),
+            password_hash TEXT NOT NULL,
+            access_role TEXT NOT NULL CHECK (
+                access_role IN ('owner', 'admin', 'field_worker', 'farmer')
+            ),
+            identity_status TEXT NOT NULL CHECK (
+                identity_status IN ('active', 'suspended')
+            ),
+            password_version INTEGER NOT NULL CHECK (password_version > 0),
+            password_changed_at TEXT NOT NULL,
+            last_authenticated_at TEXT,
+            created_by_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL
+        );
+
         -- A customer account is not an operating unit, a farm, or a CRM
         -- tenant.  It owns the hostname and is the outer boundary for a
         -- person's verified portal role.
@@ -1276,6 +1301,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             WHERE identity_phone IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_access_memberships_role_status
             ON access_memberships (access_role, identity_status);
+        CREATE INDEX IF NOT EXISTS idx_password_identities_role_status
+            ON password_identities (access_role, identity_status);
         CREATE INDEX IF NOT EXISTS idx_portal_memberships_portal_role_status
             ON portal_memberships (portal_id, portal_role, membership_status);
         CREATE INDEX IF NOT EXISTS idx_portal_memberships_identity

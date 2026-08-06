@@ -29,6 +29,7 @@ from ffl.api.trial_routes import router as trial_router
 from ffl.api.trackolap_routes import router as trackolap_router
 from ffl.api.trackwick_routes import router as trackwick_router
 from ffl.api.portal_routes import router as portal_router
+from ffl.api.password_identity_routes import router as password_identity_router
 from ffl.communications.loopmessage import LoopMessageProvider
 from ffl.communications.persistence import create_communications_schema
 from ffl.communications.auth import configured_manager_person_id, configured_manager_token
@@ -217,6 +218,14 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
         )
     )
     app.state.launch_password = launch_password if launch_password is not None else configured_launch_password()
+    # Password identities use the same server-derived cookie authority as the
+    # SessionMiddleware, but have a separate purpose/version/binding.  The
+    # browser never receives this value or a role/person id it can choose.
+    app.state.password_identity_session_key = session_secret(
+        app.state.launch_password or "ffl-local-development-only",
+        app.state.manager_session_secret,
+        app.state.portal_session_secret,
+    )
     app.state.pilot_setup_approval_token = (
         pilot_setup_approval_token
         if pilot_setup_approval_token is not None
@@ -269,6 +278,10 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             "/site.webmanifest",
             "/api/v1/launch/login",
             "/api/v1/launch/logout",
+            "/api/v1/identity/login",
+            "/api/v1/identity/logout",
+            "/api/v1/identity/session",
+            "/api/v1/my/overview",
         }
         portal_public_paths = {
             "/", "/portal", "/login",
@@ -441,6 +454,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
     app.include_router(trackwick_router)
     app.include_router(farm_truth_router)
     app.include_router(portal_router)
+    app.include_router(password_identity_router)
     return app
 
 

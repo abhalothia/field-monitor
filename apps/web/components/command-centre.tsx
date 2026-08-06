@@ -74,6 +74,14 @@ type WhatsAppReadiness = {
   live_outbound_eligible: boolean;
   gaps: string[];
 };
+type PasswordIdentitySummary = {
+  id: string;
+  person_id: string;
+  person_name: string;
+  login_id: string;
+  access_role: "owner" | "admin" | "field_worker" | "farmer";
+  identity_status: "active" | "suspended";
+};
 
 type State = {
   profile: OperatingProfile | null;
@@ -307,7 +315,7 @@ export function CommandCentre({ view }: { view: View }) {
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} /> : null}
-      {view === "farmers" ? <FarmersView t={t} farmers={farmers} team={team} readiness={state.readiness} /> : null}
+      {view === "farmers" ? <FarmersView farmers={farmers} team={team} readiness={state.readiness} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerSecret={managerSecret} setManagerSecret={setManagerSecret} managerBusy={managerBusy} managerError={managerError} submit={submitManagerSession} logout={endManagerSession} /> : null}
     </main>
@@ -320,66 +328,32 @@ function headingFor(view: View, t: Translation) {
 
 function HomeView({ t, state }: { t: Translation; state: State }) {
   const portfolio = state.portfolio;
-  const runtime = state.runtime;
   const readiness = state.readiness;
   const nextMove = portfolio?.risk_action_ledger.items[0];
   const firstTruth = readiness?.next_stage;
-  const hasFirstFarm = Boolean(readiness && readiness.counts.operating_units > 0);
-  return <>
-    <section className="hero-grid">
-      <article className="today-card">
-        <p className="eyebrow">{runtime?.operating_unit?.name || state.profile?.display_name || "Fortune Farms"}</p>
-        <h2>{nextMove ? nextMove.title : firstTruth?.title || "The record starts with the field."}</h2>
-        <p>{nextMove ? actionLine(nextMove) : firstTruth?.next_action || "No farm record has been claimed yet."}</p>
-        {nextMove ? <Link href="/actions" className="primary-action">Open next move <span aria-hidden="true">→</span></Link> : <Link href="/settings" className="primary-action">See what is needed <span aria-hidden="true">→</span></Link>}
-      </article>
-      <article className="programme-card">
-        <p className="eyebrow">{t.programmeContext}</p>
-        <strong>{hasFirstFarm ? (state.profile?.network_summary || "The operating record is ready for its first field loop.") : "Public context is not a farm record."}</strong>
-        <p>{hasFirstFarm ? (state.profile?.public_hub_label || "No public location context is configured.") : "Fortune’s programme context is available, but no field, crop, or farmer has been asserted from it."}</p>
-        {state.profile?.source_url ? <a href={state.profile.source_url} target="_blank" rel="noreferrer" className="text-link">Source context <span aria-hidden="true">↗</span></a> : null}
-      </article>
-    </section>
-    <section className="metric-grid" aria-label="Operating truths">
-      <Metric label={t.farm} value={count(portfolio?.scope.active_farms.count)} note="reviewed operating farms" />
-      <Metric label={t.reviewedFields} value={count(portfolio?.scope.active_allocations.count)} note="active crop allocations" />
-      <Metric label="Team" value={count(readiness?.counts.people)} note="reviewed people" />
-      <Metric label={t.open} value={count(portfolio?.risk_action_ledger.total_count)} note="owned actions" tone="attention" />
-    </section>
-    <section className="home-lower-grid">
-      <FirstTruthCard readiness={readiness} />
-      <article className="surface action-preview">
-        <div className="surface-heading"><div><p className="eyebrow">{t.nextMove}</p><h2>Keep ownership visible.</h2></div><Link className="text-link" href="/actions">All actions <span aria-hidden="true">→</span></Link></div>
-        <ActionRows items={portfolio?.risk_action_ledger.items.slice(0, 4) || []} empty={t.noActions} />
-      </article>
-    </section>
-  </>;
-}
-
-function Metric({ label, value, note, tone }: { label: string; value: string; note: string; tone?: "attention" }) {
-  return <article className={`metric-card${tone ? ` ${tone}` : ""}`}><p>{label}</p><strong>{value}</strong><span>{note}</span></article>;
-}
-
-function FirstTruthCard({ readiness }: { readiness: PilotReadiness | null }) {
-  const next = readiness?.next_stage;
-  return <article className="surface first-truth-card">
-    <div className="surface-heading"><div><p className="eyebrow">First truths</p><h2>{readiness ? `${readiness.progress.completed} of ${readiness.progress.total} in place` : "Reading the record"}</h2></div></div>
-    {next ? <><strong>{next.title}</strong><p>{next.next_action}</p><Link href="/settings" className="text-link">See the full record path <span aria-hidden="true">→</span></Link></> : <p className="empty-copy">The first field loop is ready to run from reviewed records.</p>}
-  </article>;
+  const statusLine = nextMove
+    ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
+    : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} setup checks complete` : "Reading the operating record";
+  return <section className="single-stage home-stage">
+    <p className="eyebrow">{nextMove ? "One next move" : "Start here"}</p>
+    <h2>{nextMove ? nextMove.title : firstTruth?.title || "Add the first reviewed farm."}</h2>
+    <p>{nextMove ? actionLine(nextMove) : firstTruth?.next_action || "The command centre only begins when the actual operating unit is confirmed."}</p>
+    {nextMove
+      ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
+      : <Link href="/settings" className="primary-action">Set up the first farm <span aria-hidden="true">→</span></Link>}
+    <footer>{statusLine} · {state.profile?.display_name || "Fortune Farms"}</footer>
+  </section>;
 }
 
 function FieldsView({ t, state }: { t: Translation; state: State }) {
   const fields = state.runtime?.allocations || [];
   const verifiedFeatures = state.map?.features || [];
   const waitingForFarm = state.readiness?.counts.operating_units === 0;
-  return <>
-    <section className="surface field-map-surface">
-      <div className="surface-heading"><div><p className="eyebrow">{t.fieldMap}</p><h2>Only reviewed geometry belongs here.</h2></div><span className="count-badge">{count(verifiedFeatures.length)} mapped</span></div>
-      {state.session?.authenticated ? <ReviewedGeometry features={verifiedFeatures} /> : <div className="map-locked"><p>Unlock manager actions in Settings to view reviewed field geometry.</p><Link href="/settings" className="text-link">Open settings <span aria-hidden="true">→</span></Link></div>}
-    </section>
-    <section className="section-heading"><div><p className="eyebrow">{t.reviewedFields}</p><h2>Current crop allocations</h2></div><p>{fields.length ? "Each card comes from the operating record." : "A source village or coverage count never becomes a field record."}</p></section>
-    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.operational_block_name || "Reviewed field"}</h3><p>{field.crop_name || "Crop not set"}{field.cultivar ? ` · ${field.cultivar}` : ""}</p><Link className="text-link" href={`/actions?field=${encodeURIComponent(field.id)}`}>View related actions <span aria-hidden="true">→</span></Link></article>)}</div> : <EmptyState title={waitingForFarm ? "No farm has been recorded." : t.noData} detail={waitingForFarm ? "A village, public map, or purchase row is not enough to draw a Fortune field. Add one reviewed farm pack when the accountable team has confirmed it." : "Accept a reviewed farm candidate or publish a farm manifest to make a real field visible."} />}
-  </>;
+  return <section className="single-surface fields-stage">
+    <div className="surface-heading"><div><p className="eyebrow">{t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length)}</span></div>
+    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.operational_block_name || "Reviewed field"}</h3><p>{field.crop_name || "Crop not set"}{field.cultivar ? ` · ${field.cultivar}` : ""}</p><Link className="text-link" href={`/actions?field=${encodeURIComponent(field.id)}`}>View work <span aria-hidden="true">→</span></Link></article>)}</div> : <EmptyState title={waitingForFarm ? "Add one real field." : t.noData} detail={waitingForFarm ? "A village, public map, or purchase row is not enough. Confirm the operating unit and field pack first." : "Publish a reviewed farm record to make a field visible."} />}
+    {state.session?.authenticated && verifiedFeatures.length ? <ReviewedGeometry features={verifiedFeatures} /> : null}
+  </section>;
 }
 
 function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<string, unknown> }> }) {
@@ -387,32 +361,17 @@ function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<
   return <div className="geometry-list"><p>{features.length} reviewed feature{features.length === 1 ? "" : "s"} are available to the manager map.</p>{features.slice(0, 8).map((feature, index) => <span key={`${String(feature.properties?.plot_label || "field")}-${index}`}>{String(feature.properties?.plot_label || "Reviewed field")}</span>)}</div>;
 }
 
-function FarmersView({ t, farmers, team, readiness }: { t: Translation; farmers: Runtime["people"]; team: Runtime["people"]; readiness: PilotReadiness | null }) {
-  return <div className="people-layout">
-    <PeopleSection title={t.farmers} eyebrow="Reviewed people" people={farmers} empty="No reviewed farmer relationship is available yet. A purchase, village, or phone number never creates one." />
-    <PeopleSection title={t.operator} eyebrow="Reviewed people" people={team} empty={readiness?.counts.people ? "A team record exists, but it is not attached to an operating farm yet." : "No field-worker relationship is available yet."} />
-    <AccessFlowCards />
-  </div>;
-}
-
-function PeopleSection({ title, eyebrow, people, empty }: { title: string; eyebrow: string; people: Runtime["people"]; empty: string }) {
-  return <section className="surface"><div className="surface-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div><span className="count-badge">{count(people.length)}</span></div>{people.length ? <div className="people-list">{people.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>{roleName(person.role)}</p></div></article>)}</div> : <p className="empty-copy">{empty}</p>}</section>;
-}
-
-function AccessFlowCards() {
-  return <section className="surface full-span access-flow-surface">
-    <div className="surface-heading"><div><p className="eyebrow">How people use AGRO CEO</p><h2>Three narrow paths.</h2></div></div>
-    <div className="access-flow-grid">
-      <article><span className="status-chip">Live</span><h3>Admin</h3><p>Uses the private command center. Manager authority is a short, server-signed session—not a job-title field in the browser.</p></article>
-      <article><span className="status-chip">Ready after assignment</span><h3>Field worker</h3><p>Uses a scoped mobile capture pass for one approved request. A submission becomes reviewable evidence, never an automatic decision.</p></article>
-      <article><span className="status-chip">Waiting for identity</span><h3>Farmer</h3><p>Will use an invited phone identity tied to an explicit farm relationship. No imported contact or village row can create a login.</p></article>
-    </div>
+function FarmersView({ farmers, team, readiness }: { farmers: Runtime["people"]; team: Runtime["people"]; readiness: PilotReadiness | null }) {
+  const people = [...farmers, ...team];
+  return <section className="single-surface people-stage">
+    <div className="surface-heading"><div><p className="eyebrow">Reviewed people</p><h2>People on this operating record</h2></div><span className="count-badge">{count(people.length)}</span></div>
+    {people.length ? <div className="people-list">{people.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>{roleName(person.role)}</p></div></article>)}</div> : <p className="empty-copy">{readiness?.counts.people ? "A team record exists, but it is not attached to an operating farm yet." : "People appear here only after a reviewed relationship is recorded."}</p>}
   </section>;
 }
 
 function ActionsView({ t, portfolio }: { t: Translation; portfolio: Portfolio | null }) {
   const actions = portfolio?.risk_action_ledger.items || [];
-  return <section className="surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Decision queue</p><h2>One clear list. No hidden work.</h2></div><span className="count-badge">{count(portfolio?.risk_action_ledger.total_count)}</span></div><ActionRows items={actions} empty={t.noActions} /></section>;
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Decision queue</p><h2>Open actions</h2></div><span className="count-badge">{count(portfolio?.risk_action_ledger.total_count)}</span></div><ActionRows items={actions} empty={t.noActions} /></section>;
 }
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
@@ -424,44 +383,76 @@ function SettingsView({ t, state, managerSecret, setManagerSecret, managerBusy, 
   t: Translation; state: State; managerSecret: string; setManagerSecret: (value: string) => void; managerBusy: boolean; managerError: string | null; submit: (event: FormEvent<HTMLFormElement>) => Promise<void>; logout: () => Promise<void>;
 }) {
   const session = state.session;
-  const lanes = state.lanes?.lanes || [];
-  const readiness = state.readiness;
   const communications = state.communications;
-  return <div className="settings-grid">
-    <section className="surface">
-      <p className="eyebrow">{t.manager}</p>
-      <h2>{session?.authenticated ? "Manager actions are available." : "Manager actions are locked."}</h2>
-      <p className="surface-copy">The manager secret is submitted only to the operating kernel. It is never saved in this browser.</p>
-      {session?.authenticated ? <><p className="session-note">Expires {dateTime(session.expires_at)} IST</p><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><br /><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></> : <form className="manager-form" onSubmit={submit}><label htmlFor="manager-secret">Manager secret</label><input id="manager-secret" type="password" autoComplete="off" value={managerSecret} onChange={(event) => setManagerSecret(event.target.value)} required /><button className="primary-action" disabled={managerBusy}>{managerBusy ? "Opening…" : t.unlock}</button>{managerError ? <p className="form-error" role="alert">{managerError}</p> : null}</form>}
-    </section>
-    <section className="surface">
-      <p className="eyebrow">Fortune Farms</p>
-      <h2>{state.profile?.display_name || "Operating profile"}</h2>
-      <p className="surface-copy">{state.profile?.coverage_label || "No operating profile has been published."}</p>
-      {state.profile?.website_url ? <a className="text-link" href={state.profile.website_url} target="_blank" rel="noreferrer">Fortune Rice website <span aria-hidden="true">↗</span></a> : null}
-    </section>
-    <ReadinessPanel readiness={readiness} />
-    <CommunicationPanel session={session} communications={communications} />
-    <section className="surface full-span">
-      <div className="surface-heading"><div><p className="eyebrow">{t.dataReadiness}</p><h2>Connections are explicit.</h2></div></div>
-      {lanes.length ? <ul className="lane-list">{lanes.map((lane, index) => <li key={lane.key || index}><span className={`status-dot ${lane.status || "unknown"}`} /><div><strong>{lane.label || lane.key || "Data lane"}</strong><p>{lane.detail || lane.next_step || "No additional detail is available."}</p></div><span>{lane.status || "unknown"}</span></li>)}</ul> : <p className="empty-copy">No data connections are configured yet. This is intentional until a source is reviewed and enabled.</p>}
-    </section>
-  </div>;
-}
-
-function ReadinessPanel({ readiness }: { readiness: PilotReadiness | null }) {
-  return <section className="surface full-span">
-    <div className="surface-heading"><div><p className="eyebrow">Operating record</p><h2>{readiness ? `${readiness.progress.completed} of ${readiness.progress.total} first truths in place` : "Reading first truths"}</h2></div></div>
-    {readiness ? <ol className="readiness-list">{readiness.stages.map((stage) => <li key={stage.key}><span className={`status-dot ${stage.status === "ready" ? "ready" : "attention"}`} /><div><strong>{stage.title}</strong><p>{stage.status === "ready" ? "Reviewed and present." : stage.next_action}</p></div><span>{stage.status === "ready" ? "ready" : "needed"}</span></li>)}</ol> : <p className="empty-copy">The first-farm record is not available right now.</p>}
+  return <section className="single-surface settings-stage">
+    <div className="surface-heading"><div><p className="eyebrow">Private setup</p><h2>Access and connections</h2></div></div>
+    <p className="surface-copy">{state.profile?.display_name || "Fortune Farms"} stays private until a named person is given the exact access they need.</p>
+    <div className="settings-rows">
+      <div><strong>People</strong><span>{session?.authenticated ? "Manage named ID access below." : "Use your admin ID to manage access."}</span></div>
+      <div><strong>Data</strong><span>{state.readiness ? `${state.readiness.progress.completed} of ${state.readiness.progress.total} first records are confirmed.` : "Not available."}</span></div>
+      <div><strong>Messaging</strong><span>{communications?.status === "ready" ? "Ready for reviewed requests." : "Paused until the dedicated WhatsApp gate is complete."}</span></div>
+    </div>
+    {session?.authenticated ? <><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <details className="bootstrap-access"><summary>Use temporary admin setup access</summary><form className="manager-form" onSubmit={submit}><label htmlFor="manager-secret">Manager setup secret</label><input id="manager-secret" type="password" autoComplete="off" value={managerSecret} onChange={(event) => setManagerSecret(event.target.value)} required /><button className="primary-action" disabled={managerBusy}>{managerBusy ? "Opening…" : t.unlock}</button>{managerError ? <p className="form-error" role="alert">{managerError}</p> : null}</form></details>}
   </section>;
 }
 
-function CommunicationPanel({ session, communications }: { session: ManagerSession | null; communications: WhatsAppReadiness | null }) {
-  const isReady = communications?.status === "ready";
-  return <section className="surface full-span">
-    <div className="surface-heading"><div><p className="eyebrow">Field messaging</p><h2>{isReady ? "WhatsApp is ready for reviewed work requests." : "Message intake is not connected."}</h2></div><span className={`count-badge ${isReady ? "ready" : ""}`}>{isReady ? "ready" : "paused"}</span></div>
-    {!session?.authenticated ? <p className="empty-copy">Unlock manager actions to inspect the transport readiness. This surface never shows phone numbers, message content, or credentials.</p> : isReady ? <p className="surface-copy">A consented, template-backed request can collect text, photo, or voice evidence. Every reply stays reviewable until a human accepts it.</p> : <p className="surface-copy">The database and review path are prepared. Live WhatsApp remains blocked until the dedicated number, sender proof, webhook authorization, and private worker are configured together.</p>}
-  </section>;
+function AccountManager() {
+  const [accounts, setAccounts] = useState<PasswordIdentitySummary[] | null>(null);
+  const [name, setName] = useState("");
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<PasswordIdentitySummary["access_role"]>("field_worker");
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadAccounts = useCallback(async () => {
+    const response = await fetch("/api/v1/identities", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) throw new Error("Accounts could not be read.");
+    const payload = (await response.json()) as { items: PasswordIdentitySummary[] };
+    setAccounts(payload.items);
+  }, []);
+
+  useEffect(() => { void loadAccounts().catch((error: unknown) => setStatus(error instanceof Error ? error.message : "Accounts could not be read.")); }, [loadAccounts]);
+
+  async function submitAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/v1/identities", {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          access_role: role, login_id: loginId, temporary_password: password, person_name: name,
+          operational_role: role === "farmer" ? "grower" : role === "field_worker" ? "field_operator" : "operations_lead",
+        }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(payload?.detail || "That account could not be created.");
+      }
+      setName(""); setLoginId(""); setPassword("");
+      setStatus("Account created. Share the temporary password directly; it will not be shown again.");
+      await loadAccounts();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "That account could not be created.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <details className="account-manager">
+    <summary>Manage named sign-ins</summary>
+    <p className="surface-copy">Create access only for a person you have deliberately confirmed. A source contact, village, or purchase row never creates a login.</p>
+    <form className="account-form" onSubmit={submitAccount}>
+      <label htmlFor="account-name">Name<input id="account-name" value={name} onChange={(event) => setName(event.target.value)} required /></label>
+      <label htmlFor="account-id">Login ID<input id="account-id" value={loginId} onChange={(event) => setLoginId(event.target.value)} placeholder="e.g. ravi.grower" autoCapitalize="none" required /></label>
+      <label htmlFor="account-role">Access<select id="account-role" value={role} onChange={(event) => setRole(event.target.value as PasswordIdentitySummary["access_role"])}><option value="field_worker">Field worker</option><option value="farmer">Farmer</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
+      <label htmlFor="account-password">Temporary password<input id="account-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required /></label>
+      <button className="primary-action" disabled={busy}>{busy ? "Creating…" : "Create sign-in"} <span aria-hidden="true">→</span></button>
+    </form>
+    {status ? <p className="form-error" role="status">{status}</p> : null}
+    {accounts ? <ul className="account-list">{accounts.map((account) => <li key={account.id}><span>{account.person_name}</span><span>{account.login_id}</span><span>{account.access_role.replaceAll("_", " ")}</span></li>)}</ul> : <p className="empty-copy">Reading named accounts…</p>}
+  </details>;
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {

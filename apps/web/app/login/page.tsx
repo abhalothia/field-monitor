@@ -11,24 +11,29 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [setupAccess, setSetupAccess] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setStatus(null);
     try {
-      const next = searchParams.get("next");
-      const response = await fetch("/api/v1/launch/login", {
+      const requestedNext = searchParams.get("next");
+      const response = await fetch(setupAccess ? "/api/v1/launch/login" : "/api/v1/identity/login", {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password, next_path: next?.startsWith("/") ? next : "/home" }),
+        body: setupAccess
+          ? JSON.stringify({ password, next_path: requestedNext?.startsWith("/") ? requestedNext : "/home" })
+          : JSON.stringify({ login_id: loginId, password }),
       });
-      if (!response.ok) throw new Error("That password did not open this workspace.");
-      router.replace(next?.startsWith("/") ? next : "/home");
+      const payload = (await response.json().catch(() => null)) as { detail?: string; next_path?: string } | null;
+      if (!response.ok) throw new Error(payload?.detail || "That ID or password did not open this workspace.");
+      router.replace(payload?.next_path || (requestedNext?.startsWith("/") ? requestedNext : "/home"));
       router.refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "We could not open this workspace.");
@@ -42,15 +47,17 @@ function LoginForm() {
       <section className="auth-card" aria-labelledby="login-title">
         <Link href="/" className="brand-mark"><i aria-hidden="true" /> Fortune Farms</Link>
         <p className="eyebrow">AGRO CEO · private farm command</p>
-        <h1 id="login-title">Come back to the field.</h1>
-        <p className="muted">Enter the Fortune pilot password to continue.</p>
+        <h1 id="login-title">Your work, ready.</h1>
+        <p className="muted">Sign in with the AGRO CEO ID your farm admin gave you.</p>
         <form onSubmit={submit} className="auth-form">
-          <label htmlFor="password">Pilot password</label>
-          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required autoFocus />
+          {!setupAccess ? <><label htmlFor="login-id">AGRO CEO ID</label><input id="login-id" autoComplete="username" autoCapitalize="none" value={loginId} onChange={(event) => setLoginId(event.target.value)} required autoFocus /></> : null}
+          <label htmlFor="password">{setupAccess ? "Admin setup password" : "Password"}</label>
+          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required autoFocus={setupAccess} />
           {status ? <p className="form-error" role="alert">{status}</p> : null}
-          <button className="primary-action" disabled={submitting}>{submitting ? "Opening…" : "Open AGRO CEO"} <span aria-hidden="true">→</span></button>
+          <button className="primary-action" disabled={submitting}>{submitting ? "Opening…" : "Sign in"} <span aria-hidden="true">→</span></button>
         </form>
-        <p className="hindi" lang="hi">फॉर्च्यून फार्म्स के निजी संचालन केंद्र में प्रवेश करें</p>
+        <button className="auth-switch" type="button" onClick={() => { setSetupAccess((current) => !current); setStatus(null); }}>{setupAccess ? "Use a named ID instead" : "Setting up the first admin?"}</button>
+        <p className="hindi" lang="hi">अपना एग्रो सीईओ आईडी और पासवर्ड डालें</p>
       </section>
     </main>
   );
