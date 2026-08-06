@@ -238,11 +238,22 @@ def register_procurement_history(
                 conn, PURPOSE, artifact.content_hash, artifact.id, MAPPING_VERSION, owner_id, profile,
                 status="profiled", commit=False,
             )
-            for row_number, cohort in enumerate(cohorts, start=2):
-                repository.create_import_row(
-                    conn, batch.id, row_number, cohort, cohort, [], status="valid",
-                    target_entity_type="procurement_cohort", commit=False,
-                )
+            repository.create_import_rows(
+                conn,
+                batch.id,
+                [
+                    {
+                        "row_number": row_number,
+                        "raw": cohort,
+                        "mapped": cohort,
+                        "validation_errors": [],
+                        "status": "valid",
+                        "target_entity_type": "procurement_cohort",
+                    }
+                    for row_number, cohort in enumerate(cohorts, start=2)
+                ],
+                commit=False,
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -271,3 +282,16 @@ def publish_procurement_history(conn, batch_id: str, manager_id: str) -> dict:
 
 def procurement_history_summary(conn, batch_id: str) -> dict:
     return _summary(conn, batch_id)
+
+
+def latest_published_procurement_history(conn) -> Optional[dict]:
+    """Return only the newest published aggregate history, if one exists.
+
+    The original ledger and any unreviewed imports stay out of this read path.
+    This is company supply context—not a farmer, field, or map directory.
+    """
+    published = [
+        batch for batch in repository.list_import_batches(conn, purpose=PURPOSE)
+        if batch.status == "published"
+    ]
+    return None if not published else _summary(conn, published[-1].id)

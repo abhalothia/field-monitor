@@ -63,6 +63,17 @@ def create_procurement_history(
     return _result(result)
 
 
+@router.get("/procurement-history/latest")
+def get_latest_procurement_history(
+    request: Request,
+    manager_id: str = Depends(require_manager),
+) -> dict:
+    """Safe company context for the command surface; never a source ledger."""
+    del manager_id
+    summary = procurement_history.latest_published_procurement_history(_connection(request))
+    return {"state": "not_loaded"} if summary is None else {"state": "published", "summary": _result(summary)}
+
+
 @router.get("/procurement-history/{import_batch_id}")
 def get_procurement_history(
     import_batch_id: str,

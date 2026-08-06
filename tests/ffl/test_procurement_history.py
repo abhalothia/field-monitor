@@ -60,6 +60,39 @@ def test_procurement_history_is_reviewed_and_published_without_creating_farms(ff
     assert ffl_db.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 0
 
 
+def test_latest_published_procurement_history_ignores_unreviewed_imports(ffl_db, owner, tmp_path):
+    assert procurement_history.latest_published_procurement_history(ffl_db) is None
+
+    result = procurement_history.register_procurement_history(
+        ffl_db, PURCHASE_SAMPLE, owner.id, evidence_directory=str(tmp_path)
+    )
+    assert procurement_history.latest_published_procurement_history(ffl_db) is None
+
+    procurement_history.review_procurement_history(ffl_db, result["batch"].id, owner.id)
+    procurement_history.publish_procurement_history(ffl_db, result["batch"].id, owner.id)
+    latest = procurement_history.latest_published_procurement_history(ffl_db)
+
+    assert latest is not None
+    assert latest["batch"].id == result["batch"].id
+    assert latest["coverage"]["villages"] == 2
+
+
+def test_procurement_history_inserts_aggregated_cohorts_in_one_bulk_repository_call(
+    ffl_db, owner, tmp_path, monkeypatch,
+):
+    def single_row_insert_must_not_run(*_args, **_kwargs):
+        raise AssertionError("historical cohorts must not be inserted one row at a time")
+
+    monkeypatch.setattr(repository, "create_import_row", single_row_insert_must_not_run)
+
+    result = procurement_history.register_procurement_history(
+        ffl_db, PURCHASE_SAMPLE, owner.id, evidence_directory=str(tmp_path)
+    )
+
+    assert result["counters"]["cohorts"] == 2
+    assert ffl_db.execute("SELECT COUNT(*) FROM import_rows").fetchone()[0] == 2
+
+
 def test_procurement_history_skips_bad_rows_and_rejects_unknown_columns(ffl_db, owner, tmp_path):
     one_bad = PURCHASE_SAMPLE + b"not-a-date,PP-004,Dinesh,Nangla Chamru,100,1,1,Buyer,Pusa 1121,BILL-004\n"
     unknown_column = PURCHASE_SAMPLE.replace(b"Entry Date,", b"Entry Date,Home Address,", 1)
@@ -91,6 +124,22 @@ def test_procurement_history_api_is_manager_only_and_returns_only_cohort_summary
             headers={"x-ffl-manager-token": "manager-token"},
         )
         generic = client.get("/api/v1/imports/" + batch_id)
+        latest_before_publish = client.get(
+            "/api/v1/procurement-history/latest",
+            headers={"x-ffl-manager-token": "manager-token"},
+        )
+        reviewed = client.post(
+            "/api/v1/procurement-history/" + batch_id + "/review",
+            headers={"x-ffl-manager-token": "manager-token"},
+        )
+        published = client.post(
+            "/api/v1/procurement-history/" + batch_id + "/publish",
+            headers={"x-ffl-manager-token": "manager-token"},
+        )
+        latest = client.get(
+            "/api/v1/procurement-history/latest",
+            headers={"x-ffl-manager-token": "manager-token"},
+        )
 
     assert denied.status_code == 403
     assert created.status_code == 201
@@ -98,3 +147,9 @@ def test_procurement_history_api_is_manager_only_and_returns_only_cohort_summary
     assert "Asha" not in detail.text
     assert "PP-001" not in detail.text
     assert generic.status_code == 404
+    assert latest_before_publish.json() == {"state": "not_loaded"}
+    assert reviewed.status_code == 200
+    assert published.status_code == 200
+    assert latest.json()["state"] == "published"
+    assert "Asha" not in latest.text
+    assert "PP-001" not in latest.text

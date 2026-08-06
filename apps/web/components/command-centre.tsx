@@ -68,11 +68,66 @@ type PilotReadiness = {
   stages: PilotStage[];
   counts: { people: number; operating_units: number; active_allocations: number; open_work_items: number };
 };
-type WhatsAppReadiness = {
-  status: "ready" | "blocked";
-  live_inbound_eligible: boolean;
-  live_outbound_eligible: boolean;
-  gaps: string[];
+type TrackwickFarm = {
+  id: string;
+  farmer_name: string;
+  place: string;
+  reported_area_acres?: number | null;
+  reported_plot_count?: number | null;
+  open_work: number;
+  latest_activity_at?: string | null;
+  crop_photo_references: number;
+  plot_photo_references: number;
+};
+type TrackwickFarmer = {
+  id: string;
+  name: string;
+  tag?: string | null;
+  farm_candidates: number;
+  reported_area_acres?: number | null;
+  open_work: number;
+  latest_activity_at?: string | null;
+  crop_photo_references: number;
+};
+type TrackwickWorker = {
+  id: string;
+  name: string;
+  open_work: number;
+  completed_work: number;
+  latest_activity_at?: string | null;
+  latest_attendance?: { observed_on: string; status: string } | null;
+};
+type TrackwickWork = {
+  id: string;
+  task_type: string;
+  status: string;
+  farmer_name?: string | null;
+  field_worker_name?: string | null;
+  follow_up_at?: string | null;
+  opened_at?: string | null;
+};
+type TrackwickBoard = {
+  source: { state: string; last_synced_at?: string | null };
+  counts: {
+    farmers: number;
+    farm_candidates: number;
+    field_workers: number;
+    open_work: number;
+    source_points: number;
+    crop_photo_references: number;
+    plot_photo_references: number;
+  };
+  farms: TrackwickFarm[];
+  farmers: TrackwickFarmer[];
+  field_workers: TrackwickWorker[];
+  inbox: TrackwickWork[];
+};
+type ProcurementHistory = {
+  state: "not_loaded" | "published";
+  summary?: {
+    counters: { cohorts: number; input_source_rows: number; accepted_source_rows: number };
+    coverage: { months: string[]; villages: number; varieties: number; quantity_qtl: number; weighted_rate_per_qtl?: number | null };
+  };
 };
 type PasswordIdentitySummary = {
   id: string;
@@ -91,7 +146,8 @@ type State = {
   session: ManagerSession | null;
   map: FeatureCollection | null;
   readiness: PilotReadiness | null;
-  communications: WhatsAppReadiness | null;
+  trackwick: TrackwickBoard | null;
+  procurementHistory: ProcurementHistory | null;
   loading: boolean;
   error: string | null;
   needsLaunchLogin: boolean;
@@ -105,7 +161,8 @@ const EMPTY_STATE: State = {
   session: null,
   map: null,
   readiness: null,
-  communications: null,
+  trackwick: null,
+  procurementHistory: null,
   loading: true,
   error: null,
   needsLaunchLogin: false,
@@ -171,7 +228,7 @@ function count(value?: number) {
   return new Intl.NumberFormat("en-IN").format(value || 0);
 }
 
-function dateTime(value?: string) {
+function dateTime(value?: string | null) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? "—" : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(date);
@@ -200,6 +257,8 @@ export function CommandCentre({ view }: { view: View }) {
       readJson<DataLanes>("/api/v1/data-lanes"),
       readJson<ManagerSession>("/api/v1/manager-session/status"),
       readJson<PilotReadiness>("/api/v1/pilot/readiness"),
+      readJson<TrackwickBoard>("/api/v1/trackwick/board"),
+      readJson<ProcurementHistory>("/api/v1/procurement-history/latest"),
     ]);
     const runtimeIsAwaitingFirstFarm = results[2].status === "rejected" && results[2].reason?.status === 404;
     const rejected = results.find((result, index): result is PromiseRejectedResult => (
@@ -217,7 +276,8 @@ export function CommandCentre({ view }: { view: View }) {
       lanes: results[3].status === "fulfilled" ? results[3].value.value : null,
       session: results[4].status === "fulfilled" ? results[4].value.value : null,
       readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
-      communications: null,
+      trackwick: results[6].status === "fulfilled" ? results[6].value.value : null,
+      procurementHistory: results[7].status === "fulfilled" ? results[7].value.value : null,
       map: null,
       loading: false,
       needsLaunchLogin: false,
@@ -233,18 +293,6 @@ export function CommandCentre({ view }: { view: View }) {
     void readJson<FeatureCollection>("/api/v1/fortune-map")
       .then(({ value }) => { if (active) setState((current) => ({ ...current, map: value })); })
       .catch(() => { if (active) setState((current) => ({ ...current, map: null })); });
-    return () => { active = false; };
-  }, [state.session?.authenticated]);
-
-  useEffect(() => {
-    if (!state.session?.authenticated) {
-      setState((current) => ({ ...current, communications: null }));
-      return;
-    }
-    let active = true;
-    void readJson<WhatsAppReadiness>("/api/v1/communications/readiness")
-      .then(({ value }) => { if (active) setState((current) => ({ ...current, communications: value })); })
-      .catch(() => { if (active) setState((current) => ({ ...current, communications: null })); });
     return () => { active = false; };
   }, [state.session?.authenticated]);
 
@@ -294,8 +342,8 @@ export function CommandCentre({ view }: { view: View }) {
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} /> : null}
-      {view === "farmers" ? <FarmersView farmers={farmers} team={team} readiness={state.readiness} /> : null}
-      {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} /> : null}
+      {view === "farmers" ? <FarmersView farmers={farmers} team={team} readiness={state.readiness} trackwick={state.trackwick} /> : null}
+      {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
   );
@@ -308,18 +356,41 @@ function headingFor(view: View, t: Translation) {
 function HomeView({ t, state }: { t: Translation; state: State }) {
   const portfolio = state.portfolio;
   const readiness = state.readiness;
+  const history = state.procurementHistory?.summary;
+  const trackwick = state.trackwick;
   const nextMove = portfolio?.risk_action_ledger.items[0];
   const firstTruth = readiness?.next_stage;
+  const reportedFarmCount = trackwick?.counts.farm_candidates || 0;
   const statusLine = nextMove
     ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
-    : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} setup checks complete` : "Reading the operating record";
+    : reportedFarmCount
+      ? `${count(reportedFarmCount)} reported farms await review`
+      : history
+        ? `${count(history.coverage.quantity_qtl)} qtl · ${count(history.coverage.villages)} villages · ${count(history.coverage.varieties)} varieties`
+        : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} operating checks complete` : "Reading the operating record";
+  const title = nextMove
+    ? nextMove.title
+    : reportedFarmCount
+      ? `Review ${count(reportedFarmCount)} reported farms.`
+      : history
+        ? `${count(history.coverage.quantity_qtl)} qtl of past purchase context.`
+        : firstTruth?.title || "Start with one reviewed farm.";
+  const detail = nextMove
+    ? actionLine(nextMove)
+    : reportedFarmCount
+      ? "TrackWick has source context for people, reported farms, and field activity. Review it before it becomes AGRO CEO field truth."
+      : history
+        ? `${history.coverage.months.join(" · ")} · historical Fortune procurement by village and variety. It is not a current crop, farmer, or field map.`
+        : firstTruth?.next_action || "The operating record begins with a real field, not a guessed one.";
   return <section className="single-stage home-stage">
-    <p className="eyebrow">{nextMove ? "One next move" : "Start here"}</p>
-    <h2>{nextMove ? nextMove.title : firstTruth?.title || "Add the first reviewed farm."}</h2>
-    <p>{nextMove ? actionLine(nextMove) : firstTruth?.next_action || "The command centre only begins when the actual operating unit is confirmed."}</p>
+    <p className="eyebrow">{nextMove ? "One next move" : reportedFarmCount ? "Reported field context" : history ? "Historical supply context" : "Start here"}</p>
+    <h2>{title}</h2>
+    <p>{detail}</p>
     {nextMove
       ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
-      : <Link href="/settings" className="primary-action">Set up the first farm <span aria-hidden="true">→</span></Link>}
+      : reportedFarmCount
+        ? <a href="/manager" className="primary-action">Review reported farms <span aria-hidden="true">→</span></a>
+        : <Link href="/settings" className="primary-action">Open data connections <span aria-hidden="true">→</span></Link>}
     <footer>{statusLine} · {state.profile?.display_name || "Fortune Farms"}</footer>
   </section>;
 }
@@ -328,11 +399,16 @@ function FieldsView({ t, state }: { t: Translation; state: State }) {
   const fields = state.runtime?.allocations || [];
   const verifiedFeatures = state.map?.features || [];
   const waitingForFarm = state.readiness?.counts.operating_units === 0;
+  const reportedFarms = state.trackwick?.farms || [];
   return <section className="single-surface fields-stage">
-    <div className="surface-heading"><div><p className="eyebrow">{t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length)}</span></div>
-    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.operational_block_name || "Reviewed field"}</h3><p>{field.crop_name || "Crop not set"}{field.cultivar ? ` · ${field.cultivar}` : ""}</p><Link className="text-link" href={`/actions?field=${encodeURIComponent(field.id)}`}>View work <span aria-hidden="true">→</span></Link></article>)}</div> : <EmptyState title={waitingForFarm ? "Add one real field." : t.noData} detail={waitingForFarm ? "A village, public map, or purchase row is not enough. Confirm the operating unit and field pack first." : "Publish a reviewed farm record to make a field visible."} />}
+    <div className="surface-heading"><div><p className="eyebrow">{fields.length ? t.fieldMap : reportedFarms.length ? "Reported farm context" : t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : reportedFarms.length ? "Reported farms, ready for review" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length || reportedFarms.length)}</span></div>
+    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.operational_block_name || "Reviewed field"}</h3><p>{field.crop_name || "Crop not set"}{field.cultivar ? ` · ${field.cultivar}` : ""}</p><Link className="text-link" href={`/actions?field=${encodeURIComponent(field.id)}`}>View work <span aria-hidden="true">→</span></Link></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
     {state.session?.authenticated && verifiedFeatures.length ? <ReviewedGeometry features={verifiedFeatures} /> : null}
   </section>;
+}
+
+function ReportedFarmCandidates({ farms }: { farms: TrackwickFarm[] }) {
+  return <><p className="surface-copy">These are TrackWick-reported farms, not AGRO CEO fields or boundaries.</p><div className="field-card-grid">{farms.slice(0, 6).map((farm) => <article className="field-card" key={farm.id}><span className="status-chip">reported</span><h3>{farm.place}</h3><p>{farm.farmer_name} · {farm.reported_area_acres ? `${farm.reported_area_acres} acres` : "area not reported"}</p><p className="card-detail">{farm.reported_plot_count ? `${farm.reported_plot_count} reported plots · ` : ""}{farm.open_work} open source work</p><a className="text-link" href="/manager">Review source <span aria-hidden="true">→</span></a></article>)}</div></>;
 }
 
 function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<string, unknown> }> }) {
@@ -340,17 +416,28 @@ function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<
   return <div className="geometry-list"><p>{features.length} reviewed feature{features.length === 1 ? "" : "s"} are available to the manager map.</p>{features.slice(0, 8).map((feature, index) => <span key={`${String(feature.properties?.plot_label || "field")}-${index}`}>{String(feature.properties?.plot_label || "Reviewed field")}</span>)}</div>;
 }
 
-function FarmersView({ farmers, team, readiness }: { farmers: Runtime["people"]; team: Runtime["people"]; readiness: PilotReadiness | null }) {
+function FarmersView({ farmers, team, readiness, trackwick }: { farmers: Runtime["people"]; team: Runtime["people"]; readiness: PilotReadiness | null; trackwick: TrackwickBoard | null }) {
   const people = [...farmers, ...team];
+  const sourceFarmers = trackwick?.farmers || [];
+  const sourceWorkers = trackwick?.field_workers || [];
   return <section className="single-surface people-stage">
-    <div className="surface-heading"><div><p className="eyebrow">Reviewed people</p><h2>People on this operating record</h2></div><span className="count-badge">{count(people.length)}</span></div>
-    {people.length ? <div className="people-list">{people.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>{roleName(person.role)}</p></div></article>)}</div> : <p className="empty-copy">{readiness?.counts.people ? "A team record exists, but it is not attached to an operating farm yet." : "People appear here only after a reviewed relationship is recorded."}</p>}
+    <div className="surface-heading"><div><p className="eyebrow">{people.length ? "Reviewed people" : sourceFarmers.length || sourceWorkers.length ? "Reported field network" : "Reviewed people"}</p><h2>{people.length ? "People on this operating record" : sourceFarmers.length || sourceWorkers.length ? "People reported by TrackWick" : "People on this operating record"}</h2></div><span className="count-badge">{count(people.length || sourceFarmers.length + sourceWorkers.length)}</span></div>
+    {people.length ? <div className="people-list">{people.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>{roleName(person.role)}</p></div></article>)}</div> : sourceFarmers.length || sourceWorkers.length ? <ReportedPeople farmers={sourceFarmers} workers={sourceWorkers} /> : <p className="empty-copy">{readiness?.counts.people ? "A team record exists, but it is not attached to an operating farm yet." : "People appear here only after a reviewed relationship is recorded."}</p>}
   </section>;
 }
 
-function ActionsView({ t, portfolio }: { t: Translation; portfolio: Portfolio | null }) {
+function ReportedPeople({ farmers, workers }: { farmers: TrackwickFarmer[]; workers: TrackwickWorker[] }) {
+  return <><p className="surface-copy">Reported source people are not sign-ins or reviewed field relationships.</p><div className="people-list">{farmers.slice(0, 4).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div></article>)}{workers.slice(0, 3).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div><h3>{person.name}</h3><p>Field worker · {person.open_work} open · {person.completed_work} completed source work</p></div></article>)}</div><a className="text-link" href="/manager">Review the source network <span aria-hidden="true">→</span></a></>;
+}
+
+function ActionsView({ t, portfolio, trackwick }: { t: Translation; portfolio: Portfolio | null; trackwick: TrackwickBoard | null }) {
   const actions = portfolio?.risk_action_ledger.items || [];
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Decision queue</p><h2>Open actions</h2></div><span className="count-badge">{count(portfolio?.risk_action_ledger.total_count)}</span></div><ActionRows items={actions} empty={t.noActions} /></section>;
+  const sourceWork = trackwick?.inbox || [];
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}</section>;
+}
+
+function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
+  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.task_type}</h3><p>{[item.farmer_name, item.field_worker_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
 }
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
@@ -362,14 +449,18 @@ function SettingsView({ t, state, managerBusy, logout }: {
   t: Translation; state: State; managerBusy: boolean; logout: () => Promise<void>;
 }) {
   const session = state.session;
-  const communications = state.communications;
+  const history = state.procurementHistory?.summary;
+  const trackwick = state.trackwick;
+  const trackwickStatus = trackwick?.source.state === "succeeded"
+    ? `Last synced ${dateTime(trackwick.source.last_synced_at)}.`
+    : "Not connected yet. No TrackWick data is being shown.";
   return <section className="single-surface settings-stage">
     <div className="surface-heading"><div><p className="eyebrow">Private setup</p><h2>Access and connections</h2></div></div>
     <p className="surface-copy">{state.profile?.display_name || "Fortune Farms"} stays private until a named person is given the exact access they need.</p>
     <div className="settings-rows">
       <div><strong>People</strong><span>{session?.authenticated ? "Manage named ID access below." : "Use your admin ID to manage access."}</span></div>
-      <div><strong>Data</strong><span>{state.readiness ? `${state.readiness.progress.completed} of ${state.readiness.progress.total} first records are confirmed.` : "Not available."}</span></div>
-      <div><strong>Messaging</strong><span>{communications?.status === "ready" ? "Ready for reviewed requests." : "Paused until the dedicated WhatsApp gate is complete."}</span></div>
+      <div><strong>Purchase history</strong><span>{history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages, ${history.coverage.months.join(" · ")}. Historical context only.` : "No reviewed purchase history yet."}</span></div>
+      <div><strong>Field context</strong><span>{trackwickStatus}</span></div>
     </div>
     {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
   </section>;

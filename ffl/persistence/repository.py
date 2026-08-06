@@ -1916,6 +1916,43 @@ def create_import_row(
     return get_import_row(conn, identifier)  # type: ignore[return-value]
 
 
+def create_import_rows(
+    conn: sqlite3.Connection, import_batch_id: str, rows: Sequence[Mapping[str, Any]], *, commit: bool = True,
+) -> int:
+    """Insert prepared import rows in one database operation.
+
+    A historical import can contain hundreds or thousands of already-sanitised
+    cohorts.  Fetching each inserted row back inside the enclosing transaction
+    is useful for an interactive one-row form but makes a private Postgres
+    import needlessly slow and can hold a transaction-pooler lease open.  This
+    narrow helper accepts only the mapped row envelope the import services
+    already own; callers still perform their own lifecycle transaction.
+    """
+    values = []
+    for row in rows:
+        identifier, created_at = _new_identity()
+        values.append((
+            identifier,
+            import_batch_id,
+            row["row_number"],
+            _json_value(row["raw"]),
+            _json_value(row["mapped"]),
+            row.get("status", "pending"),
+            _json_value(row.get("validation_errors", [])),
+            row.get("target_entity_type"),
+            row.get("target_entity_id"),
+            row.get("published_record_id"),
+            created_at,
+        ))
+    if values:
+        conn.executemany(
+            "INSERT INTO import_rows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values,
+        )
+    if commit:
+        conn.commit()
+    return len(values)
+
+
 def get_import_row(conn: sqlite3.Connection, import_row_id: str) -> Optional[ImportRow]:
     row = conn.execute("SELECT * FROM import_rows WHERE id = ?", (import_row_id,)).fetchone()
     return _import_row(row) if row is not None else None
