@@ -573,37 +573,47 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
 def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
-    assert 'readJson<FarmProfile>("/api/v1/farm-profiles/" + id)' in source
-    assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' in source
+    assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
+    assert 'readJson<FieldRecord>("/api/v1/fields/" + id)' in source
+    assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
     assert "WhatsApp updates" in source
     assert "Coming soon" in source
     assert "disabled-connection" in source
     assert "canOpenProfiles={Boolean(state.session?.authenticated)}" in source
     assert 'className="profile-locked" href="/manager">Manager access required' in source
-    assert "new Map<string, ReviewedFarmCard>()" in source
-    assert "allocation.operational_block_id" in source
-    assert "peopleById.get(personId)" in source
-    assert "isFarmer(person.role) &&" not in source
-    assert "profileOpener.current = openerId" in source
+    assert "directoryOpener.current = openerId" in source
     assert "document.getElementById(openerId)?.focus()" in source
     assert '<div className="disabled-connection" aria-disabled="true">' in source
 
 
-def test_command_centre_renders_profile_context_without_field_worker_surface():
+def test_command_centre_uses_farm_first_entity_profiles():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert 'readJson<FarmDirectory>("/api/v1/farms?" + params)' in source
+    assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
+    assert 'readJson<FieldRecord>("/api/v1/fields/" + id)' in source
+    assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
+    for heading in ("Now", "People", "Updates", "Context"):
+        assert f">{heading}<" in source
+
+
+def test_command_centre_renders_safe_entity_context_and_reported_disease_event():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
     assert "Latest activity" in source
     assert "Photo references" in source
     assert "Linked farms" in source
-    assert "Field record" in source
+    assert "Crop seasons" in source
+    assert "Assignments" in source
     assert "item.field_worker_name" not in source
     assert 'readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board")' in source
     assert '"/api/v1/trackwick/board"' not in source
     assert "reviewed_farms" in source
-    assert 'href="/actions">Open actions' in source
     assert 'session: { authenticated: false }' in source
     assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
-    assert 'selection={profileSelection?.kind === "farm" ? profileSelection : null}' in source
+    assert "Reported event with ${severity} declared severity. This is not a diagnosis." in source
+    assert "PersonContextPanel" in source
+    assert "FieldRecordPanel" in source
     assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
 
 

@@ -65,7 +65,6 @@ type Runtime = {
 type DataLane = { key?: string; label?: string; status?: string; detail?: string; next_step?: string };
 type DataLanes = { lanes?: DataLane[] };
 type ManagerSession = { authenticated: boolean; expires_at?: string; auth_method?: string };
-type FeatureCollection = { features?: Array<{ properties?: Record<string, unknown> }> };
 type PilotStage = { key: string; title: string; status: "ready" | "not_started"; next_action: string };
 type PilotReadiness = {
   overall: "not_started" | "in_setup" | "ready_for_field_loop";
@@ -116,12 +115,6 @@ type TrackwickBoard = {
   farmers: TrackwickFarmer[];
   inbox: TrackwickWork[];
 };
-type ReviewedFarmCard = {
-  id: string;
-  name: string;
-  status: string;
-  crops: string[];
-};
 type ReviewedFarmerCard = {
   id: string;
   name: string;
@@ -143,29 +136,117 @@ type PasswordIdentitySummary = {
   identity_status: "active" | "suspended";
 };
 
-type FarmProfile = {
-  state: "reviewed" | "reported";
+type FarmDirectoryItem = {
+  state: "reviewed";
   kind: "farm";
   id: string;
   name: string;
-  current?: { crop_name: string; cultivar?: string | null } | null;
-  people?: Array<{ id: string; name: string; role: string; starts_on: string }>;
-  work?: Array<{ id: string; title: string; due_at?: string | null; status: string }>;
-  open_work_count?: number;
-  location?: { state: string };
-  record?: { latest_observed_at?: string | null; limitation: string };
-  reported?: {
-    farmer_name?: string;
-    place?: string;
-    registration_status?: string | null;
-    reported_area_acres?: number | null;
-    reported_plot_count?: number | null;
-    open_work?: number;
-    latest_activity_at?: string | null;
-    plot_photo_references?: number;
-    crop_photo_references?: number;
+  field_count: number;
+  crops: string[];
+  open_work_count: number;
+  latest_update_at?: string | null;
+};
+
+type FarmDirectory = FarmDirectoryItem[];
+type PersonKind = "farmer" | "field_worker";
+type EntityPerson = {
+  id: string;
+  name: string;
+  kind: PersonKind;
+  role: string;
+  starts_on: string;
+  field_id: string;
+  field_name: string;
+};
+type EntityUpdate = {
+  id: string;
+  occurred_at: string;
+  kind: string;
+  state: "reviewed" | "reported";
+  field_id: string;
+  field_name: string;
+  summary: string;
+  status?: string;
+  actor?: string | null;
+  finding_kind?: string;
+  declared_severity?: string;
+};
+type FarmRecord = {
+  state: "reviewed";
+  kind: "farm";
+  id: string;
+  name: string;
+  now: {
+    fields: Array<{ id: string; name: string }>;
+    active_allocations: Array<{
+      id: string;
+      crop_name: string;
+      cultivar?: string | null;
+      season_id: string;
+      season_name: string;
+    }>;
+    open_work_count: number;
+    latest_update_at?: string | null;
   };
-  limitations?: string[];
+  people: EntityPerson[];
+  updates: EntityUpdate[];
+  context: { state: string; message: string };
+  limitations: string[];
+};
+type FieldRecord = {
+  state: "reviewed";
+  kind: "field";
+  id: string;
+  name: string;
+  area_hectares?: number | null;
+  farm?: { id: string; name: string } | null;
+  geometry: { state: string };
+  allocations: Array<{
+    id: string;
+    season_id: string;
+    season_name: string;
+    crop_name: string;
+    cultivar?: string | null;
+    area_hectares?: number | null;
+    status: string;
+    starts_on: string;
+    ends_on: string;
+  }>;
+  people: EntityPerson[];
+  updates: EntityUpdate[];
+  limitations: string[];
+};
+type PersonContext = {
+  state: "reviewed";
+  kind: PersonKind;
+  id: string;
+  name: string;
+  assignments: Array<{
+    farm_id: string;
+    farm_name: string;
+    field_id: string;
+    field_name: string;
+    role: string;
+    starts_on: string;
+  }>;
+  context: { state: string; message: string };
+  limitations: string[];
+};
+type ContextRecord = FarmRecord | FieldRecord | PersonContext;
+type ContextHistoryItem = { record: ContextRecord; openerId: string };
+type ContextPanel = {
+  kind: ContextRecord["kind"];
+  loading: boolean;
+  error: string | null;
+  record: ContextRecord | null;
+  history: ContextHistoryItem[];
+  reauth?: boolean;
+};
+type DirectoryFilters = {
+  state: "all" | "reviewed" | "reported";
+  query: string;
+  dateFrom: string;
+  dateTo: string;
 };
 
 type FarmerProfile = {
@@ -192,10 +273,10 @@ type FarmerProfile = {
 };
 
 type ProfileSelection = {
-  kind: FarmProfile["kind"] | FarmerProfile["kind"];
+  kind: FarmerProfile["kind"];
   loading: boolean;
   error: string | null;
-  profile: FarmProfile | FarmerProfile | null;
+  profile: FarmerProfile | null;
   reauth?: boolean;
 };
 
@@ -205,7 +286,6 @@ type State = {
   runtime: Runtime | null;
   lanes: DataLanes | null;
   session: ManagerSession | null;
-  map: FeatureCollection | null;
   readiness: PilotReadiness | null;
   trackwick: TrackwickBoard | null;
   procurementHistory: ProcurementHistory | null;
@@ -220,7 +300,6 @@ const EMPTY_STATE: State = {
   runtime: null,
   lanes: null,
   session: null,
-  map: null,
   readiness: null,
   trackwick: null,
   procurementHistory: null,
@@ -303,30 +382,6 @@ function isFarmer(role: string) {
   return /farmer|grower/i.test(role);
 }
 
-function reviewedFarmsFromRuntime(runtime: Runtime | null) {
-  const farms = new Map<string, ReviewedFarmCard>();
-  for (const farm of runtime?.reviewed_farms || []) {
-    farms.set(farm.id, { id: farm.id, name: farm.name, status: "reviewed", crops: [] });
-  }
-  for (const allocation of runtime?.allocations || []) {
-    const id = allocation.operational_block_id;
-    if (!id) continue;
-    const crop = `${allocation.crop_name || "Crop not set"}${allocation.cultivar ? ` · ${allocation.cultivar}` : ""}`;
-    const existing = farms.get(id);
-    if (existing) {
-      if (!existing.crops.includes(crop)) existing.crops.push(crop);
-      continue;
-    }
-    farms.set(id, {
-      id,
-      name: allocation.operational_block_name || "Reviewed farm",
-      status: "reviewed",
-      crops: [crop],
-    });
-  }
-  return Array.from(farms.values());
-}
-
 export function CommandCentre({ view }: { view: View }) {
   const [language, setLanguage] = useState<Language>("en");
   const [state, setState] = useState<State>(EMPTY_STATE);
@@ -369,7 +424,6 @@ export function CommandCentre({ view }: { view: View }) {
       readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
       trackwick,
       procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : null,
-      map: null,
       loading: false,
       needsLaunchLogin: false,
       error: rejected ? "Some current operating data could not be read. Nothing has been estimated." : null,
@@ -377,15 +431,6 @@ export function CommandCentre({ view }: { view: View }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-
-  useEffect(() => {
-    if (!state.session?.authenticated) return;
-    let active = true;
-    void readJson<FeatureCollection>("/api/v1/fortune-map")
-      .then(({ value }) => { if (active) setState((current) => ({ ...current, map: value })); })
-      .catch(() => { if (active) setState((current) => ({ ...current, map: null })); });
-    return () => { active = false; };
-  }, [state.session?.authenticated]);
 
   const farmers = useMemo(() => {
     const peopleById = new Map((state.runtime?.people || []).map((person) => [person.id, person]));
@@ -403,27 +448,6 @@ export function CommandCentre({ view }: { view: View }) {
     }
     return cards;
   }, [state.runtime]);
-
-  async function openFarmProfile(id: string, recordState: FarmProfile["state"], openerId: string) {
-    if (!state.session?.authenticated) return;
-    profileOpener.current = openerId;
-    const request = ++profileRequest.current;
-    setProfileSelection({ kind: "farm", loading: true, error: null, profile: null });
-    try {
-      const { value } = recordState === "reviewed"
-        ? await readJson<FarmProfile>("/api/v1/farm-profiles/" + id)
-        : await readJson<FarmProfile>("/api/v1/reported-farm-profiles/" + id);
-      if (request === profileRequest.current) {
-        setProfileSelection({ kind: "farm", loading: false, error: null, profile: value });
-      }
-    } catch (error) {
-      if (request === profileRequest.current) {
-        const reauth = profileReadError(error) === "Manager access expired.";
-        if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
-        setProfileSelection({ kind: "farm", loading: false, error: profileReadError(error), profile: null, reauth });
-      }
-    }
-  }
 
   async function openFarmerProfile(id: string, recordState: FarmerProfile["state"], openerId: string) {
     if (!state.session?.authenticated) return;
@@ -455,6 +479,10 @@ export function CommandCentre({ view }: { view: View }) {
       if (openerId) document.getElementById(openerId)?.focus();
     });
   }
+
+  const expireManagerSession = useCallback(() => {
+    setState((current) => ({ ...current, session: { authenticated: false } }));
+  }, []);
 
   async function endManagerSession() {
     setManagerBusy(true);
@@ -498,7 +526,7 @@ export function CommandCentre({ view }: { view: View }) {
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
-      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farm" ? profileSelection : null} openProfile={openFarmProfile} closeProfile={closeProfile} /> : null}
+      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
@@ -507,7 +535,11 @@ export function CommandCentre({ view }: { view: View }) {
 }
 
 function headingFor(view: View, t: Translation) {
-  return ({ home: "Today, in the field.", fields: t.reviewedFields, farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+  return ({ home: "Today, in the field.", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+}
+
+function languageFarmHeading(t: Translation) {
+  return t.farm === "Farm" ? "Farms" : t.farm;
 }
 
 function HomeView({ t, state }: { t: Translation; state: State }) {
@@ -552,37 +584,334 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   </section>;
 }
 
-function FieldsView({ t, state, canOpenProfiles, selection, openProfile, closeProfile }: {
+const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
+  state: "all",
+  query: "",
+  dateFrom: "",
+  dateTo: "",
+};
+
+function filtersFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const state = params.get("state");
+  return {
+    state: state === "reviewed" || state === "reported" ? state : "all",
+    query: params.get("query") || "",
+    dateFrom: params.get("date_from") || "",
+    dateTo: params.get("date_to") || "",
+  } satisfies DirectoryFilters;
+}
+
+function directoryParams(filters: DirectoryFilters) {
+  const params = new URLSearchParams();
+  params.set("kind", "farm");
+  if (filters.state !== "all") params.set("state", filters.state);
+  if (filters.query.trim()) params.set("query", filters.query.trim());
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+  return params;
+}
+
+function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   t: Translation;
   state: State;
   canOpenProfiles: boolean;
-  selection: ProfileSelection | null;
-  openProfile: (id: string, recordState: FarmProfile["state"], openerId: string) => Promise<void>;
-  closeProfile: () => void;
+  expireManagerSession: () => void;
 }) {
-  const fields = reviewedFarmsFromRuntime(state.runtime);
-  const verifiedFeatures = state.map?.features || [];
-  const waitingForFarm = state.readiness?.counts.operating_units === 0;
-  const reportedFarms = state.trackwick?.farms || [];
-  if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  return <section className="single-surface fields-stage">
-    <div className="surface-heading"><div><p className="eyebrow">{fields.length ? t.fieldMap : reportedFarms.length ? "Reported farm context" : t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : reportedFarms.length ? "Reported farms, ready for review" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length || reportedFarms.length)}</span></div>
-    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.name}</h3><p>{field.crops.join(" · ") || "No active crop recorded"}</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farm-${field.id}`} label={`Open ${field.name} profile`} text="Open profile" open={(openerId) => void openProfile(field.id, "reviewed", openerId)} /></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
-    {state.session?.authenticated && verifiedFeatures.length ? <ReviewedGeometry features={verifiedFeatures} /> : null}
+  const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
+  const [filtersReady, setFiltersReady] = useState(false);
+  const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null }>({
+    items: [], loading: false, error: null,
+  });
+  const [panel, setPanel] = useState<ContextPanel | null>(null);
+  const directoryRequest = useRef(0);
+  const panelRequest = useRef(0);
+  const directoryOpener = useRef<string | null>(null);
+
+  useEffect(() => {
+    function syncFromUrl() {
+      const next = filtersFromLocation();
+      setFilters(next);
+      setDraftFilters(next);
+      setFiltersReady(true);
+    }
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady || !canOpenProfiles) {
+      if (filtersReady) setDirectory({ items: [], loading: false, error: null });
+      return;
+    }
+    const request = ++directoryRequest.current;
+    const params = directoryParams(filters).toString();
+    setDirectory((current) => ({ ...current, loading: true, error: null }));
+    void readJson<FarmDirectory>("/api/v1/farms?" + params)
+      .then(({ value }) => {
+        if (request === directoryRequest.current) setDirectory({ items: value, loading: false, error: null });
+      })
+      .catch((error: unknown) => {
+        if (request !== directoryRequest.current) return;
+        const message = profileReadError(error);
+        if (message === "Manager access expired.") expireManagerSession();
+        setDirectory({ items: [], loading: false, error: message });
+      });
+  }, [canOpenProfiles, expireManagerSession, filters, filtersReady]);
+
+  useEffect(() => {
+    if (canOpenProfiles) return;
+    directoryRequest.current += 1;
+    panelRequest.current += 1;
+    setPanel(null);
+  }, [canOpenProfiles]);
+
+  function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = { ...draftFilters, query: draftFilters.query.trim() };
+    const params = directoryParams(next);
+    params.delete("kind");
+    const query = params.toString();
+    window.history.pushState({}, "", query ? `/fields?${query}` : "/fields");
+    setFilters(next);
+  }
+
+  function clearFilters() {
+    window.history.pushState({}, "", "/fields");
+    setDraftFilters(EMPTY_DIRECTORY_FILTERS);
+    setFilters(EMPTY_DIRECTORY_FILTERS);
+  }
+
+  function panelHistory(openerId: string, nested: boolean) {
+    if (!nested || !panel?.record) return [];
+    return [...panel.history, { record: panel.record, openerId }];
+  }
+
+  async function openFarm(id: string, openerId: string, nested = false) {
+    if (!canOpenProfiles) return;
+    if (!nested) directoryOpener.current = openerId;
+    const history = panelHistory(openerId, nested);
+    const request = ++panelRequest.current;
+    setPanel({ kind: "farm", loading: true, error: null, record: null, history });
+    try {
+      const { value } = await readJson<FarmRecord>("/api/v1/farms/" + id);
+      if (request === panelRequest.current) setPanel({ kind: "farm", loading: false, error: null, record: value, history });
+    } catch (error) {
+      finishPanelError(request, "farm", history, error);
+    }
+  }
+
+  async function openField(id: string, openerId: string) {
+    if (!canOpenProfiles) return;
+    const history = panelHistory(openerId, true);
+    const request = ++panelRequest.current;
+    setPanel({ kind: "field", loading: true, error: null, record: null, history });
+    try {
+      const { value } = await readJson<FieldRecord>("/api/v1/fields/" + id);
+      if (request === panelRequest.current) setPanel({ kind: "field", loading: false, error: null, record: value, history });
+    } catch (error) {
+      finishPanelError(request, "field", history, error);
+    }
+  }
+
+  async function openPerson(kind: PersonKind, id: string, openerId: string) {
+    if (!canOpenProfiles) return;
+    const history = panelHistory(openerId, true);
+    const request = ++panelRequest.current;
+    setPanel({ kind, loading: true, error: null, record: null, history });
+    try {
+      const { value } = await readJson<PersonContext>("/api/v1/people/" + kind + "/" + id);
+      if (request === panelRequest.current) setPanel({ kind, loading: false, error: null, record: value, history });
+    } catch (error) {
+      finishPanelError(request, kind, history, error);
+    }
+  }
+
+  function finishPanelError(
+    request: number,
+    kind: ContextPanel["kind"],
+    history: ContextHistoryItem[],
+    error: unknown,
+  ) {
+    if (request !== panelRequest.current) return;
+    const message = profileReadError(error);
+    const reauth = message === "Manager access expired.";
+    if (reauth) expireManagerSession();
+    setPanel({ kind, loading: false, error: message, record: null, history, reauth });
+  }
+
+  function closePanel() {
+    if (!panel) return;
+    panelRequest.current += 1;
+    const previous = panel.history.at(-1);
+    if (previous) {
+      setPanel({
+        kind: previous.record.kind,
+        loading: false,
+        error: null,
+        record: previous.record,
+        history: panel.history.slice(0, -1),
+      });
+      window.requestAnimationFrame(() => document.getElementById(previous.openerId)?.focus());
+      return;
+    }
+    const openerId = directoryOpener.current;
+    directoryOpener.current = null;
+    setPanel(null);
+    window.requestAnimationFrame(() => {
+      if (openerId) document.getElementById(openerId)?.focus();
+    });
+  }
+
+  if (panel) {
+    return <ContextProfilePanel
+      panel={panel}
+      close={closePanel}
+      openFarm={(id, openerId) => void openFarm(id, openerId, true)}
+      openField={(id, openerId) => void openField(id, openerId)}
+      openPerson={(kind, id, openerId) => void openPerson(kind, id, openerId)}
+    />;
+  }
+
+  return <section className="single-surface fields-stage farm-directory">
+    <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Farms</h2></div><span className="count-badge">{count(directory.items.length)}</span></div>
+    <form className="directory-filters" onSubmit={applyFilters}>
+      <label>State<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All states</option><option value="reviewed">Reviewed</option><option value="reported">Reported</option></select></label>
+      <label>Search<input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Farm name" /></label>
+      <label>From<input type="date" value={draftFilters.dateFrom} onChange={(event) => setDraftFilters((current) => ({ ...current, dateFrom: event.target.value }))} /></label>
+      <label>To<input type="date" value={draftFilters.dateTo} onChange={(event) => setDraftFilters((current) => ({ ...current, dateTo: event.target.value }))} /></label>
+      <div className="directory-filter-actions"><button className="quiet-button" type="submit" disabled={!canOpenProfiles || directory.loading}>Apply filters</button><button className="text-link" type="button" onClick={clearFilters}>Clear</button></div>
+    </form>
+    {!canOpenProfiles
+      ? <EmptyState title="Manager access required" detail="Unlock Farm Truth to read the reviewed Farm directory. Reported candidates remain outside this canonical record." />
+      : directory.loading
+        ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
+        : directory.error
+          ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
+          : directory.items.length
+            ? <div className="farm-card-grid">{directory.items.map((farm) => <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>
+            : <EmptyState title="No Farms match these filters." detail={t.noData + " Reported source candidates do not become Farms until they are reviewed."} />}
   </section>;
 }
 
-function ReportedFarmCandidates({ farms, canOpenProfiles, openProfile }: {
-  farms: TrackwickFarm[];
-  canOpenProfiles: boolean;
-  openProfile: (id: string, recordState: FarmProfile["state"], openerId: string) => Promise<void>;
+function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: {
+  panel: ContextPanel;
+  close: () => void;
+  openFarm: (id: string, openerId: string) => void;
+  openField: (id: string, openerId: string) => void;
+  openPerson: (kind: PersonKind, id: string, openerId: string) => void;
 }) {
-  return <><p className="surface-copy">These are TrackWick-reported farms, not AGRO CEO fields or boundaries.</p><div className="field-card-grid">{farms.slice(0, 6).map((farm) => <article className="field-card" key={farm.id}><span className="status-chip">reported</span><h3>{farm.place}</h3><p>{farm.farmer_name} · {farm.reported_area_acres ? `${farm.reported_area_acres} acres` : "area not reported"}</p><p className="card-detail">{farm.reported_plot_count ? `${farm.reported_plot_count} reported plots · ` : ""}{farm.open_work} open source work</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farm-${farm.id}`} label={`Open reported farm profile for ${farm.place}`} text="Open reported profile" open={(openerId) => void openProfile(farm.id, "reported", openerId)} /></article>)}</div></>;
+  const backTarget = panel.history.at(-1)?.record.name || "Farms";
+  const subject = panel.kind === "field_worker" ? "Field Worker" : roleName(panel.kind);
+  return <aside className="single-surface profile-panel entity-profile-panel" aria-label={`${subject} context`} aria-busy={panel.loading}>
+    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {backTarget}</button>
+    {panel.loading
+      ? <p className="profile-message" role="status">Reading this {subject} context…</p>
+      : panel.error
+        ? <p className="profile-message profile-error" role="alert">{panel.error} {panel.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>
+        : panel.record?.kind === "farm"
+          ? <FarmRecordPanel record={panel.record} openField={openField} openPerson={openPerson} />
+          : panel.record?.kind === "field"
+            ? <FieldRecordPanel record={panel.record} openFarm={openFarm} openPerson={openPerson} />
+            : panel.record
+              ? <PersonContextPanel record={panel.record} openFarm={openFarm} openField={openField} />
+              : null}
+  </aside>;
 }
 
-function ReviewedGeometry({ features }: { features: Array<{ properties?: Record<string, unknown> }> }) {
-  if (!features.length) return <div className="map-empty"><strong>No reviewed field geometry yet.</strong><p>AGRO CEO will not draw an inferred boundary or put a programme location on this map.</p></div>;
-  return <div className="geometry-list"><p>{features.length} reviewed feature{features.length === 1 ? "" : "s"} are available to the manager map.</p>{features.slice(0, 8).map((feature, index) => <span key={`${String(feature.properties?.plot_label || "field")}-${index}`}>{String(feature.properties?.plot_label || "Reviewed field")}</span>)}</div>;
+function FarmRecordPanel({ record, openField, openPerson }: {
+  record: FarmRecord;
+  openField: (id: string, openerId: string) => void;
+  openPerson: (kind: PersonKind, id: string, openerId: string) => void;
+}) {
+  return <div className="entity-profile-content">
+    <p className="eyebrow">Reviewed Farm</p>
+    <h2>{record.name}</h2>
+    <div className="farm-profile-sections">
+      <section>
+        <h3>Now</h3>
+        <div className="profile-summary-line"><span>{count(record.now.open_work_count)} open work</span><span>Latest update {dateTime(record.now.latest_update_at)}</span></div>
+        <div className="entity-chip-list" aria-label="Fields">
+          {record.now.fields.length ? record.now.fields.map((field) => <button id={`farm-field-${record.id}-${field.id}`} className="entity-chip entity-chip-link" type="button" key={field.id} onClick={(event) => openField(field.id, event.currentTarget.id)}>{field.name} <span aria-hidden="true">→</span></button>) : <span className="empty-copy">No reviewed Fields</span>}
+        </div>
+      </section>
+      <section>
+        <h3>People</h3>
+        {record.people.length ? <ul className="entity-link-list">{record.people.map((person, index) => <li key={`${person.id}-${person.field_id}-${person.role}`}><button id={`farm-person-${record.id}-${person.id}-${index}`} className="context-link" type="button" onClick={(event) => openPerson(person.kind, person.id, event.currentTarget.id)}><strong>{person.name}</strong><span>{roleName(person.role)} · {person.field_name}</span></button></li>)}</ul> : <p className="empty-copy">No reviewed Farmer or Field Worker relationship is attached.</p>}
+      </section>
+      <section>
+        <h3>Updates</h3>
+        <EntityUpdates updates={record.updates} />
+      </section>
+      <section>
+        <h3>Context</h3>
+        <p className="profile-context">{record.context.message}</p>
+        {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
+      </section>
+    </div>
+  </div>;
+}
+
+function FieldRecordPanel({ record, openFarm, openPerson }: {
+  record: FieldRecord;
+  openFarm: (id: string, openerId: string) => void;
+  openPerson: (kind: PersonKind, id: string, openerId: string) => void;
+}) {
+  return <div className="entity-profile-content field-context">
+    <p className="eyebrow">Reviewed Field</p>
+    <h2>{record.name}</h2>
+    <div className="profile-summary-line"><span>{record.area_hectares == null ? "Area not recorded" : `${record.area_hectares} hectares`}</span><span>Geometry {roleName(record.geometry.state)}</span></div>
+    {record.farm ? <button id={`field-farm-${record.id}-${record.farm.id}`} className="context-link context-parent-link" type="button" onClick={(event) => openFarm(record.farm!.id, event.currentTarget.id)}><strong>{record.farm.name}</strong><span>Open Farm <span aria-hidden="true">→</span></span></button> : <p className="empty-copy">This Field is not attached to an active reviewed Farm.</p>}
+    <section className="field-crop-seasons">
+      <h3>Crop seasons</h3>
+      {record.allocations.length ? <div className="entity-chip-list">{record.allocations.map((allocation) => <span className="entity-chip crop-season-chip" key={allocation.id}><strong>{allocation.crop_name}{allocation.cultivar ? ` · ${allocation.cultivar}` : ""}</strong>{allocation.season_name} · {allocation.starts_on} to {allocation.ends_on} · {roleName(allocation.status)}</span>)}</div> : <p className="empty-copy">No crop season is recorded for this Field.</p>}
+    </section>
+    <section>
+      <h3>People</h3>
+      {record.people.length ? <ul className="entity-link-list">{record.people.map((person, index) => <li key={`${person.id}-${person.role}-${index}`}><button id={`field-person-${record.id}-${person.id}-${index}`} className="context-link" type="button" onClick={(event) => openPerson(person.kind, person.id, event.currentTarget.id)}><strong>{person.name}</strong><span>{roleName(person.role)}</span></button></li>)}</ul> : <p className="empty-copy">No reviewed people are attached to this Field.</p>}
+    </section>
+    <section>
+      <h3>Updates</h3>
+      <EntityUpdates updates={record.updates} />
+    </section>
+    {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
+  </div>;
+}
+
+function PersonContextPanel({ record, openFarm, openField }: {
+  record: PersonContext;
+  openFarm: (id: string, openerId: string) => void;
+  openField: (id: string, openerId: string) => void;
+}) {
+  return <div className="entity-profile-content person-context">
+    <p className="eyebrow">Reviewed {record.kind === "farmer" ? "Farmer" : "Field Worker"}</p>
+    <h2>{record.name}</h2>
+    <section>
+      <h3>Assignments</h3>
+      <ul className="assignment-list">{record.assignments.map((assignment, index) => <li key={`${assignment.farm_id}-${assignment.field_id}-${assignment.role}`}><div><strong>{roleName(assignment.role)}</strong><span>Since {assignment.starts_on}</span></div><div className="assignment-links"><button id={`person-farm-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openFarm(assignment.farm_id, event.currentTarget.id)}>{assignment.farm_name}</button><button id={`person-field-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openField(assignment.field_id, event.currentTarget.id)}>{assignment.field_name}</button></div></li>)}</ul>
+    </section>
+    <section>
+      <h3>Context</h3>
+      <p className="profile-context">{record.context.message}</p>
+      {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
+    </section>
+  </div>;
+}
+
+function EntityUpdates({ updates }: { updates: EntityUpdate[] }) {
+  if (!updates.length) return <p className="empty-copy">No updates in this record.</p>;
+  return <ol className="entity-update-list">{updates.map((update) => {
+    const disease = update.finding_kind === "disease";
+    const severity = update.declared_severity || "not declared";
+    return <li className={disease ? "disease-update" : undefined} key={`${update.kind}-${update.id}`}>
+      <div><span className={`status-chip ${update.state}`}>{update.state}</span>{disease ? <span className={`severity ${severity}`}>{severity} severity</span> : null}</div>
+      <strong>{disease ? "Disease reported" : update.summary}</strong>
+      <time dateTime={update.occurred_at}>{dateTime(update.occurred_at)}</time>
+      <p>{disease ? `Reported event with ${severity} declared severity. This is not a diagnosis.` : [update.field_name, update.actor, update.status ? roleName(update.status) : null].filter(Boolean).join(" · ")}</p>
+    </li>;
+  })}</ol>;
 }
 
 function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection, openProfile, closeProfile }: {
@@ -623,64 +952,28 @@ function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
 
 function ProfileReading({ selection, close }: { selection: ProfileSelection; close: () => void }) {
   if (selection.profile) return <ProfilePanel profile={selection.profile} close={close} />;
-  const subject = selection.kind === "farm" ? "farm" : "farmer";
-  return <aside className="single-surface profile-panel" aria-label={`${subject} profile`} aria-busy={selection.loading}>
-    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {selection.kind === "farm" ? "fields" : "farmers"}</button>
+  return <aside className="single-surface profile-panel" aria-label="farmer profile" aria-busy={selection.loading}>
+    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to farmers</button>
     {selection.loading
-      ? <p className="profile-message" role="status">Reading this {subject} profile…</p>
+      ? <p className="profile-message" role="status">Reading this farmer profile…</p>
       : <p className="profile-message profile-error" role="alert">{selection.error} {selection.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>}
   </aside>;
 }
 
-function ProfilePanel({ profile, close }: { profile: FarmProfile | FarmerProfile; close: () => void }) {
+function ProfilePanel({ profile, close }: { profile: FarmerProfile; close: () => void }) {
   const reported = profile.state === "reported";
   return <aside className="single-surface profile-panel" aria-label={`${profile.name} profile`}>
-    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {profile.kind === "farm" ? "fields" : "farmers"}</button>
-    <p className="eyebrow">{reported ? "Reported context" : profile.kind === "farm" ? "Reviewed farm record" : "Reviewed grower relationship"}</p>
+    <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to farmers</button>
+    <p className="eyebrow">{reported ? "Reported context" : "Reviewed grower relationship"}</p>
     <h2>{profile.name}</h2>
-    <p className="profile-context">{profile.limitations?.[0] || (profile.kind === "farm" ? "This farm record has been reviewed for the current operating record." : "Only reviewed operating relationships are shown here.")}</p>
-    {profile.kind === "farm" ? <FarmProfileFacts profile={profile} /> : <FarmerProfileFacts profile={profile} />}
+    <p className="profile-context">{profile.limitations?.[0] || "Only reviewed operating relationships are shown here."}</p>
+    <FarmerProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
         ? <a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a>
-        : profile.kind === "farm"
-          ? <Link className="primary-action" href="/actions">Open actions <span aria-hidden="true">→</span></Link>
-          : <a className="primary-action" href="/manager">Open in Farm Truth <span aria-hidden="true">→</span></a>}
+        : <a className="primary-action" href="/manager">Open in Farm Truth <span aria-hidden="true">→</span></a>}
     </div>
   </aside>;
-}
-
-function FarmProfileFacts({ profile }: { profile: FarmProfile }) {
-  if (profile.state === "reported") {
-    const photoReferences = (profile.reported?.plot_photo_references || 0)
-      + (profile.reported?.crop_photo_references || 0);
-    return <dl className="profile-facts">
-      <div><dt>Reported farmer</dt><dd>{profile.reported?.farmer_name || "Not reported"}</dd></div>
-      <div><dt>Reported area</dt><dd>{profile.reported?.reported_area_acres == null ? "Not reported" : `${profile.reported.reported_area_acres} acres`}</dd></div>
-      <div><dt>Reported plots</dt><dd>{profile.reported?.reported_plot_count == null ? "Not reported" : count(profile.reported.reported_plot_count)}</dd></div>
-      <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
-      <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
-      <div><dt>Photo references</dt><dd>{count(photoReferences)}</dd></div>
-    </dl>;
-  }
-  const crop = profile.current
-    ? `${profile.current.crop_name}${profile.current.cultivar ? ` · ${profile.current.cultivar}` : ""}`
-    : "No active crop recorded";
-  return <div className="profile-groups">
-    <dl className="profile-facts">
-      <div><dt>Current crop</dt><dd>{crop}</dd></div>
-      <div><dt>Reviewed growers</dt><dd>{profile.people?.length ? profile.people.map((person) => `${person.name} · ${roleName(person.role)}`).join(", ") : "None recorded"}</dd></div>
-      <div><dt>Open work</dt><dd>{count(profile.open_work_count)}</dd></div>
-      <div><dt>Field map</dt><dd>{profile.location?.state === "not_published" ? "Not published" : profile.location?.state === "published" ? "Published" : "Not available"}</dd></div>
-    </dl>
-    <section className="profile-record">
-      <h3>Field record</h3>
-      <dl className="profile-facts">
-        <div><dt>Latest observation</dt><dd>{dateTime(profile.record?.latest_observed_at)}</dd></div>
-        <div><dt>Limitation</dt><dd>{profile.record?.limitation || "No field-record limitation is available."}</dd></div>
-      </dl>
-    </section>
-  </div>;
 }
 
 function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
