@@ -99,6 +99,80 @@ def test_reported_farmer_profile_is_safe_context_not_a_login(ffl_db, populated_t
     assert "remote_url" not in serialized
 
 
+def test_reviewed_farmer_profile_lists_linked_farm_crop_and_open_work(
+    ffl_db, users, crop_allocation
+):
+    grower = repository.create_person(ffl_db, "Asha Grower", "operations_lead")
+    repository.create_person_operating_relationship(
+        ffl_db,
+        grower.id,
+        "crop_allocation",
+        crop_allocation.id,
+        "grower",
+        "2026-06-01",
+        provenance="reviewed",
+        reviewed_by_person_id=users.manager.id,
+    )
+
+    profile = farm_profiles.farmer_profile(ffl_db, grower.id)
+
+    assert profile["relationships"] == [{
+        "scope_type": "crop_allocation",
+        "scope_name": "North Block",
+        "role": "grower",
+        "starts_on": "2026-06-01",
+    }]
+    assert profile["farms"] == [{
+        "id": crop_allocation.operational_block_id,
+        "name": "North Block",
+        "current": {"crop_name": "Rice", "cultivar": "Pusa 1121"},
+        "open_work_count": 0,
+    }]
+
+
+def test_reviewed_farm_profile_context_uses_only_non_draft_signal_timestamp(
+    ffl_db, users, crop_allocation
+):
+    template = repository.create_signal_template(
+        ffl_db,
+        "Profile observation",
+        1,
+        "published",
+        "[]",
+        users.lead.id,
+        "2026-08-01T00:00:00+00:00",
+    )
+    repository.create_field_signal(
+        ffl_db,
+        crop_allocation.id,
+        template.id,
+        1,
+        "2026-08-03T09:15:00+00:00",
+        users.operator.id,
+        {"private_detail": "canonical payload stays private"},
+        status="submitted",
+    )
+    repository.create_field_signal(
+        ffl_db,
+        crop_allocation.id,
+        template.id,
+        1,
+        "2026-08-04T10:30:00+00:00",
+        users.operator.id,
+        {"private_detail": "draft payload stays private"},
+        status="draft",
+    )
+
+    profile = farm_profiles.farm_profile(ffl_db, crop_allocation.operational_block_id)
+
+    assert profile["record"] == {
+        "latest_observed_at": "2026-08-03T09:15:00+00:00",
+        "limitation": "Latest activity reflects canonical non-draft field signals only.",
+    }
+    assert "private_detail" not in repr(profile)
+    assert "canonical payload" not in repr(profile)
+
+
 def test_profile_routes_require_manager_and_distinguish_absence(tmp_path):
     app = create_app(str(tmp_path / "profiles.db"), manager_api_token="manager-secret")
     with TestClient(app) as client:
@@ -131,3 +205,13 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert "profileOpener.current = openerId" in source
     assert "document.getElementById(openerId)?.focus()" in source
     assert '<div className="disabled-connection" aria-disabled="true">' in source
+
+
+def test_command_centre_renders_profile_context_without_field_worker_surface():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "Latest activity" in source
+    assert "Photo references" in source
+    assert "Linked farms" in source
+    assert "Field record" in source
+    assert "item.field_worker_name" not in source

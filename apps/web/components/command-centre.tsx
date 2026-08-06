@@ -163,6 +163,7 @@ type FarmProfile = {
   people?: Array<{ id: string; name: string; role: string; starts_on: string }>;
   work?: Array<{ id: string; title: string; due_at?: string | null; status: string }>;
   location?: { state: string };
+  record?: { latest_observed_at?: string | null; limitation: string };
   reported?: {
     farmer_name?: string;
     place?: string;
@@ -182,7 +183,13 @@ type FarmerProfile = {
   kind: "farmer";
   id: string;
   name: string;
-  relationships?: Array<{ scope_type: string; role: string; starts_on: string }>;
+  relationships?: Array<{ scope_type: string; scope_name: string; role: string; starts_on: string }>;
+  farms?: Array<{
+    id: string;
+    name: string;
+    current?: { crop_name: string; cultivar?: string | null } | null;
+    open_work_count: number;
+  }>;
   reported?: {
     farm_candidates?: number;
     reported_area_acres?: number | null;
@@ -644,22 +651,35 @@ function ProfilePanel({ profile, close }: { profile: FarmProfile | FarmerProfile
 
 function FarmProfileFacts({ profile }: { profile: FarmProfile }) {
   if (profile.state === "reported") {
+    const photoReferences = (profile.reported?.plot_photo_references || 0)
+      + (profile.reported?.crop_photo_references || 0);
     return <dl className="profile-facts">
       <div><dt>Reported farmer</dt><dd>{profile.reported?.farmer_name || "Not reported"}</dd></div>
       <div><dt>Reported area</dt><dd>{profile.reported?.reported_area_acres == null ? "Not reported" : `${profile.reported.reported_area_acres} acres`}</dd></div>
       <div><dt>Reported plots</dt><dd>{profile.reported?.reported_plot_count == null ? "Not reported" : count(profile.reported.reported_plot_count)}</dd></div>
       <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
+      <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
+      <div><dt>Photo references</dt><dd>{count(photoReferences)}</dd></div>
     </dl>;
   }
   const crop = profile.current
     ? `${profile.current.crop_name}${profile.current.cultivar ? ` · ${profile.current.cultivar}` : ""}`
     : "No active crop recorded";
-  return <dl className="profile-facts">
-    <div><dt>Current crop</dt><dd>{crop}</dd></div>
-    <div><dt>Reviewed growers</dt><dd>{profile.people?.length ? profile.people.map((person) => `${person.name} · ${roleName(person.role)}`).join(", ") : "None recorded"}</dd></div>
-    <div><dt>Open work</dt><dd>{count(profile.work?.filter((item) => item.status !== "completed").length)}</dd></div>
-    <div><dt>Field map</dt><dd>{profile.location?.state === "not_published" ? "Not published" : profile.location?.state === "published" ? "Published" : "Not available"}</dd></div>
-  </dl>;
+  return <div className="profile-groups">
+    <dl className="profile-facts">
+      <div><dt>Current crop</dt><dd>{crop}</dd></div>
+      <div><dt>Reviewed growers</dt><dd>{profile.people?.length ? profile.people.map((person) => `${person.name} · ${roleName(person.role)}`).join(", ") : "None recorded"}</dd></div>
+      <div><dt>Open work</dt><dd>{count(profile.work?.filter((item) => item.status !== "completed").length)}</dd></div>
+      <div><dt>Field map</dt><dd>{profile.location?.state === "not_published" ? "Not published" : profile.location?.state === "published" ? "Published" : "Not available"}</dd></div>
+    </dl>
+    <section className="profile-record">
+      <h3>Field record</h3>
+      <dl className="profile-facts">
+        <div><dt>Latest observation</dt><dd>{dateTime(profile.record?.latest_observed_at)}</dd></div>
+        <div><dt>Limitation</dt><dd>{profile.record?.limitation || "No field-record limitation is available."}</dd></div>
+      </dl>
+    </section>
+  </div>;
 }
 
 function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
@@ -668,14 +688,29 @@ function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
       <div><dt>Reported farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
       <div><dt>Reported area</dt><dd>{profile.reported?.reported_area_acres == null ? "Not reported" : `${profile.reported.reported_area_acres} acres`}</dd></div>
       <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
+      <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
+      <div><dt>Photo references</dt><dd>{count(profile.reported?.crop_photo_references)}</dd></div>
       <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
     </dl>;
   }
-  return <div className="profile-relationships">
-    <h3>Reviewed relationships</h3>
-    {profile.relationships?.length
-      ? <ul>{profile.relationships.map((relationship, index) => <li key={`${relationship.scope_type}-${relationship.starts_on}-${index}`}><strong>{roleName(relationship.role)}</strong><span>{roleName(relationship.scope_type)} · since {relationship.starts_on}</span></li>)}</ul>
-      : <p>No active reviewed grower relationship is recorded.</p>}
+  return <div className="profile-groups">
+    <section className="profile-relationships">
+      <h3>Linked farms</h3>
+      {profile.farms?.length
+        ? <ul>{profile.farms.map((farm) => {
+          const crop = farm.current
+            ? `${farm.current.crop_name}${farm.current.cultivar ? ` · ${farm.current.cultivar}` : ""}`
+            : "No active crop recorded";
+          return <li key={farm.id}><strong>{farm.name}</strong><span>{crop} · {count(farm.open_work_count)} open work</span></li>;
+        })}</ul>
+        : <p>No linked reviewed farm is recorded.</p>}
+    </section>
+    <section className="profile-relationships">
+      <h3>Reviewed relationships</h3>
+      {profile.relationships?.length
+        ? <ul>{profile.relationships.map((relationship, index) => <li key={`${relationship.scope_type}-${relationship.starts_on}-${index}`}><strong>{roleName(relationship.role)}</strong><span>{relationship.scope_name} · since {relationship.starts_on}</span></li>)}</ul>
+        : <p>No active reviewed grower relationship is recorded.</p>}
+    </section>
   </div>;
 }
 
@@ -686,7 +721,7 @@ function ActionsView({ t, portfolio, trackwick }: { t: Translation; portfolio: P
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
-  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.task_type}</h3><p>{[item.farmer_name, item.field_worker_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
+  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.task_type}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
 }
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {

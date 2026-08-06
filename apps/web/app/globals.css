@@ -196,6 +196,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .profile-facts > div:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
 .profile-facts dt { color: #71806d; font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .035em; text-transform: uppercase; }
 .profile-facts dd { color: var(--ink-soft); font-size: .73rem; line-height: 1.45; margin: 0; }
+.profile-groups { display: grid; gap: 24px; }
+.profile-record { max-width: 580px; }
+.profile-record h3 { color: var(--ink-soft); font-size: .75rem; margin: 0 0 10px; }
 .profile-relationships { max-width: 580px; }
 .profile-relationships h3 { color: var(--ink-soft); font-size: .75rem; margin: 0 0 10px; }
 .profile-relationships ul { display: grid; list-style: none; margin: 0; padding: 0; }

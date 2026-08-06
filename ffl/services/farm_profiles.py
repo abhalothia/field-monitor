@@ -13,6 +13,9 @@ from typing import Any, Mapping, Sequence
 from ffl.services.trackwick_board import manager_board_for_source
 
 
+_FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field signals only."
+
+
 def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
     """Return reviewed operational context for one canonical farm block."""
     block = conn.execute(
@@ -31,6 +34,7 @@ def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
         "people": _reviewed_people_for_block(conn, block["id"], allocations),
         "work": _reviewed_work_for_allocations(conn, [row["id"] for row in allocations]),
         "location": _published_geometry_state(conn, block["id"]),
+        "record": _reviewed_field_record(conn, block["id"]),
     }
 
 
@@ -42,26 +46,14 @@ def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
     if person is None:
         return None
 
-    relationships = conn.execute(
-        """SELECT scope_type, role, starts_on
-           FROM person_operating_relationships
-           WHERE person_id = ? AND status = 'active' AND reviewed_by_person_id IS NOT NULL
-           ORDER BY starts_on, role, id""",
-        (person["id"],),
-    ).fetchall()
+    relationships = _reviewed_relationships_for_person(conn, person["id"])
     return {
         "state": "reviewed",
         "kind": "farmer",
         "id": person["id"],
         "name": person["name"],
-        "relationships": [
-            {
-                "scope_type": row["scope_type"],
-                "role": row["role"],
-                "starts_on": row["starts_on"],
-            }
-            for row in relationships
-        ],
+        "relationships": relationships,
+        "farms": _linked_farms_for_reviewed_relationships(conn, person["id"]),
     }
 
 
@@ -181,6 +173,117 @@ def _reviewed_work_for_allocations(conn, allocation_ids: Sequence[str]) -> list[
         }
         for row in rows
     ]
+
+
+def _reviewed_field_record(conn, block_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        """SELECT signal.observed_at
+           FROM field_signals AS signal
+           JOIN crop_allocations AS allocation ON allocation.id = signal.allocation_id
+           WHERE allocation.operational_block_id = ? AND signal.status != 'draft'
+           ORDER BY signal.observed_at DESC, signal.created_at DESC, signal.id DESC
+           LIMIT 1""",
+        (block_id,),
+    ).fetchone()
+    return {
+        "latest_observed_at": row["observed_at"] if row is not None else None,
+        "limitation": _FIELD_RECORD_LIMITATION,
+    }
+
+
+def _reviewed_relationships_for_person(conn, person_id: str) -> list[dict[str, str]]:
+    rows = conn.execute(
+        """SELECT relationship.scope_type, relationship.role, relationship.starts_on,
+                  CASE relationship.scope_type
+                    WHEN 'operating_unit' THEN operating_unit.name
+                    WHEN 'land_parcel' THEN land_parcel.name
+                    WHEN 'operational_block' THEN operational_block.name
+                    WHEN 'crop_allocation' THEN allocation_block.name
+                  END AS scope_name
+           FROM person_operating_relationships AS relationship
+           LEFT JOIN operating_units AS operating_unit
+             ON operating_unit.id = relationship.operating_unit_id
+           LEFT JOIN land_parcels AS land_parcel
+             ON land_parcel.id = relationship.land_parcel_id
+           LEFT JOIN operational_blocks AS operational_block
+             ON operational_block.id = relationship.operational_block_id
+           LEFT JOIN crop_allocations AS allocation
+             ON allocation.id = relationship.crop_allocation_id
+           LEFT JOIN operational_blocks AS allocation_block
+             ON allocation_block.id = allocation.operational_block_id
+           WHERE relationship.person_id = ? AND relationship.status = 'active'
+             AND relationship.reviewed_by_person_id IS NOT NULL
+           ORDER BY relationship.starts_on, relationship.role, relationship.id""",
+        (person_id,),
+    ).fetchall()
+    return [
+        {
+            "scope_type": row["scope_type"],
+            "scope_name": row["scope_name"],
+            "role": row["role"],
+            "starts_on": row["starts_on"],
+        }
+        for row in rows
+    ]
+
+
+def _linked_farms_for_reviewed_relationships(conn, person_id: str) -> list[dict[str, Any]]:
+    blocks = conn.execute(
+        """WITH reviewed_relationships AS (
+               SELECT scope_type, operating_unit_id, land_parcel_id,
+                      operational_block_id, crop_allocation_id
+               FROM person_operating_relationships
+               WHERE person_id = ? AND status = 'active' AND reviewed_by_person_id IS NOT NULL
+           ), linked_blocks(block_id) AS (
+               SELECT operational_block_id FROM reviewed_relationships
+               WHERE scope_type = 'operational_block'
+               UNION
+               SELECT allocation.operational_block_id
+               FROM reviewed_relationships AS relationship
+               JOIN crop_allocations AS allocation ON allocation.id = relationship.crop_allocation_id
+               WHERE relationship.scope_type = 'crop_allocation'
+               UNION
+               SELECT link.operational_block_id
+               FROM reviewed_relationships AS relationship
+               JOIN block_parcels AS link ON link.land_parcel_id = relationship.land_parcel_id
+               WHERE relationship.scope_type = 'land_parcel'
+               UNION
+               SELECT block.id
+               FROM reviewed_relationships AS relationship
+               JOIN operational_blocks AS block ON block.operating_unit_id = relationship.operating_unit_id
+               WHERE relationship.scope_type = 'operating_unit'
+           )
+           SELECT block.id, block.name
+           FROM linked_blocks
+           JOIN operational_blocks AS block ON block.id = linked_blocks.block_id
+           ORDER BY block.name, block.id""",
+        (person_id,),
+    ).fetchall()
+    farms = []
+    for block in blocks:
+        allocations = _active_allocations(conn, block["id"])
+        farms.append({
+            "id": block["id"],
+            "name": block["name"],
+            "current": _current_crop(allocations),
+            "open_work_count": _open_work_count_for_allocations(
+                conn, [allocation["id"] for allocation in allocations]
+            ),
+        })
+    return farms
+
+
+def _open_work_count_for_allocations(conn, allocation_ids: Sequence[str]) -> int:
+    if not allocation_ids:
+        return 0
+    placeholders = ", ".join("?" for _ in allocation_ids)
+    row = conn.execute(
+        """SELECT count(*) AS count FROM work_items
+           WHERE allocation_id IN (""" + placeholders + """)
+             AND status IN ('planned', 'in_progress', 'blocked', 'submitted', 'rejected')""",
+        tuple(allocation_ids),
+    ).fetchone()
+    return row["count"]
 
 
 def _published_geometry_state(conn, block_id: str) -> dict[str, str]:

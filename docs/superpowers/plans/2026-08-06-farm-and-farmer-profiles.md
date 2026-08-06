@@ -279,7 +279,105 @@ git add apps/web/components/command-centre.tsx apps/web/app/globals.css tests/ff
 git commit -m "feat: add farm and farmer profile panels"
 ~~~
 
-### Task 4: Complete verification and deployment handoff
+### Task 4: Close final audit profile-content gaps
+
+**Files:**
+- Modify: ffl/services/farm_profiles.py
+- Modify: apps/web/components/command-centre.tsx
+- Modify: apps/web/app/globals.css
+- Modify: tests/ffl/test_farm_profile_routes.py
+
+**Interfaces:**
+- Consumes: Task 1 safe profile service and Task 3 profile UI.
+- Produces: complete, still-whitelisted reviewed/reported profile details. The
+  farm DTO gains record metadata; the farmer DTO gains safe linked-farm
+  context; neither response gains source identifiers, contacts, coordinates,
+  raw evidence, or an account claim.
+
+- [ ] **Step 1: Write focused failing content and boundary tests**
+
+~~~python
+def test_reviewed_farmer_profile_lists_linked_farm_crop_and_open_work(ffl_db, users, crop_allocation):
+    grower = repository.create_person(ffl_db, "Asha Grower", "operations_lead")
+    repository.create_person_operating_relationship(
+        ffl_db, grower.id, "crop_allocation", crop_allocation.id, "grower",
+        "2026-06-01", provenance="reviewed", reviewed_by_person_id=users["manager"].id,
+    )
+
+    profile = farm_profiles.farmer_profile(ffl_db, grower.id)
+
+    assert profile["relationships"] == [{
+        "scope_type": "crop_allocation", "scope_name": "North Block",
+        "role": "grower", "starts_on": "2026-06-01",
+    }]
+    assert profile["farms"] == [{
+        "id": crop_allocation.operational_block_id, "name": "North Block",
+        "current": {"crop_name": "Rice", "cultivar": "Pusa 1121"}, "open_work_count": 0,
+    }]
+
+
+def test_command_centre_renders_profile_context_without_field_worker_surface():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "Latest activity" in source
+    assert "Photo references" in source
+    assert "Linked farms" in source
+    assert "Field record" in source
+    assert "item.field_worker_name" not in source
+~~~
+
+- [ ] **Step 2: Run focused tests to verify they fail**
+
+Run: /Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_farm_profile_routes.py -k 'linked_farm or profile_context'
+
+Expected: FAIL because linked-farm DTO content and the displayed profile
+context are not implemented yet.
+
+- [ ] **Step 3: Add only safe, contextual DTO fields**
+
+~~~python
+def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
+    # Keep all relationship history/contacts/provenance private.
+    relationships = _reviewed_relationships_for_person(conn, person_id)
+    return {
+        "state": "reviewed", "kind": "farmer", "id": person["id"], "name": person["name"],
+        "relationships": relationships,
+        "farms": _linked_farms_for_reviewed_relationships(conn, person_id),
+    }
+~~~
+
+Each relationship may contain only scope_type, scope_name, role, and
+starts_on. Each linked farm may contain only block id/name, current
+crop/cultivar, and open_work_count. For reviewed farm records, add
+record.latest_observed_at from canonical non-draft field-signal metadata and
+record.limitation as a fixed sentence; do not return signal payload/content.
+Keep reported latest activity and photo reference values as counts/dates only.
+
+- [ ] **Step 4: Render the missing profile modules without new surfaces**
+
+Render reported latest activity and photo-reference totals inside the existing
+profile facts. Render a reviewed farm **Field record** group with latest
+observed time and fixed limitation. Render a reviewed farmer **Linked farms**
+group with each farm's current crop and open-work count, then the existing
+reviewed relationship role/date list using scope_name. Remove field-worker
+name interpolation from SourceWorkRows; source tasks remain tasks, but field
+workers get no product presentation until their dedicated slice.
+
+- [ ] **Step 5: Run focused green tests and production checks**
+
+Run: /Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_farm_profile_routes.py && pnpm --dir apps/web typecheck && pnpm --dir apps/web build && git diff --check
+
+Expected: all profile tests pass, TypeScript exits 0, Next production build
+completes, and no whitespace issue remains.
+
+- [ ] **Step 6: Commit the audit closure**
+
+~~~bash
+git add ffl/services/farm_profiles.py apps/web/components/command-centre.tsx apps/web/app/globals.css tests/ffl/test_farm_profile_routes.py docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md
+git commit -m "fix: complete farm and farmer profile context"
+~~~
+
+### Task 5: Complete verification and deployment handoff
 
 **Files:**
 - Modify: docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md (checkboxes only)
@@ -332,4 +430,3 @@ git push origin main
 After configured GitHub/Vercel deployment completes, verify the latest web and
 API deployments are READY and review their recent runtime-error feeds. Do not
 make a TrackWick call or enable WhatsApp.
-
