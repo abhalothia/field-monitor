@@ -10,6 +10,7 @@ provider IDs, raw forms, and addresses never leave the private source lane.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import json
 from typing import Any, Iterable, Mapping, Optional
 
 from ffl.persistence import repository
@@ -18,6 +19,7 @@ from ffl.services.trackwick_ingest import SOURCE_KEY
 
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
 _MAP_POINT_LIMIT = 4_000
+_SAFE_SOURCE_WORK_LABEL = "TrackWick source work"
 
 
 def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str, Any]:
@@ -35,16 +37,9 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
     last_synced_at = latest_run["fetched_at"] if latest_run is not None else None
     parties = _rows(
         conn,
-        """SELECT id, party_kind, display_name, crm_status, provider_tag, last_seen_at
+        """SELECT id, party_kind, provider_identifier, display_name, crm_status,
+                  provider_tag, last_seen_at
            FROM trackwick_parties
-           WHERE source_id = ? AND data_quality_status = 'valid'""",
-        source.id,
-    )
-    tasks = _rows(
-        conn,
-        """SELECT id, farmer_party_id, field_worker_party_id, task_type, task_status,
-                  provider_created_at, provider_started_at, provider_completed_at, provider_follow_up_at
-           FROM trackwick_tasks
            WHERE source_id = ? AND data_quality_status = 'valid'""",
         source.id,
     )
@@ -52,7 +47,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         conn,
         """SELECT id, task_id, farmer_party_id, registration_status, village_name, block_name,
                   district_name, reported_total_area_acres, reported_plot_count,
-                  reported_pb1_area_acres, reported_1718_area_acres
+                  reported_pb1_area_acres, reported_1718_area_acres, last_seen_at
            FROM trackwick_registrations
            WHERE source_id = ? AND data_quality_status = 'valid'""",
         source.id,
@@ -90,6 +85,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
     )
 
     party_by_id = {row["id"]: row for row in parties}
+    tasks = _source_work_rows(conn, source.id, parties)
     farmers = [row for row in parties if row["party_kind"] == "farmer"]
     workers = [row for row in parties if row["party_kind"] == "field_worker"]
     tasks_by_farmer = _group_by(tasks, "farmer_party_id")
@@ -197,7 +193,10 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         "counts": {key: board["counts"][key] for key in ("farmers", "farm_candidates", "open_work", "crop_photo_references", "plot_photo_references")},
         "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
         "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
-        "inbox": [{key: row.get(key) for key in ("id", "task_type", "status", "farmer_name", "follow_up_at", "opened_at")} for row in board["inbox"]],
+        "inbox": [{
+            "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
+            **{key: row.get(key) for key in ("status", "farmer_name", "follow_up_at", "opened_at")},
+        } for row in board["inbox"]],
         "limitations": ["Reported farm candidates require Fortune review before they become canonical farms.", "Photo counts are references only; image files and links remain private."],
     }
 
@@ -213,6 +212,85 @@ def _latest_source_run(conn, source_id: str) -> Optional[Mapping[str, Any]]:
 
 def _rows(conn, statement: str, source_id: str) -> list[Mapping[str, Any]]:
     return list(conn.execute(statement, (source_id,)).fetchall())
+
+
+def source_relation_exists(conn, table_name: str) -> bool:
+    """Check optional source relations before querying them.
+
+    Fortune's first TrackWick cache predates the typed task relation, while its
+    registrations, parties, visits, findings, and normalized records are
+    populated.  A catalog check avoids putting a PostgreSQL request transaction
+    into an aborted state by selecting a relation that is not deployed.
+    """
+    if getattr(conn, "dialect", "sqlite") == "postgres":
+        row = conn.execute(
+            "SELECT to_regclass(?) AS relation_name", ("agro_" + table_name,)
+        ).fetchone()
+        return row is not None and row["relation_name"] is not None
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table_name,)
+    ).fetchone()
+    return row is not None
+
+
+def _source_work_rows(
+    conn, source_id: str, parties: Iterable[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Read typed tasks when present, otherwise published normalized follow-ups."""
+    if source_relation_exists(conn, "trackwick_tasks"):
+        return _rows(
+            conn,
+            """SELECT id, farmer_party_id, field_worker_party_id, task_type, task_status,
+                      provider_created_at, provider_started_at, provider_completed_at,
+                      provider_follow_up_at
+               FROM trackwick_tasks
+               WHERE source_id = ? AND data_quality_status = 'valid'""",
+            source_id,
+        )
+    if not source_relation_exists(conn, "trackolap_records"):
+        return []
+
+    party_ids = {
+        (str(row["party_kind"]), str(row["provider_identifier"])): str(row["id"])
+        for row in parties if row["provider_identifier"]
+    }
+    records = conn.execute(
+        """SELECT id, source_identifier, source_updated_at, values_json
+           FROM trackolap_records
+           WHERE source_id = ? AND feed = 'follow_ups' AND status = 'published'
+           ORDER BY source_updated_at DESC, id DESC""",
+        (source_id,),
+    ).fetchall()
+    latest: dict[str, dict[str, Any]] = {}
+    for record in records:
+        try:
+            values = json.loads(record["values_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(values, dict):
+            continue
+        identity = str(values.get("follow_up_id") or record["source_identifier"])
+        if identity in latest:
+            continue
+        status = str(values.get("task_status", "unknown"))
+        if status not in {"completed", "in_progress", "pending", "unknown"}:
+            status = "unknown"
+        farmer_identifier = str(values.get("farmer_id", ""))
+        worker_identifier = str(values.get("worker_id", ""))
+        latest[identity] = {
+            # The immutable normalized row id is safe to expose; provider task
+            # identifiers and raw labels remain inside this server-side join.
+            "id": record["id"],
+            "farmer_party_id": party_ids.get(("farmer", farmer_identifier)),
+            "field_worker_party_id": party_ids.get(("field_worker", worker_identifier)),
+            "task_type": _SAFE_SOURCE_WORK_LABEL,
+            "task_status": status,
+            "provider_created_at": record["source_updated_at"],
+            "provider_started_at": None,
+            "provider_completed_at": None,
+            "provider_follow_up_at": None,
+        }
+    return list(latest.values())
 
 
 def _group_by(rows: Iterable[Mapping[str, Any]], key: str) -> dict[str, list[Mapping[str, Any]]]:
@@ -288,7 +366,7 @@ def _farm_rows(
             "pb1_area_acres": _number(registration["reported_pb1_area_acres"]),
             "var1718_area_acres": _number(registration["reported_1718_area_acres"]),
             "open_work": sum(task["task_status"] in _OPEN_TASK_STATUSES for task in farmer_tasks),
-            "latest_activity_at": _latest_task_at(farmer_tasks),
+            "latest_activity_at": _latest_task_at(farmer_tasks) or registration["last_seen_at"],
             "location": _location(location),
             "plot_photo_references": count_media["plot_photo"],
             "crop_photo_references": count_media["crop_photo"],

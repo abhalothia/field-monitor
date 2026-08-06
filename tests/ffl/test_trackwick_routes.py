@@ -51,6 +51,31 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     with TestClient(app) as client:
         manager = repository.create_person(app.state.conn, "Fortune COO", "operations_lead")
         app.state.manager_person_id = manager.id
+        source = repository.create_source_registry(
+            app.state.conn, "trackwick-fortune-paddy", "TrackWick", "trackwick",
+            "reported context", "partner", manager.id, ["farm_task_context"],
+            "v1", "v1", {}, enabled=True,
+        )
+        now = "2026-08-03T10:00:00+05:30"
+        app.state.conn.execute(
+            """INSERT INTO trackwick_parties (
+                id, source_id, party_kind, provider_identifier, display_name,
+                source_fingerprint, mapping_version, data_quality_status,
+                first_seen_at, last_seen_at, created_at
+            ) VALUES ('route-farmer', ?, 'farmer', 'private-provider-farmer',
+                      'Ramesh Kumar', ?, 'v1', 'valid', ?, ?, ?)""",
+            (source.id, "a" * 64, now, now, now),
+        )
+        app.state.conn.execute(
+            """INSERT INTO trackwick_tasks (
+                id, source_id, provider_task_id, farmer_party_id, task_type, task_status,
+                provider_created_at, source_fingerprint, mapping_version,
+                data_quality_status, first_seen_at, last_seen_at, created_at
+            ) VALUES ('route-task', ?, 'private-provider-task', 'route-farmer',
+                      'RAW ACTION SENTINEL 4419', 'pending', ?, ?, 'v1', 'valid', ?, ?, ?)""",
+            (source.id, now, "b" * 64, now, now, now),
+        )
+        app.state.conn.commit()
         denied = client.get("/api/v1/trackwick/command-centre-board")
         allowed = client.get(
             "/api/v1/trackwick/command-centre-board",
@@ -65,5 +90,8 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     assert allowed.status_code == 200
     assert legacy_board.status_code == 200
     serialized = repr([allowed.json(), legacy_board.json()]).lower()
+    assert allowed.json()["inbox"][0]["label"] == "TrackWick source work"
+    assert "task_type" not in allowed.json()["inbox"][0]
+    assert "raw action sentinel 4419" not in serialized
     for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718"):
         assert forbidden not in serialized

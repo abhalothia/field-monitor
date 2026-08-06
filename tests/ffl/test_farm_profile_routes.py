@@ -259,6 +259,10 @@ def test_reported_updates_require_reviewed_allocation_link_and_redact_source_val
             ),
         )
     ffl_db.commit()
+    # Match the current Fortune cache: reviewed links, visits, and findings can
+    # exist even when the legacy typed task relation is not deployed.
+    ffl_db.execute("PRAGMA foreign_keys = OFF")
+    ffl_db.execute("DROP TABLE trackwick_tasks")
 
     updates = farm_profiles.farm_record(ffl_db, farm.id)["updates"]
     source_updates = [item for item in updates if item["state"] == "reported"]
@@ -309,6 +313,85 @@ def test_entity_directory_is_bounded_and_rejects_invalid_filters(ffl_db, farm):
         farm_profiles.list_entity_directory(ffl_db, "farm", query="x" * 81)
     with pytest.raises(ValueError, match="limit must be between 1 and 100"):
         farm_profiles.list_entity_directory(ffl_db, "farm", limit=101)
+
+
+def test_reported_directory_uses_source_registrations_without_promoting_farms(
+    tmp_path,
+):
+    app = create_app(str(tmp_path / "source-only-directory.db"), manager_api_token="manager-secret")
+    ffl_db = app.state.conn
+    owner = repository.create_person(ffl_db, "Fortune COO", "operations_lead")
+    app.state.manager_person_id = owner.id
+    source = repository.create_source_registry(
+        ffl_db, "trackwick-fortune-paddy", "TrackWick", "trackwick", "reported context",
+        "partner", owner.id, ["farm_candidate_context"], "v1", "v1", {}, enabled=True,
+    )
+    now = "2026-08-03T10:00:00+05:30"
+    ffl_db.execute(
+        """INSERT INTO trackwick_parties (
+            id, source_id, party_kind, provider_identifier, display_name,
+            source_fingerprint, mapping_version, data_quality_status,
+            first_seen_at, last_seen_at, created_at
+        ) VALUES ('source-farmer', ?, 'farmer', 'provider-farmer', 'Ramesh Kumar',
+                  ?, 'v1', 'valid', ?, ?, ?)""",
+        (source.id, "a" * 64, now, now, now),
+    )
+    ffl_db.execute(
+        """INSERT INTO trackwick_tasks (
+            id, source_id, provider_task_id, farmer_party_id, task_type, task_status,
+            provider_created_at, source_fingerprint, mapping_version, data_quality_status,
+            first_seen_at, last_seen_at, created_at
+        ) VALUES ('source-registration-task', ?, 'provider-task', 'source-farmer',
+                  'RAW DIRECTORY SENTINEL 9217', 'completed', ?, ?, 'v1', 'valid', ?, ?, ?)""",
+        (source.id, now, "b" * 64, now, now, now),
+    )
+    ffl_db.execute(
+        """INSERT INTO trackwick_registrations (
+            id, task_id, source_id, farmer_party_id, registration_status,
+            village_name, block_name, district_name, reported_total_area_acres,
+            reported_plot_count, source_fingerprint, mapping_version, data_quality_status,
+            first_seen_at, last_seen_at, created_at
+        ) VALUES ('source-registration', 'source-registration-task', ?, 'source-farmer',
+                  'completed', 'Dargava', 'Gabhana', 'Aligarh', 5.5, 2,
+                  ?, 'v1', 'valid', ?, ?, ?)""",
+        (source.id, "c" * 64, now, now, now),
+    )
+    ffl_db.commit()
+    ffl_db.execute("PRAGMA foreign_keys = OFF")
+    ffl_db.execute("DROP TABLE trackwick_tasks")
+    ffl_db.commit()
+
+    before = ffl_db.execute("SELECT count(id) AS count FROM farms").fetchone()["count"]
+    reported = farm_profiles.list_entity_directory(
+        ffl_db, "farm", state="reported", query="Dargava",
+    )
+    canonical = farm_profiles.list_entity_directory(ffl_db, "farm")
+    after = ffl_db.execute("SELECT count(id) AS count FROM farms").fetchone()["count"]
+    with TestClient(app) as client:
+        headers = {"X-FFL-Manager-Token": "manager-secret"}
+        reported_response = client.get(
+            "/api/v1/farms?state=reported&query=Dargava", headers=headers,
+        )
+        canonical_response = client.get("/api/v1/farms", headers=headers)
+
+    assert before == after == 0
+    assert canonical == []
+    assert reported == [{
+        "state": "reported",
+        "kind": "reported_farm_candidate",
+        "id": "source-registration",
+        "name": "Dargava · Gabhana · Aligarh",
+        "reported_farmer_name": "Ramesh Kumar",
+        "reported_area_acres": 5.5,
+        "reported_plot_count": 2,
+        "open_work_count": 0,
+        "latest_update_at": now,
+        "destination": {"kind": "review_reported_farm", "id": "source-registration"},
+    }]
+    assert reported_response.status_code == 200
+    assert reported_response.json() == reported
+    assert canonical_response.json() == []
+    assert "RAW DIRECTORY SENTINEL 9217" not in repr(reported)
 
 
 def test_farm_profile_returns_reviewed_truth_and_not_source_context(ffl_db, users, crop_allocation):
@@ -528,6 +611,11 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         app.state.conn, worker.id, "crop_allocation", allocation.id, "field_operator",
         "2026-06-01", reviewed_by_person_id=manager.id,
     )
+    grower = repository.create_person(app.state.conn, "Asha Grower", "grower")
+    repository.create_person_operating_relationship(
+        app.state.conn, grower.id, "crop_allocation", allocation.id, "grower",
+        "2026-06-01", reviewed_by_person_id=manager.id,
+    )
     headers = {"X-FFL-Manager-Token": "manager-secret"}
 
     with TestClient(app) as client:
@@ -546,6 +634,11 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         person_record = client.get(
             "/api/v1/people/field_worker/" + worker.id, headers=headers,
         )
+        farmer_record = client.get("/api/v1/people/farmer/" + grower.id, headers=headers)
+        linked_farm_records = [
+            client.get("/api/v1/farms/" + assignment["farm_id"], headers=headers)
+            for assignment in farmer_record.json()["assignments"]
+        ]
         absent_farm = client.get("/api/v1/farms/missing", headers=headers)
         absent_field = client.get("/api/v1/fields/missing", headers=headers)
         absent_person = client.get("/api/v1/people/farmer/missing", headers=headers)
@@ -559,6 +652,9 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         "field_count": 1, "crops": ["Rice"], "open_work_count": 0, "latest_update_at": None,
     }]
     assert farm_record.status_code == field_record.status_code == person_record.status_code == 200
+    assert farmer_record.status_code == 200
+    assert linked_farm_records and all(response.status_code == 200 for response in linked_farm_records)
+    assert {response.json()["id"] for response in linked_farm_records} == {farm.id}
     assert "provider_identifier" not in repr([
         farm_record.json(), field_record.json(), person_record.json(), directory.json(),
     ])
@@ -576,6 +672,8 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
     assert 'readJson<FieldRecord>("/api/v1/fields/" + id)' in source
     assert 'readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)' in source
+    assert 'readJson<PersonContext>("/api/v1/people/farmer/" + id)' in source
+    assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
     assert "WhatsApp updates" in source
     assert "Coming soon" in source
     assert "disabled-connection" in source
@@ -602,7 +700,7 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
 
     assert "Latest activity" in source
     assert "Photo references" in source
-    assert "Linked farms" in source
+    assert "Canonical Farms" in source
     assert "Crop seasons" in source
     assert "Assignments" in source
     assert "item.field_worker_name" not in source
@@ -615,6 +713,19 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert "PersonContextPanel" in source
     assert "FieldRecordPanel" in source
     assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
+
+
+def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert 'readJson<PersonContext>("/api/v1/people/farmer/" + id)' in source
+    assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
+    assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' not in source
+    assert 'href={`/fields?farm=${encodeURIComponent(farm.id)}`}' in source
+    assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
+    assert "reported candidate" in source
+    assert "item.label" in source
+    assert "item.task_type" not in source
 
 
 def test_command_centre_mobile_farm_facts_are_one_column_with_row_dividers():

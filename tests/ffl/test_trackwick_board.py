@@ -6,6 +6,7 @@ from ffl.integrations.trackolap.trackwick import (
     PRIVATE_EVIDENCE_MAPPING_VERSION,
     TrackwickApiConfig,
     TrackwickFetchResult,
+    normalise_trackwick_basics,
     normalise_trackwick_private_evidence,
 )
 from ffl.persistence import repository
@@ -113,6 +114,17 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         PRIVATE_EVIDENCE_MAPPING_VERSION,
         observed_at="2026-08-03T10:00:00+05:30",
     )
+    basics = normalise_trackwick_basics(
+        fetched, config, as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+    repository.create_trackolap_records(
+        ffl_db, source.id, run.id, None,
+        [
+            (record.feed, record.source_id, record.source_updated_at, record.tenant_id, dict(record.values))
+            for record in basics.records
+        ],
+        status="published",
+    )
 
     board = manager_board_for_source(ffl_db, source_key=source.source_key)
     serialized = repr(board)
@@ -169,8 +181,23 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "id", "name", "farm_candidates", "reported_area_acres", "open_work",
         "latest_activity_at", "crop_photo_references",
     }
+    assert safe_board["inbox"][0]["label"] == "TrackWick source work"
+    assert "task_type" not in safe_board["inbox"][0]
+    assert "Farmer Visit" not in repr(safe_board)
     for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718", "9999999999", "111122223333"):
         assert forbidden not in safe_serialized
+
+    # Production's populated source cache can predate the typed task table.
+    # Published normalized follow-ups keep the browser board useful and safe.
+    ffl_db.commit()
+    ffl_db.execute("PRAGMA foreign_keys = OFF")
+    ffl_db.execute("DROP TABLE trackwick_tasks")
+    fallback_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
+
+    assert fallback_board["counts"]["farm_candidates"] == 1
+    assert fallback_board["counts"]["open_work"] == 1
+    assert fallback_board["inbox"][0]["label"] == "TrackWick source work"
+    assert "Farmer Visit" not in repr(fallback_board)
 
 
 def test_manager_board_is_empty_and_honest_before_a_trackwick_source_exists(ffl_db):

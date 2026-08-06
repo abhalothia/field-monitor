@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from ffl.services.trackwick_board import command_centre_board_for_source
+from ffl.services.trackwick_board import command_centre_board_for_source, source_relation_exists
 
 
 _FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field signals only."
@@ -129,6 +129,8 @@ def list_entity_directory(
         raise ValueError("limit must be between 1 and 100")
     bounds = _record_date_bounds(date_from, date_to)
     if state not in {None, "reviewed"}:
+        if state == "reported" and kind == "farm":
+            return _reported_farm_directory(conn, query, crop, bounds, limit)
         if state == "reported":
             return []
         raise ValueError("state must be reviewed or reported")
@@ -520,18 +522,39 @@ def _reported_updates_for_fields(
                       WHERE link.link_status = 'reviewed'
                         AND link.reviewed_by_person_id IS NOT NULL
                         AND allocation.operational_block_id IN (""" + placeholders + ")"
-    task_rows = conn.execute(
-        """WITH linked AS (""" + linked_tasks + """)
-           SELECT task.id,
-                  COALESCE(task.provider_completed_at, task.provider_started_at,
-                           task.provider_created_at, task.created_at) AS occurred_at,
-                  block.id AS field_id, block.name AS field_name
-           FROM linked
-           JOIN trackwick_tasks AS task ON task.id = linked.task_id
-           JOIN operational_blocks AS block ON block.id = linked.operational_block_id
-           WHERE task.data_quality_status = 'valid'""",
-        tuple(block_ids),
-    ).fetchall()
+    if source_relation_exists(conn, "trackwick_tasks"):
+        task_rows = conn.execute(
+            """WITH linked AS (""" + linked_tasks + """)
+               SELECT task.id,
+                      COALESCE(task.provider_completed_at, task.provider_started_at,
+                               task.provider_created_at, task.created_at) AS occurred_at,
+                      block.id AS field_id, block.name AS field_name
+               FROM linked
+               JOIN trackwick_tasks AS task ON task.id = linked.task_id
+               JOIN operational_blocks AS block ON block.id = linked.operational_block_id
+               WHERE task.data_quality_status = 'valid'""",
+            tuple(block_ids),
+        ).fetchall()
+    else:
+        task_rows = conn.execute(
+            """WITH linked AS (""" + linked_tasks + """),
+               task_times AS (
+                   SELECT visit.task_id, visit.observed_at
+                   FROM trackwick_visits AS visit
+                   WHERE visit.data_quality_status = 'valid'
+                   UNION ALL
+                   SELECT finding.visit_task_id, finding.observed_at
+                   FROM trackwick_visit_findings AS finding
+                   WHERE finding.data_quality_status = 'valid'
+               )
+               SELECT linked.task_id AS id, max(task_times.observed_at) AS occurred_at,
+                      block.id AS field_id, block.name AS field_name
+               FROM linked
+               JOIN task_times ON task_times.task_id = linked.task_id
+               JOIN operational_blocks AS block ON block.id = linked.operational_block_id
+               GROUP BY linked.task_id, block.id, block.name""",
+            tuple(block_ids),
+        ).fetchall()
     updates = [
         {
             "id": row["id"], "occurred_at": row["occurred_at"], "kind": "trackwick_task",
@@ -548,9 +571,8 @@ def _reported_updates_for_fields(
                   block.id AS field_id, block.name AS field_name
            FROM linked
            JOIN trackwick_visits AS visit ON visit.task_id = linked.task_id
-           JOIN trackwick_tasks AS task ON task.id = linked.task_id
            JOIN operational_blocks AS block ON block.id = linked.operational_block_id
-           WHERE visit.data_quality_status = 'valid' AND task.data_quality_status = 'valid'""",
+           WHERE visit.data_quality_status = 'valid'""",
         tuple(block_ids),
     ).fetchall()
     updates.extend({
@@ -568,9 +590,8 @@ def _reported_updates_for_fields(
            FROM linked
            JOIN trackwick_visit_findings AS finding
              ON finding.visit_task_id = linked.task_id
-           JOIN trackwick_tasks AS task ON task.id = linked.task_id
            JOIN operational_blocks AS block ON block.id = linked.operational_block_id
-           WHERE finding.data_quality_status = 'valid' AND task.data_quality_status = 'valid'""",
+           WHERE finding.data_quality_status = 'valid'""",
         tuple(block_ids),
     ).fetchall()
     for row in finding_rows:
@@ -608,6 +629,42 @@ def _farm_directory_item(
         "crops": sorted({row["crop_name"] for row in now["active_allocations"]}),
         "open_work_count": now["open_work_count"], "latest_update_at": now["latest_update_at"],
     }
+
+
+def _reported_farm_directory(
+    conn, query: str | None, crop: str | None,
+    bounds: tuple[date | None, date | None], limit: int,
+) -> list[dict[str, Any]]:
+    """Adapt source registrations into a distinct, non-canonical directory."""
+    if crop is not None:
+        # A registration does not establish a reviewed crop allocation.
+        return []
+    rows = command_centre_board_for_source(conn)["farms"]
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        haystack = " ".join((str(row.get("farmer_name") or ""), str(row.get("place") or ""))).lower()
+        if query is not None and query.lower() not in haystack:
+            continue
+        occurred_at = row.get("latest_activity_at")
+        if occurred_at is not None and not _update_within_bounds(occurred_at, bounds):
+            continue
+        if occurred_at is None and any(bounds):
+            continue
+        items.append({
+            "state": "reported",
+            "kind": "reported_farm_candidate",
+            "id": row["id"],
+            "name": row["place"],
+            "reported_farmer_name": row["farmer_name"],
+            "reported_area_acres": row["reported_area_acres"],
+            "reported_plot_count": row["reported_plot_count"],
+            "open_work_count": row["open_work"],
+            "latest_update_at": occurred_at,
+            "destination": {"kind": "review_reported_farm", "id": row["id"]},
+        })
+        if len(items) >= limit:
+            break
+    return items
 
 
 def _field_directory_item(

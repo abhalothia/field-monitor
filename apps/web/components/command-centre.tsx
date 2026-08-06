@@ -96,7 +96,7 @@ type TrackwickFarmer = {
 };
 type TrackwickWork = {
   id: string;
-  task_type: string;
+  label: string;
   status: string;
   farmer_name?: string | null;
   follow_up_at?: string | null;
@@ -136,7 +136,7 @@ type PasswordIdentitySummary = {
   identity_status: "active" | "suspended";
 };
 
-type FarmDirectoryItem = {
+type ReviewedFarmDirectoryItem = {
   state: "reviewed";
   kind: "farm";
   id: string;
@@ -146,6 +146,19 @@ type FarmDirectoryItem = {
   open_work_count: number;
   latest_update_at?: string | null;
 };
+type ReportedFarmDirectoryItem = {
+  state: "reported";
+  kind: "reported_farm_candidate";
+  id: string;
+  name: string;
+  reported_farmer_name: string;
+  reported_area_acres?: number | null;
+  reported_plot_count?: number | null;
+  open_work_count: number;
+  latest_update_at?: string | null;
+  destination: { kind: "review_reported_farm"; id: string };
+};
+type FarmDirectoryItem = ReviewedFarmDirectoryItem | ReportedFarmDirectoryItem;
 
 type FarmDirectory = FarmDirectoryItem[];
 type PersonKind = "farmer" | "field_worker";
@@ -193,6 +206,23 @@ type FarmRecord = {
   context: { state: string; message: string };
   limitations: string[];
 };
+type ReportedFarmProfile = {
+  state: "reported";
+  kind: "farm";
+  id: string;
+  name: string;
+  reported: {
+    farmer_name: string;
+    place: string;
+    reported_area_acres?: number | null;
+    reported_plot_count?: number | null;
+    open_work: number;
+    latest_activity_at?: string | null;
+    plot_photo_references: number;
+    crop_photo_references: number;
+  };
+  limitations: string[];
+};
 type FieldRecord = {
   state: "reviewed";
   kind: "field";
@@ -232,7 +262,7 @@ type PersonContext = {
   context: { state: string; message: string };
   limitations: string[];
 };
-type ContextRecord = FarmRecord | FieldRecord | PersonContext;
+type ContextRecord = FarmRecord | ReportedFarmProfile | FieldRecord | PersonContext;
 type ContextHistoryItem = { record: ContextRecord; openerId: string };
 type ContextPanel = {
   kind: ContextRecord["kind"];
@@ -249,18 +279,11 @@ type DirectoryFilters = {
   dateTo: string;
 };
 
-type FarmerProfile = {
-  state: "reviewed" | "reported";
+type ReportedFarmerProfile = {
+  state: "reported";
   kind: "farmer";
   id: string;
   name: string;
-  relationships?: Array<{ scope_type: string; scope_name: string; role: string; starts_on: string }>;
-  farms?: Array<{
-    id: string;
-    name: string;
-    current?: { crop_name: string; cultivar?: string | null } | null;
-    open_work_count: number;
-  }>;
   reported?: {
     farm_candidates?: number;
     reported_area_acres?: number | null;
@@ -271,6 +294,7 @@ type FarmerProfile = {
   account?: { state: "not_created" };
   limitations?: string[];
 };
+type FarmerProfile = PersonContext | ReportedFarmerProfile;
 
 type ProfileSelection = {
   kind: FarmerProfile["kind"];
@@ -456,8 +480,8 @@ export function CommandCentre({ view }: { view: View }) {
     setProfileSelection({ kind: "farmer", loading: true, error: null, profile: null });
     try {
       const { value } = recordState === "reviewed"
-        ? await readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)
-        : await readJson<FarmerProfile>("/api/v1/reported-farmer-profiles/" + id);
+        ? await readJson<PersonContext>("/api/v1/people/farmer/" + id)
+        : await readJson<ReportedFarmerProfile>("/api/v1/reported-farmer-profiles/" + id);
       if (request === profileRequest.current) {
         setProfileSelection({ kind: "farmer", loading: false, error: null, profile: value });
       }
@@ -631,10 +655,12 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const directoryOpener = useRef<string | null>(null);
   const managerAccessWasEnabled = useRef(canOpenProfiles);
   const pendingManagerExpiryFocus = useRef(false);
+  const initialFarmRequest = useRef<string | null>(null);
 
   useEffect(() => {
     function syncFromUrl() {
       const next = filtersFromLocation();
+      initialFarmRequest.current = new URLSearchParams(window.location.search).get("farm");
       setFilters(next);
       setDraftFilters(next);
       setFiltersReady(true);
@@ -722,6 +748,26 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       finishPanelError(request, "farm", history, error);
     }
   }
+
+  async function openReportedFarm(id: string, openerId: string) {
+    if (!canOpenProfiles) return;
+    directoryOpener.current = openerId;
+    const request = ++panelRequest.current;
+    setPanel({ kind: "farm", loading: true, error: null, record: null, history: [] });
+    try {
+      const { value } = await readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id);
+      if (request === panelRequest.current) setPanel({ kind: "farm", loading: false, error: null, record: value, history: [] });
+    } catch (error) {
+      finishPanelError(request, "farm", [], error);
+    }
+  }
+
+  useEffect(() => {
+    const farmId = initialFarmRequest.current;
+    if (!filtersReady || !canOpenProfiles || !farmId) return;
+    initialFarmRequest.current = null;
+    void openFarm(farmId, MANAGER_ACCESS_BOUNDARY_ID);
+  }, [canOpenProfiles, filtersReady]);
 
   async function openField(id: string, openerId: string) {
     if (!canOpenProfiles) return;
@@ -811,7 +857,9 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
           : directory.items.length
-            ? <div className="farm-card-grid">{directory.items.map((farm) => <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>
+            ? <div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
+              ? <article className="farm-directory-card reported-candidate-card" key={farm.id}><div><span className="status-chip reported">reported candidate</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name} · source context awaiting review</p></div><dl><div><dt>Reported plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open source work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`reported-farm-directory-${farm.id}`} label={`Open reported candidate profile for ${farm.name}`} text="Review reported profile" open={(openerId) => void openReportedFarm(farm.destination.id, openerId)} /></article>
+              : <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>
             : <EmptyState title="No Farms match these filters." detail={t.noData + " Reported source candidates do not become Farms until they are reviewed."} />}
   </section>;
 }
@@ -831,7 +879,9 @@ function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: 
       ? <p className="profile-message" role="status">Reading this {subject} context…</p>
       : panel.error
         ? <p className="profile-message profile-error" role="alert">{panel.error} {panel.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>
-        : panel.record?.kind === "farm"
+        : panel.record?.kind === "farm" && panel.record.state === "reported"
+          ? <ReportedFarmPanel record={panel.record} />
+          : panel.record?.kind === "farm"
           ? <FarmRecordPanel record={panel.record} openField={openField} openPerson={openPerson} />
           : panel.record?.kind === "field"
             ? <FieldRecordPanel record={panel.record} openFarm={openFarm} openPerson={openPerson} />
@@ -839,6 +889,23 @@ function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: 
               ? <PersonContextPanel record={panel.record} openFarm={openFarm} openField={openField} />
               : null}
   </aside>;
+}
+
+function ReportedFarmPanel({ record }: { record: ReportedFarmProfile }) {
+  return <div className="entity-profile-content reported-farm-context">
+    <p className="eyebrow">Reported farm candidate</p>
+    <h2>{record.name}</h2>
+    <p className="profile-context">TrackWick reported this candidate. It is not a reviewed Farm, Field boundary, or crop allocation.</p>
+    <dl className="profile-facts">
+      <div><dt>Reported farmer</dt><dd>{record.reported.farmer_name}</dd></div>
+      <div><dt>Place</dt><dd>{record.reported.place}</dd></div>
+      <div><dt>Reported area</dt><dd>{record.reported.reported_area_acres == null ? "Not reported" : `${record.reported.reported_area_acres} acres`}</dd></div>
+      <div><dt>Reported plots</dt><dd>{count(record.reported.reported_plot_count || undefined)}</dd></div>
+      <div><dt>Open source work</dt><dd>{count(record.reported.open_work)}</dd></div>
+      <div><dt>Latest activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
+    </dl>
+    <div className="profile-action"><a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a></div>
+  </div>;
 }
 
 function FarmRecordPanel({ record, openField, openPerson }: {
@@ -1007,23 +1074,17 @@ function FarmerProfileFacts({ profile }: { profile: FarmerProfile }) {
       <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
     </dl>;
   }
+  const farms = Array.from(new Map(profile.assignments.map((assignment) => [assignment.farm_id, {
+    id: assignment.farm_id, name: assignment.farm_name,
+  }])).values());
   return <div className="profile-groups">
     <section className="profile-relationships">
-      <h3>Linked farms</h3>
-      {profile.farms?.length
-        ? <ul>{profile.farms.map((farm) => {
-          const crop = farm.current
-            ? `${farm.current.crop_name}${farm.current.cultivar ? ` · ${farm.current.cultivar}` : ""}`
-            : "No active crop recorded";
-          return <li key={farm.id}><strong>{farm.name}</strong><span>{crop} · {count(farm.open_work_count)} open work</span></li>;
-        })}</ul>
-        : <p>No linked reviewed farm is recorded.</p>}
+      <h3>Canonical Farms</h3>
+      <ul>{farms.map((farm) => <li key={farm.id}><strong>{farm.name}</strong><Link className="text-link" href={`/fields?farm=${encodeURIComponent(farm.id)}`}>Open Farm <span aria-hidden="true">→</span></Link></li>)}</ul>
     </section>
     <section className="profile-relationships">
-      <h3>Reviewed relationships</h3>
-      {profile.relationships?.length
-        ? <ul>{profile.relationships.map((relationship, index) => <li key={`${relationship.scope_type}-${relationship.starts_on}-${index}`}><strong>{roleName(relationship.role)}</strong><span>{relationship.scope_name} · since {relationship.starts_on}</span></li>)}</ul>
-        : <p>No active reviewed grower relationship is recorded.</p>}
+      <h3>Reviewed assignments</h3>
+      <ul>{profile.assignments.map((assignment) => <li key={`${assignment.farm_id}-${assignment.field_id}-${assignment.role}`}><strong>{roleName(assignment.role)}</strong><span>{assignment.field_name} · {assignment.farm_name} · since {assignment.starts_on}</span></li>)}</ul>
     </section>
   </div>;
 }
@@ -1035,7 +1096,7 @@ function ActionsView({ t, portfolio, trackwick }: { t: Translation; portfolio: P
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
-  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.task_type}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
+  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
 }
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
