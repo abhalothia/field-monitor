@@ -125,6 +125,34 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         ],
         status="published",
     )
+    visit_task = ffl_db.execute(
+        "SELECT id FROM trackwick_tasks WHERE source_id = ? AND provider_task_id = 'visit-1'",
+        (source.id,),
+    ).fetchone()
+    ffl_db.execute(
+        """INSERT INTO trackwick_visits (
+            task_id, source_id, observed_at, kit_status, source_fingerprint, mapping_version,
+            data_quality_status, first_seen_at, last_seen_at, created_at
+        ) VALUES (?, ?, ?, 'unknown', ?, ?, 'valid', ?, ?, ?)""",
+        (
+            visit_task["id"], source.id, "2026-08-03T15:30:00+05:30", "b" * 64,
+            PRIVATE_EVIDENCE_MAPPING_VERSION, "2026-08-03T15:30:00+05:30",
+            "2026-08-03T15:30:00+05:30", "2026-08-03T15:30:00+05:30",
+        ),
+    )
+    ffl_db.execute(
+        """INSERT INTO trackwick_visit_findings (
+            id, visit_task_id, source_id, finding_kind, reported_value, source_field,
+            declared_severity, observed_at, source_fingerprint, mapping_version,
+            data_quality_status, first_seen_at, last_seen_at, created_at
+        ) VALUES ('finding-1', ?, ?, 'disease', 'PRIVATE DISEASE VALUE 7731',
+                  'private source field', 'high', ?, ?, ?, 'valid', ?, ?, ?)""",
+        (
+            visit_task["id"], source.id, "2026-08-03T15:30:00+05:30", "a" * 64,
+            PRIVATE_EVIDENCE_MAPPING_VERSION, "2026-08-03T15:30:00+05:30",
+            "2026-08-03T15:30:00+05:30", "2026-08-03T15:30:00+05:30",
+        ),
+    )
 
     board = manager_board_for_source(ffl_db, source_key=source.source_key)
     serialized = repr(board)
@@ -173,7 +201,7 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     safe_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
     safe_serialized = repr(safe_board).lower()
     assert set(safe_board) == {
-        "source", "counts", "farms", "farmers", "field_workers", "inbox", "limitations",
+        "source", "counts", "farms", "farmers", "field_workers", "signals", "inbox", "limitations",
     }
     assert set(safe_board["farms"][0]) == {
         "id", "farmer_name", "place", "reported_area_acres", "reported_plot_count",
@@ -192,10 +220,17 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "latest_activity_at": "2026-08-03T15:30:00+05:30",
         "latest_attendance_on": "2026-08-03",
     }]
+    assert safe_board["signals"] == [{
+        "id": "finding-1",
+        "finding_kind": "disease",
+        "declared_severity": "high",
+        "observed_at": "2026-08-03T15:30:00+05:30",
+        "farmer_name": "Ramesh Kumar",
+    }]
     assert safe_board["inbox"][0]["label"] == "TrackWick source work"
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
-    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333"):
+    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333", "private disease value 7731", "private source field"):
         assert forbidden not in safe_serialized
 
     # Production's populated source cache can predate the typed task table.

@@ -827,6 +827,9 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert 'session: { authenticated: false }' in source
     assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
     assert "Reported event with ${severity} declared severity. This is not a diagnosis." in source
+    assert "Disease &amp; pest reports" in source
+    assert "Filter reported field signals" in source
+    assert "A report is not a diagnosis, verified field attribution, or AGRO CEO action." in source
     assert "PersonContextPanel" in source
     assert "FieldRecordPanel" in source
     assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source

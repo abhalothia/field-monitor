@@ -212,6 +212,11 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .profile-error { color: #8b402c; }
 .reported-field-workers { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }
 .reported-field-workers .surface-heading { margin-bottom: 12px; }
+.reported-signal-queue { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }
+.reported-signal-queue .surface-heading { margin-bottom: 12px; }
+.signal-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.signal-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
+.signal-filters input, .signal-filters select { width: 100%; min-height: 40px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
 
 .farm-directory { max-width: 1120px; }
 .directory-filters { display: grid; grid-template-columns: minmax(130px, .72fr) minmax(210px, 1.45fr) minmax(145px, .9fr) minmax(145px, .9fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }
@@ -311,6 +316,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .person-row { align-items: flex-start; flex-wrap: wrap; }
   .person-row .profile-open, .person-row .profile-locked { flex-basis: calc(100% - 46px); margin-left: 46px; }
   .profile-facts > div { grid-template-columns: 1fr; gap: 4px; }
+  .signal-filters { grid-template-columns: 1fr 1fr; }
   .settings-rows > div { grid-template-columns: 1fr; gap: 3px; }
   .account-form { grid-template-columns: 1fr; }
   .account-list li { grid-template-columns: minmax(0, 1fr) auto; }

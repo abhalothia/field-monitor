@@ -118,6 +118,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         latest_party_location,
     )
     worker_rows = _worker_rows(workers, tasks_by_worker, latest_worker_day)
+    signal_rows = _reported_signal_rows(conn, source.id, party_by_id)
     inbox_rows = _inbox_rows(tasks, party_by_id)
     map_points, map_truncated = _map_points(
         locations,
@@ -140,6 +141,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         "farms": farm_rows,
         "farmers": farmer_rows,
         "field_workers": worker_rows,
+        "signals": signal_rows,
         "inbox": inbox_rows,
         "map": {
             "points": map_points,
@@ -170,6 +172,7 @@ def _empty_board(state: str) -> dict[str, Any]:
         "farms": [],
         "farmers": [],
         "field_workers": [],
+        "signals": [],
         "inbox": [],
         "map": {
             "points": [],
@@ -194,6 +197,7 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
         "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
         "field_workers": [{key: row.get(key) for key in ("id", "name", "reported_farmer_reach", "open_work", "completed_work", "latest_activity_at", "latest_attendance_on")} for row in board["field_workers"]],
+        "signals": [{key: row.get(key) for key in ("id", "finding_kind", "declared_severity", "observed_at", "farmer_name")} for row in board["signals"]],
         "inbox": [{
             "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
             **{key: row.get(key) for key in ("status", "farmer_name", "follow_up_at", "opened_at")},
@@ -292,6 +296,41 @@ def _source_work_rows(
             "provider_follow_up_at": None,
         }
     return list(latest.values())
+
+
+def _reported_signal_rows(
+    conn, source_id: str, parties: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return the latest declared source signals without a diagnosis or raw values."""
+    if not (
+        source_relation_exists(conn, "trackwick_tasks")
+        and source_relation_exists(conn, "trackwick_visit_findings")
+    ):
+        return []
+    rows = conn.execute(
+        """SELECT finding.id, finding.finding_kind, finding.declared_severity,
+                  finding.observed_at, task.farmer_party_id
+           FROM trackwick_visit_findings AS finding
+           JOIN trackwick_tasks AS task ON task.id = finding.visit_task_id
+           WHERE finding.source_id = ?
+             AND finding.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid'
+           ORDER BY finding.observed_at DESC, finding.id DESC
+           LIMIT 100""",
+        (source_id,),
+    ).fetchall()
+    return [{
+        "id": row["id"],
+        "finding_kind": row["finding_kind"],
+        "declared_severity": row["declared_severity"],
+        "observed_at": row["observed_at"],
+        "farmer_name": (
+            parties[str(row["farmer_party_id"])]["display_name"]
+            if row["farmer_party_id"] and str(row["farmer_party_id"]) in parties
+            else None
+        ),
+        "record_kind": "reported_field_signal",
+    } for row in rows]
 
 
 def _group_by(rows: Iterable[Mapping[str, Any]], key: str) -> dict[str, list[Mapping[str, Any]]]:
