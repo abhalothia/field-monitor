@@ -129,6 +129,33 @@ def test_password_session_rechecks_role_and_is_invalidated_when_account_is_suspe
     assert manager.status_code == 401
 
 
+def test_signed_in_person_can_rotate_their_own_password_and_old_sessions_are_invalidated(tmp_path):
+    app, _admin, _worker = _app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/identity/login",
+            json={"login_id": "farm.admin", "password": "correct-horse-identity"},
+        ).status_code == 200
+        changed = client.post(
+            "/api/v1/identity/password",
+            json={"current_password": "correct-horse-identity", "new_password": "replacement-safe-password"},
+        )
+        client.post("/api/v1/identity/logout")
+        old = client.post(
+            "/api/v1/identity/login",
+            json={"login_id": "farm.admin", "password": "correct-horse-identity"},
+        )
+        new = client.post(
+            "/api/v1/identity/login",
+            json={"login_id": "farm.admin", "password": "replacement-safe-password"},
+        )
+
+    assert changed.json() == {"status": "password_changed", "expires_at": 29_800}
+    assert old.status_code == 401
+    assert new.status_code == 200
+
+
 def test_password_identity_migration_is_private_hashed_and_runtime_only():
     sql = MIGRATION.read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS agro_password_identities" in sql

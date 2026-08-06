@@ -237,6 +237,30 @@ def authenticate_password_identity(conn, *, login_id: str, password: str):
     return row
 
 
+def change_password_identity(
+    conn, *, identity_id: str, current_password: str, new_password: str,
+) -> int:
+    """Rotate one signed-in person's password and invalidate old sessions."""
+
+    row = _identity_row(conn, identity_id)
+    if (
+        row is None
+        or row["identity_status"] != "active"
+        or not password_matches(row["password_hash"], current_password)
+    ):
+        raise PasswordIdentityError("current password was not accepted")
+    replacement_hash = password_hash(new_password)
+    next_version = row["password_version"] + 1
+    conn.execute(
+        """UPDATE password_identities
+           SET password_hash = ?, password_version = ?, password_changed_at = ?
+           WHERE id = ? AND password_version = ?""",
+        (replacement_hash, next_version, _now_iso(), identity_id, row["password_version"]),
+    )
+    conn.commit()
+    return next_version
+
+
 def provision_password_identity(
     conn, *, actor_person_id: str, access_role: str, login_id: str, temporary_password: str,
     person_id: Optional[str] = None, person_name: Optional[str] = None, operational_role: Optional[str] = None,

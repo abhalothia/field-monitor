@@ -13,6 +13,7 @@ from ffl.password_identity import (
     active_password_principal,
     authenticate_password_identity,
     begin_password_identity_session,
+    change_password_identity,
     list_password_identities,
     provision_password_identity,
 )
@@ -37,6 +38,13 @@ class PasswordIdentityProvisionRequest(BaseModel):
     person_id: str | None = Field(default=None, min_length=1, max_length=128)
     person_name: str | None = Field(default=None, min_length=2, max_length=160)
     operational_role: str | None = Field(default=None, min_length=3, max_length=64)
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
 
 
 def _connection(request: Request):
@@ -102,6 +110,29 @@ def password_session(request: Request) -> dict:
         "next_path": "/home" if principal.is_manager else "/field-work" if principal.access_role == "field_worker" else "/farmer",
         "expires_at": principal.expires_at,
     }
+
+
+@router.post("/identity/password")
+def change_password(payload: PasswordChangeRequest, request: Request) -> dict:
+    """Rotate the signed-in person's own password; never accepts a person id."""
+
+    principal = _principal_or_401(request)
+    try:
+        next_version = change_password_identity(
+            _connection(request), identity_id=principal.identity_id,
+            current_password=payload.current_password, new_password=payload.new_password,
+        )
+    except PasswordIdentityUnavailable as error:
+        raise _unavailable(error) from error
+    except PasswordIdentityError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    request.session.clear()
+    expires_at = begin_password_identity_session(
+        request.app, request.session, identity_id=principal.identity_id, password_version=next_version,
+    )
+    if principal.is_manager:
+        request.session[SESSION_FLAG] = True
+    return {"status": "password_changed", "expires_at": expires_at}
 
 
 @router.get("/my/overview")

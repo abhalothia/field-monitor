@@ -281,6 +281,7 @@ def create_app(database_path: Optional[str] = None, communication_provider=None,
             "/api/v1/identity/login",
             "/api/v1/identity/logout",
             "/api/v1/identity/session",
+            "/api/v1/identity/password",
             "/api/v1/my/overview",
         }
         portal_public_paths = {

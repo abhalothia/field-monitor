@@ -392,8 +392,41 @@ function SettingsView({ t, state, managerSecret, setManagerSecret, managerBusy, 
       <div><strong>Data</strong><span>{state.readiness ? `${state.readiness.progress.completed} of ${state.readiness.progress.total} first records are confirmed.` : "Not available."}</span></div>
       <div><strong>Messaging</strong><span>{communications?.status === "ready" ? "Ready for reviewed requests." : "Paused until the dedicated WhatsApp gate is complete."}</span></div>
     </div>
-    {session?.authenticated ? <><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <details className="bootstrap-access"><summary>Use temporary admin setup access</summary><form className="manager-form" onSubmit={submit}><label htmlFor="manager-secret">Manager setup secret</label><input id="manager-secret" type="password" autoComplete="off" value={managerSecret} onChange={(event) => setManagerSecret(event.target.value)} required /><button className="primary-action" disabled={managerBusy}>{managerBusy ? "Opening…" : t.unlock}</button>{managerError ? <p className="form-error" role="alert">{managerError}</p> : null}</form></details>}
+    {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <details className="bootstrap-access"><summary>Use temporary admin setup access</summary><form className="manager-form" onSubmit={submit}><label htmlFor="manager-secret">Manager setup secret</label><input id="manager-secret" type="password" autoComplete="off" value={managerSecret} onChange={(event) => setManagerSecret(event.target.value)} required /><button className="primary-action" disabled={managerBusy}>{managerBusy ? "Opening…" : t.unlock}</button>{managerError ? <p className="form-error" role="alert">{managerError}</p> : null}</form></details>}
   </section>;
+}
+
+function PasswordChanger() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setStatus(null);
+    try {
+      const response = await fetch("/api/v1/identity/password", {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+      if (!response.ok) throw new Error(payload?.detail || "Password could not be changed.");
+      setCurrentPassword(""); setNewPassword(""); setStatus("Password changed.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Password could not be changed.");
+    } finally { setBusy(false); }
+  }
+
+  return <details className="password-changer">
+    <summary>Change my password</summary>
+    <form className="account-form" onSubmit={submitPassword}>
+      <label htmlFor="current-password">Current password<input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+      <label htmlFor="new-password">New password<input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} required /></label>
+      <button className="primary-action" disabled={busy}>{busy ? "Changing…" : "Change password"} <span aria-hidden="true">→</span></button>
+    </form>
+    {status ? <p className="form-error" role="status">{status}</p> : null}
+  </details>;
 }
 
 function AccountManager() {
