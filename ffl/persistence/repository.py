@@ -89,6 +89,32 @@ class FarmTruthConflict(ValueError):
 
 
 @dataclass(frozen=True)
+class Farm:
+    """A reviewed canonical farm within one operating unit."""
+
+    id: str
+    operating_unit_id: str
+    name: str
+    status: str
+    reviewed_by_person_id: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class FarmField:
+    """A reviewed, time-bounded association between a farm and a field."""
+
+    id: str
+    farm_id: str
+    operational_block_id: str
+    starts_on: str
+    ends_on: Optional[str]
+    status: str
+    reviewed_by_person_id: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class FarmTruthReviewCase:
     """Private review state joining one source registration to one source plot."""
 
@@ -269,6 +295,20 @@ def _crop_allocation(row: sqlite3.Row) -> CropAllocation:
 
 def _person(row: sqlite3.Row) -> Person:
     return Person(row["id"], row["name"], row["role"], row["created_at"])
+
+
+def _farm(row: sqlite3.Row) -> Farm:
+    return Farm(
+        row["id"], row["operating_unit_id"], row["name"], row["status"],
+        row["reviewed_by_person_id"], row["created_at"],
+    )
+
+
+def _farm_field(row: sqlite3.Row) -> FarmField:
+    return FarmField(
+        row["id"], row["farm_id"], row["operational_block_id"], row["starts_on"],
+        row["ends_on"], row["status"], row["reviewed_by_person_id"], row["created_at"],
+    )
 
 
 def _person_operating_relationship(row: sqlite3.Row) -> PersonOperatingRelationship:
@@ -522,6 +562,131 @@ def get_operating_unit(conn: sqlite3.Connection, operating_unit_id: str) -> Opti
 def get_person(conn: sqlite3.Connection, person_id: str) -> Optional[Person]:
     row = conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
     return _person(row) if row is not None else None
+
+
+def create_farm(
+    conn: sqlite3.Connection, operating_unit_id: str, name: str, reviewed_by_person_id: str,
+) -> Farm:
+    """Create an active farm only after its operating unit and reviewer exist."""
+    operating_unit_id = _required_text(operating_unit_id, "operating_unit_id", 128)
+    if get_operating_unit(conn, operating_unit_id) is None:
+        raise ValueError("operating unit does not exist")
+    reviewed_by_person_id = _required_text(reviewed_by_person_id, "reviewed_by_person_id", 128)
+    if get_person(conn, reviewed_by_person_id) is None:
+        raise ValueError("reviewed_by_person_id does not exist")
+    name = _required_text(name, "name")
+    identifier, created_at = _new_identity()
+    conn.execute(
+        """INSERT INTO farms
+           (id, operating_unit_id, name, status, reviewed_by_person_id, created_at)
+           VALUES (?, ?, ?, 'active', ?, ?)""",
+        (identifier, operating_unit_id, name, reviewed_by_person_id, created_at),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM farms WHERE id = ?", (identifier,)).fetchone()
+    return _farm(row)  # type: ignore[arg-type]
+
+
+def assign_field_to_farm(
+    conn: sqlite3.Connection, farm_id: str, operational_block_id: str, starts_on: str,
+    reviewed_by_person_id: str,
+) -> FarmField:
+    """Start one reviewed field membership, leaving uniqueness to the schema."""
+    farm_id = _required_text(farm_id, "farm_id", 128)
+    farm_row = conn.execute("SELECT * FROM farms WHERE id = ?", (farm_id,)).fetchone()
+    if farm_row is None:
+        raise ValueError("farm does not exist")
+    if farm_row["status"] != "active":
+        raise ValueError("farm must be active")
+    operational_block_id = _required_text(operational_block_id, "operational_block_id", 128)
+    if conn.execute(
+        "SELECT 1 FROM operational_blocks WHERE id = ?", (operational_block_id,)
+    ).fetchone() is None:
+        raise ValueError("operational block does not exist")
+    starts_on = _require_iso_date(starts_on, "starts_on")
+    reviewed_by_person_id = _required_text(reviewed_by_person_id, "reviewed_by_person_id", 128)
+    if get_person(conn, reviewed_by_person_id) is None:
+        raise ValueError("reviewed_by_person_id does not exist")
+    identifier, created_at = _new_identity()
+    conn.execute(
+        """INSERT INTO farm_fields
+           (id, farm_id, operational_block_id, starts_on, ends_on, status,
+            reviewed_by_person_id, created_at)
+           VALUES (?, ?, ?, ?, NULL, 'active', ?, ?)""",
+        (identifier, farm_id, operational_block_id, starts_on, reviewed_by_person_id, created_at),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM farm_fields WHERE id = ?", (identifier,)).fetchone()
+    return _farm_field(row)  # type: ignore[arg-type]
+
+
+def end_farm_field_assignment(
+    conn: sqlite3.Connection, farm_field_id: str, ends_on: str, reviewed_by_person_id: str,
+) -> FarmField:
+    """End exactly one active membership; historical rows stay immutable."""
+    farm_field_id = _required_text(farm_field_id, "farm_field_id", 128)
+    row = conn.execute("SELECT * FROM farm_fields WHERE id = ?", (farm_field_id,)).fetchone()
+    if row is None:
+        raise ValueError("farm field assignment does not exist")
+    if row["status"] != "active":
+        raise ValueError("farm field assignment is not active")
+    ends_on = _require_iso_date(ends_on, "ends_on")
+    if date.fromisoformat(ends_on) < date.fromisoformat(row["starts_on"]):
+        raise ValueError("ends_on must be on or after starts_on")
+    reviewed_by_person_id = _required_text(reviewed_by_person_id, "reviewed_by_person_id", 128)
+    if get_person(conn, reviewed_by_person_id) is None:
+        raise ValueError("reviewed_by_person_id does not exist")
+    conn.execute(
+        """UPDATE farm_fields
+           SET ends_on = ?, status = 'ended', reviewed_by_person_id = ?
+           WHERE id = ? AND status = 'active'""",
+        (ends_on, reviewed_by_person_id, farm_field_id),
+    )
+    conn.commit()
+    updated = conn.execute("SELECT * FROM farm_fields WHERE id = ?", (farm_field_id,)).fetchone()
+    return _farm_field(updated)  # type: ignore[arg-type]
+
+
+def list_active_farm_fields(conn: sqlite3.Connection, farm_id: str) -> List[FarmField]:
+    farm_id = _required_text(farm_id, "farm_id", 128)
+    rows = conn.execute(
+        """SELECT * FROM farm_fields WHERE farm_id = ? AND status = 'active'
+           ORDER BY starts_on, created_at, id""",
+        (farm_id,),
+    ).fetchall()
+    return [_farm_field(row) for row in rows]
+
+
+def list_people_for_farm(conn: sqlite3.Connection, farm_id: str) -> List[Person]:
+    """Return reviewed active field and allocation roles for one active farm.
+
+    TrackWick source parties and tasks are intentionally absent from this
+    query: only reviewed canonical operating relationships establish this view.
+    """
+    farm_id = _required_text(farm_id, "farm_id", 128)
+    rows = conn.execute(
+        """SELECT DISTINCT people.id, people.name, relationships.role, people.created_at
+           FROM farm_fields
+           JOIN person_operating_relationships AS relationships
+             ON relationships.status = 'active'
+            AND relationships.reviewed_by_person_id IS NOT NULL
+            AND (
+                (relationships.scope_type = 'operational_block'
+                 AND relationships.operational_block_id = farm_fields.operational_block_id)
+                OR
+                (relationships.scope_type = 'crop_allocation'
+                 AND relationships.crop_allocation_id IN (
+                     SELECT crop_allocations.id
+                     FROM crop_allocations
+                     WHERE crop_allocations.operational_block_id = farm_fields.operational_block_id
+                 ))
+            )
+           JOIN people ON people.id = relationships.person_id
+           WHERE farm_fields.farm_id = ? AND farm_fields.status = 'active'
+           ORDER BY people.name, relationships.role, people.id""",
+        (farm_id,),
+    ).fetchall()
+    return [_person(row) for row in rows]
 
 
 def _required_text(value: object, name: str, maximum: int = 200) -> str:
