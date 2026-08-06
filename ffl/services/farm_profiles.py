@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from ffl.services.trackwick_board import manager_board_for_source
+from ffl.services.trackwick_board import command_centre_board_for_source
 
 
 _FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field signals only."
@@ -34,6 +34,7 @@ def farm_profile(conn, block_id: str) -> dict[str, Any] | None:
         "current": _current_crop(allocations),
         "people": _reviewed_people_for_block(conn, block["id"], allocations),
         "work": _reviewed_work_for_allocations(conn, [row["id"] for row in allocations]),
+        "open_work_count": _open_work_count_for_allocations(conn, [row["id"] for row in allocations]),
         "location": _published_geometry_state(conn, block["id"]),
         "record": _reviewed_field_record(conn, block["id"]),
     }
@@ -44,7 +45,7 @@ def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
     person = conn.execute(
         "SELECT id, name FROM people WHERE id = ?", (person_id,)
     ).fetchone()
-    if person is None:
+    if person is None or not _has_reviewed_grower_relationship(conn, person_id):
         return None
 
     relationships = _reviewed_relationships_for_person(conn, person["id"])
@@ -61,7 +62,7 @@ def farmer_profile(conn, person_id: str) -> dict[str, Any] | None:
 def reported_farm_profile(conn, candidate_id: str) -> dict[str, Any] | None:
     """Return safe reported candidate context without a source location."""
     row = next(
-        (item for item in manager_board_for_source(conn)["farms"] if item["id"] == candidate_id),
+        (item for item in command_centre_board_for_source(conn)["farms"] if item["id"] == candidate_id),
         None,
     )
     if row is None:
@@ -81,7 +82,7 @@ def reported_farm_profile(conn, candidate_id: str) -> dict[str, Any] | None:
 def reported_farmer_profile(conn, party_id: str) -> dict[str, Any] | None:
     """Return safe reported farmer context without creating a login claim."""
     row = next(
-        (item for item in manager_board_for_source(conn)["farmers"] if item["id"] == party_id),
+        (item for item in command_centre_board_for_source(conn)["farmers"] if item["id"] == party_id),
         None,
     )
     if row is None:
@@ -121,7 +122,7 @@ def _reviewed_people_for_block(
 ) -> list[dict[str, Any]]:
     allocation_ids = [row["id"] for row in allocations]
     allocation_predicate = "0 = 1"
-    params: list[Any] = [block_id, block_id]
+    params: list[Any] = [block_id, block_id, block_id]
     if allocation_ids:
         placeholders = ", ".join("?" for _ in allocation_ids)
         allocation_predicate = "relationship.crop_allocation_id IN (" + placeholders + ")"
@@ -132,26 +133,28 @@ def _reviewed_people_for_block(
            JOIN people AS person ON person.id = relationship.person_id
            WHERE relationship.status = 'active'
              AND relationship.reviewed_by_person_id IS NOT NULL
+             AND relationship.role IN ('grower', 'field_operator')
              AND (
                  relationship.operational_block_id = ?
                  OR relationship.land_parcel_id IN (
                      SELECT land_parcel_id FROM block_parcels
                      WHERE operational_block_id = ?
                  )
+                 OR relationship.operating_unit_id = ?
                  OR """ + allocation_predicate + """
              )
            ORDER BY relationship.starts_on, person.name, relationship.role, relationship.id""",
         tuple(params),
     ).fetchall()
-    return [
-        {
+    unique: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        unique.setdefault(row["id"], {
             "id": row["id"],
             "name": row["name"],
             "role": row["role"],
             "starts_on": row["starts_on"],
-        }
-        for row in rows
-    ]
+        })
+    return list(unique.values())
 
 
 def _reviewed_work_for_allocations(conn, allocation_ids: Sequence[str]) -> list[dict[str, Any]]:
@@ -162,6 +165,7 @@ def _reviewed_work_for_allocations(conn, allocation_ids: Sequence[str]) -> list[
         """SELECT id, title, status
            FROM work_items
            WHERE allocation_id IN (""" + placeholders + """)
+             AND status IN ('planned', 'in_progress', 'blocked', 'submitted', 'rejected')
            ORDER BY id""",
         tuple(allocation_ids),
     ).fetchall()
@@ -221,6 +225,7 @@ def _reviewed_relationships_for_person(conn, person_id: str) -> list[dict[str, s
              ON allocation_block.id = allocation.operational_block_id
            WHERE relationship.person_id = ? AND relationship.status = 'active'
              AND relationship.reviewed_by_person_id IS NOT NULL
+             AND relationship.role = 'grower'
            ORDER BY relationship.starts_on, relationship.role, relationship.id""",
         (person_id,),
     ).fetchall()
@@ -242,6 +247,7 @@ def _linked_farms_for_reviewed_relationships(conn, person_id: str) -> list[dict[
                       operational_block_id, crop_allocation_id
                FROM person_operating_relationships
                WHERE person_id = ? AND status = 'active' AND reviewed_by_person_id IS NOT NULL
+                 AND role = 'grower'
            ), linked_blocks(block_id) AS (
                SELECT operational_block_id FROM reviewed_relationships
                WHERE scope_type = 'operational_block'
@@ -281,6 +287,14 @@ def _linked_farms_for_reviewed_relationships(conn, person_id: str) -> list[dict[
     return farms
 
 
+def _has_reviewed_grower_relationship(conn, person_id: str) -> bool:
+    return conn.execute(
+        """SELECT 1 FROM person_operating_relationships
+           WHERE person_id = ? AND status = 'active' AND reviewed_by_person_id IS NOT NULL
+             AND role = 'grower' LIMIT 1""", (person_id,),
+    ).fetchone() is not None
+
+
 def _open_work_count_for_allocations(conn, allocation_ids: Sequence[str]) -> int:
     if not allocation_ids:
         return 0
@@ -307,11 +321,8 @@ def _reported_farm_summary(row: Mapping[str, Any]) -> dict[str, Any]:
         for key in (
             "farmer_name",
             "place",
-            "registration_status",
             "reported_area_acres",
             "reported_plot_count",
-            "pb1_area_acres",
-            "var1718_area_acres",
             "open_work",
             "latest_activity_at",
             "plot_photo_references",

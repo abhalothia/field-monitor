@@ -303,3 +303,19 @@ def test_command_centre_renders_profile_context_without_field_worker_surface():
     assert "Linked farms" in source
     assert "Field record" in source
     assert "item.field_worker_name" not in source
+    assert 'readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board")' in source
+    assert '"/api/v1/trackwick/board"' not in source
+    assert "reviewed_farms" in source
+    assert 'href="/actions">Open actions' in source
+    assert 'session: { authenticated: false }' in source
+    assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
+    assert 'selection={profileSelection?.kind === "farm" ? profileSelection : null}' in source
+
+
+def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):
+    person = repository.create_person(ffl_db, "Not a grower", "operations_lead")
+    repository.create_person_operating_relationship(
+        ffl_db, person.id, "crop_allocation", crop_allocation.id, "field_operator", "2026-06-01",
+        reviewed_by_person_id=users.manager.id,
+    )
+    assert farm_profiles.farmer_profile(ffl_db, person.id) is None

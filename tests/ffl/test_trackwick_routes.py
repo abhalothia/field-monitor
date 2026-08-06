@@ -44,3 +44,26 @@ def test_trackwick_refresh_without_server_configuration_is_safe(tmp_path):
         "valid_count": 0,
         "quarantined_count": 0,
     }
+
+
+def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
+    app = create_app(str(tmp_path / "command-centre-board.db"), manager_api_token="manager-secret")
+    with TestClient(app) as client:
+        manager = repository.create_person(app.state.conn, "Fortune COO", "operations_lead")
+        app.state.manager_person_id = manager.id
+        denied = client.get("/api/v1/trackwick/command-centre-board")
+        allowed = client.get(
+            "/api/v1/trackwick/command-centre-board",
+            headers={"X-FFL-Manager-Token": "manager-secret"},
+        )
+        legacy_board = client.get(
+            "/api/v1/trackwick/board",
+            headers={"X-FFL-Manager-Token": "manager-secret"},
+        )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+    assert legacy_board.status_code == 200
+    serialized = repr([allowed.json(), legacy_board.json()]).lower()
+    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "field_worker", "registration_status", "pb1", "1718"):
+        assert forbidden not in serialized

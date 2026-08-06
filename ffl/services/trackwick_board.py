@@ -189,6 +189,19 @@ def _empty_board(state: str) -> dict[str, Any]:
     }
 
 
+def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str, Any]:
+    """Literal allowlist for every browser-facing TrackWick board response."""
+    board = manager_board_for_source(conn, source_key=source_key)
+    return {
+        "source": {"state": board["source"]["state"], "last_synced_at": board["source"]["last_synced_at"]},
+        "counts": {key: board["counts"][key] for key in ("farmers", "farm_candidates", "open_work", "crop_photo_references", "plot_photo_references")},
+        "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
+        "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
+        "inbox": [{key: row.get(key) for key in ("id", "task_type", "status", "farmer_name", "follow_up_at", "opened_at")} for row in board["inbox"]],
+        "limitations": ["Reported farm candidates require Fortune review before they become canonical farms.", "Photo counts are references only; image files and links remain private."],
+    }
+
+
 def _latest_source_run(conn, source_id: str) -> Optional[Mapping[str, Any]]:
     row = conn.execute(
         """SELECT status, fetched_at FROM source_runs

@@ -152,7 +152,8 @@ def _runtime_person_relationships(conn, operating_unit_id: str) -> dict:
                  ON allocation.id = relationships.crop_allocation_id
                LEFT JOIN operational_blocks AS allocation_block
                  ON allocation_block.id = allocation.operational_block_id
-               WHERE relationships.status = 'active' AND (
+               WHERE relationships.status = 'active'
+                 AND relationships.reviewed_by_person_id IS NOT NULL AND (
                  relationships.operating_unit_id = ? OR parcel.operating_unit_id = ?
                  OR block.operating_unit_id = ? OR allocation.operating_unit_id = ?
                )
@@ -188,12 +189,17 @@ def get_runtime(request: Request) -> dict:
             (operating_unit["id"],),
         ).fetchall()
     ]
+    reviewed_farms = [dict(block) for block in conn.execute(
+        """SELECT id, name FROM operational_blocks
+           WHERE operating_unit_id = ? ORDER BY name, id""", (operating_unit["id"],)
+    ).fetchall()]
     allocation_ids = [allocation["id"] for allocation in allocations]
     if not allocation_ids:
         return {
             "operating_unit": operating_unit,
             "people": people,
             "allocations": [],
+            "reviewed_farms": reviewed_farms,
             "work_items": [],
             "exceptions": [],
             "latest_field_update": None,
@@ -219,6 +225,7 @@ def get_runtime(request: Request) -> dict:
         "operating_unit": operating_unit,
         "people": people,
         "allocations": allocations,
+        "reviewed_farms": reviewed_farms,
         "work_items": work_items,
         "exceptions": exceptions,
         "latest_field_update": dict(latest_field_update) if latest_field_update is not None else None,

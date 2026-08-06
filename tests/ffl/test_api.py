@@ -82,6 +82,17 @@ def test_runtime_shows_only_active_safe_relationship_summaries_for_its_operating
     assert relationship.reviewed_by_person_id not in repr(summary)
 
 
+def test_runtime_lists_reviewed_farms_even_without_an_active_allocation(seeded_client):
+    connection = seeded_client.client.app.state.conn
+    connection.execute("UPDATE crop_allocations SET status = 'completed'")
+    connection.commit()
+
+    runtime = seeded_client.client.get("/api/v1/runtime").json()
+
+    assert runtime["allocations"] == []
+    assert runtime["reviewed_farms"] == [{"id": runtime["reviewed_farms"][0]["id"], "name": "North Block"}]
+
+
 def test_runtime_exposes_only_safe_latest_field_update_metadata(seeded_client):
     connection = seeded_client.client.app.state.conn
     template = templates.publish_signal_template(

@@ -52,6 +52,7 @@ type Runtime = {
     operational_block_name?: string;
     status: string;
   }>;
+  reviewed_farms: Array<{ id: string; name: string }>;
   work_items: Array<{ id: string; title: string; status: string; allocation_id?: string }>;
   exceptions: Array<{ id: string; title: string; severity?: string; status: string; allocation_id?: string }>;
   person_operating_relationships?: {
@@ -94,20 +95,11 @@ type TrackwickFarmer = {
   latest_activity_at?: string | null;
   crop_photo_references: number;
 };
-type TrackwickWorker = {
-  id: string;
-  name: string;
-  open_work: number;
-  completed_work: number;
-  latest_activity_at?: string | null;
-  latest_attendance?: { observed_on: string; status: string } | null;
-};
 type TrackwickWork = {
   id: string;
   task_type: string;
   status: string;
   farmer_name?: string | null;
-  field_worker_name?: string | null;
   follow_up_at?: string | null;
   opened_at?: string | null;
 };
@@ -116,15 +108,12 @@ type TrackwickBoard = {
   counts: {
     farmers: number;
     farm_candidates: number;
-    field_workers: number;
     open_work: number;
-    source_points: number;
     crop_photo_references: number;
     plot_photo_references: number;
   };
   farms: TrackwickFarm[];
   farmers: TrackwickFarmer[];
-  field_workers: TrackwickWorker[];
   inbox: TrackwickWork[];
 };
 type ReviewedFarmCard = {
@@ -162,6 +151,7 @@ type FarmProfile = {
   current?: { crop_name: string; cultivar?: string | null } | null;
   people?: Array<{ id: string; name: string; role: string; starts_on: string }>;
   work?: Array<{ id: string; title: string; due_at?: string | null; status: string }>;
+  open_work_count?: number;
   location?: { state: string };
   record?: { latest_observed_at?: string | null; limitation: string };
   reported?: {
@@ -206,6 +196,7 @@ type ProfileSelection = {
   loading: boolean;
   error: string | null;
   profile: FarmProfile | FarmerProfile | null;
+  reauth?: boolean;
 };
 
 type State = {
@@ -314,6 +305,9 @@ function isFarmer(role: string) {
 
 function reviewedFarmsFromRuntime(runtime: Runtime | null) {
   const farms = new Map<string, ReviewedFarmCard>();
+  for (const farm of runtime?.reviewed_farms || []) {
+    farms.set(farm.id, { id: farm.id, name: farm.name, status: "reviewed", crops: [] });
+  }
   for (const allocation of runtime?.allocations || []) {
     const id = allocation.operational_block_id;
     if (!id) continue;
@@ -326,7 +320,7 @@ function reviewedFarmsFromRuntime(runtime: Runtime | null) {
     farms.set(id, {
       id,
       name: allocation.operational_block_name || "Reviewed farm",
-      status: allocation.status,
+      status: "reviewed",
       crops: [crop],
     });
   }
@@ -351,7 +345,6 @@ export function CommandCentre({ view }: { view: View }) {
       readJson<DataLanes>("/api/v1/data-lanes"),
       readJson<ManagerSession>("/api/v1/manager-session/status"),
       readJson<PilotReadiness>("/api/v1/pilot/readiness"),
-      readJson<TrackwickBoard>("/api/v1/trackwick/board"),
       readJson<ProcurementHistory>("/api/v1/procurement-history/latest"),
     ]);
     const runtimeIsAwaitingFirstFarm = results[2].status === "rejected" && results[2].reason?.status === 404;
@@ -363,15 +356,19 @@ export function CommandCentre({ view }: { view: View }) {
       setState((current) => ({ ...current, loading: false, needsLaunchLogin: true }));
       return;
     }
+    const session = results[4].status === "fulfilled" ? results[4].value.value : null;
+    const trackwick = session?.authenticated
+      ? await readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value).catch(() => null)
+      : null;
     setState({
       profile: results[0].status === "fulfilled" ? results[0].value.value : null,
       portfolio: results[1].status === "fulfilled" ? results[1].value.value : null,
       runtime: results[2].status === "fulfilled" ? results[2].value.value : null,
       lanes: results[3].status === "fulfilled" ? results[3].value.value : null,
-      session: results[4].status === "fulfilled" ? results[4].value.value : null,
+      session,
       readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
-      trackwick: results[6].status === "fulfilled" ? results[6].value.value : null,
-      procurementHistory: results[7].status === "fulfilled" ? results[7].value.value : null,
+      trackwick,
+      procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : null,
       map: null,
       loading: false,
       needsLaunchLogin: false,
@@ -394,7 +391,7 @@ export function CommandCentre({ view }: { view: View }) {
     const peopleById = new Map((state.runtime?.people || []).map((person) => [person.id, person]));
     const rolesByPerson = new Map<string, Set<string>>();
     for (const relationship of state.runtime?.person_operating_relationships?.items || []) {
-      if (!isFarmer(relationship.role)) continue;
+      if (relationship.role !== "grower") continue;
       const roles = rolesByPerson.get(relationship.person_id) || new Set<string>();
       roles.add(relationship.role);
       rolesByPerson.set(relationship.person_id, roles);
@@ -421,7 +418,9 @@ export function CommandCentre({ view }: { view: View }) {
       }
     } catch (error) {
       if (request === profileRequest.current) {
-        setProfileSelection({ kind: "farm", loading: false, error: profileReadError(error), profile: null });
+        const reauth = profileReadError(error) === "Manager access expired.";
+        if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
+        setProfileSelection({ kind: "farm", loading: false, error: profileReadError(error), profile: null, reauth });
       }
     }
   }
@@ -440,7 +439,9 @@ export function CommandCentre({ view }: { view: View }) {
       }
     } catch (error) {
       if (request === profileRequest.current) {
-        setProfileSelection({ kind: "farmer", loading: false, error: profileReadError(error), profile: null });
+        const reauth = profileReadError(error) === "Manager access expired.";
+        if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
+        setProfileSelection({ kind: "farmer", loading: false, error: profileReadError(error), profile: null, reauth });
       }
     }
   }
@@ -497,8 +498,8 @@ export function CommandCentre({ view }: { view: View }) {
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
-      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} selection={state.session?.authenticated && profileSelection?.kind === "farm" ? profileSelection : null} openProfile={openFarmProfile} closeProfile={closeProfile} /> : null}
-      {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={state.session?.authenticated && profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
+      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farm" ? profileSelection : null} openProfile={openFarmProfile} closeProfile={closeProfile} /> : null}
+      {view === "farmers" ? <FarmersView farmers={farmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openFarmerProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
@@ -566,7 +567,7 @@ function FieldsView({ t, state, canOpenProfiles, selection, openProfile, closePr
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface fields-stage">
     <div className="surface-heading"><div><p className="eyebrow">{fields.length ? t.fieldMap : reportedFarms.length ? "Reported farm context" : t.fieldMap}</p><h2>{fields.length ? "Reviewed fields" : reportedFarms.length ? "Reported farms, ready for review" : "No field has been claimed yet."}</h2></div><span className="count-badge">{count(fields.length || reportedFarms.length)}</span></div>
-    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.name}</h3><p>{field.crops.join(" · ")}</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farm-${field.id}`} label={`Open ${field.name} profile`} text="Open profile" open={(openerId) => void openProfile(field.id, "reviewed", openerId)} /></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
+    {fields.length ? <div className="field-card-grid">{fields.map((field) => <article className="field-card" key={field.id}><span className="status-chip">{field.status}</span><h3>{field.name}</h3><p>{field.crops.join(" · ") || "No active crop recorded"}</p><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farm-${field.id}`} label={`Open ${field.name} profile`} text="Open profile" open={(openerId) => void openProfile(field.id, "reviewed", openerId)} /></article>)}</div> : reportedFarms.length ? <ReportedFarmCandidates farms={reportedFarms} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <EmptyState title={waitingForFarm ? "No reviewed field yet." : t.noData} detail={waitingForFarm ? "Field truth will appear here after a reported farm is reviewed. A purchase village or source pin never becomes a field by itself." : "Publish a reviewed farm record to make a field visible."} />}
     {state.session?.authenticated && verifiedFeatures.length ? <ReviewedGeometry features={verifiedFeatures} /> : null}
   </section>;
 }
@@ -627,7 +628,7 @@ function ProfileReading({ selection, close }: { selection: ProfileSelection; clo
     <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {selection.kind === "farm" ? "fields" : "farmers"}</button>
     {selection.loading
       ? <p className="profile-message" role="status">Reading this {subject} profile…</p>
-      : <p className="profile-message profile-error" role="alert">{selection.error}</p>}
+      : <p className="profile-message profile-error" role="alert">{selection.error} {selection.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>}
   </aside>;
 }
 
@@ -643,7 +644,7 @@ function ProfilePanel({ profile, close }: { profile: FarmProfile | FarmerProfile
       {reported
         ? <a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a>
         : profile.kind === "farm"
-          ? <Link className="primary-action" href="/actions">View farm work <span aria-hidden="true">→</span></Link>
+          ? <Link className="primary-action" href="/actions">Open actions <span aria-hidden="true">→</span></Link>
           : <a className="primary-action" href="/manager">Open in Farm Truth <span aria-hidden="true">→</span></a>}
     </div>
   </aside>;
@@ -669,7 +670,7 @@ function FarmProfileFacts({ profile }: { profile: FarmProfile }) {
     <dl className="profile-facts">
       <div><dt>Current crop</dt><dd>{crop}</dd></div>
       <div><dt>Reviewed growers</dt><dd>{profile.people?.length ? profile.people.map((person) => `${person.name} · ${roleName(person.role)}`).join(", ") : "None recorded"}</dd></div>
-      <div><dt>Open work</dt><dd>{count(profile.work?.filter((item) => item.status !== "completed").length)}</dd></div>
+      <div><dt>Open work</dt><dd>{count(profile.open_work_count)}</dd></div>
       <div><dt>Field map</dt><dd>{profile.location?.state === "not_published" ? "Not published" : profile.location?.state === "published" ? "Published" : "Not available"}</dd></div>
     </dl>
     <section className="profile-record">
@@ -855,7 +856,9 @@ function actionLine(item: LedgerItem) {
 
 function profileReadError(error: unknown) {
   const status = error instanceof Error ? (error as Error & { status?: number }).status : undefined;
-  return status === 404
+  return status === 403
+    ? "Manager access expired."
+    : status === 404
     ? "This profile is no longer available. Return to the list and refresh the operating record."
     : "This profile could not be read. Return to the list and try again.";
 }

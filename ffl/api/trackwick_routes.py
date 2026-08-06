@@ -65,8 +65,15 @@ def get_trackwick_health(request: Request, _manager_id: str = Depends(require_ma
 
 @router.get("/board")
 def get_trackwick_board(request: Request, _manager_id: str = Depends(require_manager)) -> dict:
-    """Return manager-only TrackWick work and spatial evidence primitives."""
-    return trackwick_board.manager_board_for_source(
+    """Return the browser-safe manager board, never private source primitives."""
+    return trackwick_board.command_centre_board_for_source(
+        _connection(request), source_key=trackwick_ingest.SOURCE_KEY
+    )
+
+
+@router.get("/command-centre-board")
+def get_command_centre_board(request: Request, _manager_id: str = Depends(require_manager)) -> dict:
+    return trackwick_board.command_centre_board_for_source(
         _connection(request), source_key=trackwick_ingest.SOURCE_KEY
     )
 

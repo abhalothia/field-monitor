@@ -458,7 +458,91 @@ git add db/postgres/0017_agro_profile_runtime_read_grants.sql ffl/services/farm_
 git commit -m "fix: grant safe profile runtime reads"
 ~~~
 
-### Task 6: Complete verification and deployment handoff
+### Task 6: Close the whole-branch safety and truth-boundary review
+
+**Files:**
+- Modify: ffl/services/trackwick_board.py
+- Modify: ffl/api/trackwick_routes.py
+- Modify: ffl/services/farm_profiles.py
+- Modify: ffl/api/routes.py
+- Modify: apps/web/components/command-centre.tsx
+- Modify: tests/ffl/test_trackwick_board.py
+- Modify: tests/ffl/test_farm_profile_routes.py
+- Modify: tests/ffl/test_api.py
+
+**Interfaces:**
+- Produces a manager-authorised, command-centre-safe TrackWick DTO. It must
+  contain only whitelisted reported labels, counts, and dates. Browser-facing
+  responses must not contain a map, location/coordinates, field-worker
+  material, provider tags/statuses/identifiers, raw registration/source-form
+  values, media URLs, contacts, or a source payload.
+- Runtime separately returns reviewed canonical operational blocks so a real
+  farm remains discoverable without an active crop allocation.
+
+- [x] **Step 1: Add failing regression tests for the browser boundary**
+
+Add an authenticated command-centre board route test that serializes the
+response and proves it omits `map`, `location`, `latitude`, `longitude`,
+`crm_status`, `provider_tag`, `field_worker`, and raw registration variants.
+Keep the exact whitelisted reported count/date semantics. Add a source-shell
+test that proves the Next command centre reads this safe endpoint rather than
+the private board route.
+
+- [x] **Step 2: Create an explicit safe source projection**
+
+Make a literal allowlist projection for the command-centre response (or safely
+replace the existing browser route) with only source state, safe aggregate
+counts, reported farms/farmers, and optionally redacted source inbox rows. Do
+not calculate or carry a location/map/worker/provider value into that DTO.
+The manager profile service may consume the safe projection for reported
+profiles; remove unapproved `registration_status`, PB1, and 1718-area fields
+from its reported-farm DTO. The web shell must only load the safe board after
+manager access is known to be active.
+
+- [x] **Step 3: Restore reviewed relationship and farm discovery truth**
+
+Require active named-reviewer relationships everywhere a reviewed grower is
+shown. A farmer profile is 404 unless an active reviewed `grower` relationship
+exists. Farmer cards, relationships, and linked farms include only reviewed
+grower relationships. Farm People includes only active reviewed `grower` or
+`field_operator` relationships scoped directly to the block, a linked parcel,
+an allocation, or the block's operating unit, with stable deduplication.
+Runtime must filter relationships to reviewed entries and add a safe
+`reviewed_farms` list from canonical blocks regardless of allocations; the
+Field page uses it, adding current allocation context only when present.
+
+- [x] **Step 4: Make work and expired access honest**
+
+Return only open work (`planned`, `in_progress`, `blocked`, `submitted`,
+`rejected`) in the reviewed farm profile, with a server-provided count; do not
+let the UI reinterpret terminal statuses. On a profile 403, clear the stale
+manager session, restore focus safely, and show a direct `/manager` re-auth
+path instead of a generic read failure. Keep the farm work CTA truthful and
+unscoped ("Open actions").
+
+- [x] **Step 5: Verify the full closure**
+
+Run:
+
+~~~bash
+.venv/bin/pytest -q tests/ffl
+pnpm --dir apps/web typecheck
+pnpm --dir apps/web build
+git diff --check
+~~~
+
+Expected: all tests pass, the browser route is provably redacted, all reviewed
+truth uses reviewed grower relationships, and the production web build exits
+0.
+
+- [ ] **Step 6: Commit the closure**
+
+~~~bash
+git add ffl/services/trackwick_board.py ffl/api/trackwick_routes.py ffl/services/farm_profiles.py ffl/api/routes.py apps/web/components/command-centre.tsx tests/ffl/test_trackwick_board.py tests/ffl/test_farm_profile_routes.py tests/ffl/test_api.py docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md
+git commit -m "fix: close farm profile safety boundaries"
+~~~
+
+### Task 7: Complete verification and deployment handoff
 
 **Files:**
 - Modify: docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md (checkboxes only)
@@ -467,7 +551,7 @@ git commit -m "fix: grant safe profile runtime reads"
 - Consumes: Tasks 1–3.
 - Produces: verified code ready for main-branch auto-deploy.
 
-- [x] **Step 1: Compare code to the approved design**
+- [ ] **Step 1: Compare code to the approved design**
 
 Verify these exact points against
 docs/superpowers/specs/2026-08-06-farm-and-farmer-profiles-design.md:
@@ -481,19 +565,19 @@ No field-worker product surface
 WhatsApp Coming soon is visible and non-functional
 ~~~
 
-- [x] **Step 2: Run the complete FFL suite**
+- [ ] **Step 2: Run the complete FFL suite**
 
 Run: .venv/bin/pytest -q tests/ffl
 
 Expected: exit 0. Record the final pass count and any warnings.
 
-- [x] **Step 3: Run production web verification**
+- [ ] **Step 3: Run production web verification**
 
 Run: pnpm --dir apps/web typecheck && pnpm --dir apps/web build
 
 Expected: exit 0 for both TypeScript and production Next build.
 
-- [x] **Step 4: Inspect final diff for forbidden changes**
+- [ ] **Step 4: Inspect final diff for forbidden changes**
 
 Run: git diff 7c06fd4..HEAD --check && git diff 7c06fd4..HEAD --stat && git status --short
 
