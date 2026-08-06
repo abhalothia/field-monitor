@@ -736,6 +736,16 @@ def test_command_centre_uses_farm_first_entity_profiles():
         assert f">{heading}<" in source
 
 
+def test_reported_farm_profile_keeps_source_evidence_private_and_reviewable():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "Source footprint" in source
+    assert "Evidence &amp; activity" in source
+    assert "reported references; media remains private" in source
+    assert "Open review workspace" in source
+    assert "no boundary, crop allocation, owner relationship, or operational action" in source
+
+
 def test_command_centre_renders_safe_entity_context_and_reported_disease_event():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
