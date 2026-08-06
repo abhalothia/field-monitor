@@ -10,6 +10,18 @@ from ffl.persistence import repository
 from ffl.services import farm_profiles
 
 
+class _ColumnGrantConnection:
+    """Exercise profile SQL under the two Task 5 column grants."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, sql, params=()):
+        if "count(*)" in " ".join(sql.split()).lower():
+            raise PermissionError("aggregate must reference a granted work_items column")
+        return self.connection.execute(sql, params)
+
+
 @pytest.fixture
 def populated_trackwick_source(ffl_db, owner):
     source = repository.create_source_registry(
@@ -171,6 +183,82 @@ def test_reviewed_farm_profile_context_uses_only_non_draft_signal_timestamp(
     }
     assert "private_detail" not in repr(profile)
     assert "canonical payload" not in repr(profile)
+
+
+def test_farm_profile_latest_observation_compares_instants_not_sqlite_text_order(
+    ffl_db, users, crop_allocation
+):
+    template = repository.create_signal_template(
+        ffl_db,
+        "Offset profile observation",
+        1,
+        "published",
+        "[]",
+        users.lead.id,
+        "2026-08-01T00:00:00+00:00",
+    )
+    repository.create_field_signal(
+        ffl_db,
+        crop_allocation.id,
+        template.id,
+        1,
+        "2026-08-01T10:00:00+05:30",
+        users.operator.id,
+        {},
+    )
+    repository.create_field_signal(
+        ffl_db,
+        crop_allocation.id,
+        template.id,
+        1,
+        "2026-08-01T09:30:00+00:00",
+        users.operator.id,
+        {},
+    )
+
+    profile = farm_profiles.farm_profile(ffl_db, crop_allocation.operational_block_id)
+
+    assert profile["record"]["latest_observed_at"] == "2026-08-01T09:30:00+00:00"
+
+
+def test_profile_runtime_grant_keeps_work_summary_within_granted_columns(
+    ffl_db, users, crop_allocation
+):
+    work = repository.create_work_item(
+        ffl_db,
+        crop_allocation.id,
+        "Inspect irrigation",
+        users.manager.id,
+        "2026-08-10T09:00:00+00:00",
+    )
+
+    profile = farm_profiles.farm_profile(ffl_db, crop_allocation.operational_block_id)
+
+    assert profile["work"] == [{
+        "id": work.id,
+        "title": "Inspect irrigation",
+        "status": "in_progress",
+    }]
+    assert users.manager.id not in repr(profile["work"])
+
+
+def test_profile_runtime_grant_open_work_count_references_granted_id(
+    ffl_db, users, crop_allocation
+):
+    grower = repository.create_person(ffl_db, "Granted Grower", "operations_lead")
+    repository.create_person_operating_relationship(
+        ffl_db,
+        grower.id,
+        "crop_allocation",
+        crop_allocation.id,
+        "grower",
+        "2026-06-01",
+        reviewed_by_person_id=users.manager.id,
+    )
+
+    profile = farm_profiles.farmer_profile(_ColumnGrantConnection(ffl_db), grower.id)
+
+    assert profile["farms"][0]["open_work_count"] == 0
 
 
 def test_profile_routes_require_manager_and_distinguish_absence(tmp_path):

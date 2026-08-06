@@ -8,6 +8,7 @@ authentication claim.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from ffl.services.trackwick_board import manager_board_for_source
@@ -158,17 +159,16 @@ def _reviewed_work_for_allocations(conn, allocation_ids: Sequence[str]) -> list[
         return []
     placeholders = ", ".join("?" for _ in allocation_ids)
     rows = conn.execute(
-        """SELECT id, title, due_at, status
+        """SELECT id, title, status
            FROM work_items
            WHERE allocation_id IN (""" + placeholders + """)
-           ORDER BY due_at, id""",
+           ORDER BY id""",
         tuple(allocation_ids),
     ).fetchall()
     return [
         {
             "id": row["id"],
             "title": row["title"],
-            "due_at": row["due_at"],
             "status": row["status"],
         }
         for row in rows
@@ -176,19 +176,27 @@ def _reviewed_work_for_allocations(conn, allocation_ids: Sequence[str]) -> list[
 
 
 def _reviewed_field_record(conn, block_id: str) -> dict[str, Any]:
-    row = conn.execute(
+    rows = conn.execute(
         """SELECT signal.observed_at
            FROM field_signals AS signal
            JOIN crop_allocations AS allocation ON allocation.id = signal.allocation_id
-           WHERE allocation.operational_block_id = ? AND signal.status != 'draft'
-           ORDER BY signal.observed_at DESC, signal.created_at DESC, signal.id DESC
-           LIMIT 1""",
+           WHERE allocation.operational_block_id = ? AND signal.status != 'draft'""",
         (block_id,),
-    ).fetchone()
+    ).fetchall()
+    latest_observed_at = max(
+        (row["observed_at"] for row in rows), key=_timestamp_instant, default=None
+    )
     return {
-        "latest_observed_at": row["observed_at"] if row is not None else None,
+        "latest_observed_at": latest_observed_at,
         "limitation": _FIELD_RECORD_LIMITATION,
     }
+
+
+def _timestamp_instant(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("field observation timestamps must include a UTC offset")
+    return parsed.astimezone(timezone.utc)
 
 
 def _reviewed_relationships_for_person(conn, person_id: str) -> list[dict[str, str]]:
@@ -278,7 +286,7 @@ def _open_work_count_for_allocations(conn, allocation_ids: Sequence[str]) -> int
         return 0
     placeholders = ", ".join("?" for _ in allocation_ids)
     row = conn.execute(
-        """SELECT count(*) AS count FROM work_items
+        """SELECT count(id) AS count FROM work_items
            WHERE allocation_id IN (""" + placeholders + """)
              AND status IN ('planned', 'in_progress', 'blocked', 'submitted', 'rejected')""",
         tuple(allocation_ids),

@@ -1,10 +1,64 @@
 import re
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from ffl.app import create_app
+from ffl.seed import seed_pilot
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0013_agro_vc_runtime_operating_reads.sql"
 FARM_TRUTH_HARDENING = ROOT / "db" / "postgres" / "0015_agro_farm_truth_hardening.sql"
+PROFILE_RUNTIME_GRANTS = ROOT / "db" / "postgres" / "0017_agro_profile_runtime_read_grants.sql"
+
+
+def test_profile_runtime_grant_exposes_only_safe_summary_columns():
+    sql = PROFILE_RUNTIME_GRANTS.read_text(encoding="utf-8")
+    compact = " ".join(sql.split())
+
+    assert (
+        "GRANT SELECT (id, allocation_id, title, status) "
+        "ON TABLE agro_work_items TO agro_vc_runtime;"
+    ) in compact
+    assert (
+        "GRANT SELECT (allocation_id, observed_at, received_at, actor_id, status, created_at) "
+        "ON TABLE agro_field_signals TO agro_vc_runtime;"
+    ) in compact
+    assert compact.count("GRANT SELECT (") == 2
+    for forbidden in (
+        "values_json",
+        "evidence_artifact_id",
+        "owner_id",
+        "template_id",
+        "due_at",
+        "GRANT ALL",
+        "GRANT SELECT ON TABLE",
+        "GRANT INSERT",
+        "GRANT UPDATE",
+        "GRANT DELETE",
+        "GRANT USAGE",
+        "GRANT CREATE",
+        " TO PUBLIC",
+        " TO anon",
+        " TO authenticated",
+    ):
+        assert forbidden not in sql
+
+
+def test_runtime_work_summary_uses_only_granted_columns(tmp_path):
+    app = create_app(str(tmp_path / "runtime-grants.db"))
+    with TestClient(app) as client:
+        seed_pilot(app.state.conn)
+
+        response = client.get("/api/v1/runtime")
+
+    assert response.status_code == 200
+    assert response.json()["work_items"]
+    assert all(
+        set(item) == {"id", "allocation_id", "title", "status"}
+        for item in response.json()["work_items"]
+    )
 
 
 def test_vc_runtime_migration_repairs_only_the_existing_server_operating_lane():

@@ -102,6 +102,17 @@ def _runtime_rows(conn, table: str, where: str = "", params: tuple = ()) -> list
     return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
+def _runtime_work_rows(conn, allocation_ids: list[str]) -> list[dict]:
+    placeholders = ", ".join("?" for _ in allocation_ids)
+    rows = conn.execute(
+        """SELECT id, allocation_id, title, status
+           FROM work_items
+           WHERE allocation_id IN (""" + placeholders + ") ORDER BY id",
+        tuple(allocation_ids),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _person_operating_relationships_available(conn) -> bool:
     """Do not break the runtime while a reviewed Postgres migration is pending."""
     if getattr(conn, "dialect", "sqlite") == "postgres":
@@ -190,7 +201,7 @@ def get_runtime(request: Request) -> dict:
         }
 
     placeholders = ", ".join("?" for _ in allocation_ids)
-    work_items = _runtime_rows(conn, "work_items", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
+    work_items = _runtime_work_rows(conn, allocation_ids)
     exceptions = _runtime_rows(conn, "exception_records", "allocation_id IN ({0})".format(placeholders), tuple(allocation_ids))
     latest_field_update = conn.execute(
         """SELECT operational_blocks.name AS operational_block_name, crop_allocations.crop_name,

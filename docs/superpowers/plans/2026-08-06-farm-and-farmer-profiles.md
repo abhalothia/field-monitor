@@ -15,7 +15,9 @@
 - Procurement aggregates are village/variety/month history only; never attribute them to a person or farm.
 - Fields = farms; Farmers = grower relationships. Field workers are deferred.
 - Keep WhatsApp visibly muted as Coming soon; no send, receive, configuration, or launch control.
-- No migration, real provider call, external dependency, seed data, or public API route.
+- No real provider call, external dependency, seed data, or public API route.
+  A task may add only a reviewed, column-limited Postgres runtime-read grant
+  when a production privilege audit proves an existing server query needs it.
 
 ---
 
@@ -377,7 +379,86 @@ git add ffl/services/farm_profiles.py apps/web/components/command-centre.tsx app
 git commit -m "fix: complete farm and farmer profile context"
 ~~~
 
-### Task 5: Complete verification and deployment handoff
+### Task 5: Repair the production runtime-read boundary
+
+**Files:**
+- Create: db/postgres/0017_agro_profile_runtime_read_grants.sql
+- Modify: ffl/services/farm_profiles.py
+- Modify: ffl/api/routes.py
+- Modify: tests/ffl/test_vc_runtime_privileges.py
+- Modify: tests/ffl/test_farm_profile_routes.py
+
+**Interfaces:**
+- Consumes: private agro schema and the existing agro_vc_runtime server role.
+- Produces: an explicit, column-limited read grant for the safe work/field
+  observation metadata the profile and runtime DTOs need. It does not grant
+  raw signal values, evidence IDs, owners, contacts, source fields, writes,
+  schema control, or Data API access.
+
+- [ ] **Step 1: Write failing production-privilege and cross-dialect tests**
+
+~~~python
+def test_profile_runtime_grant_exposes_only_safe_summary_columns():
+    sql = (ROOT / "db/postgres/0017_agro_profile_runtime_read_grants.sql").read_text()
+    compact = " ".join(sql.split())
+
+    assert "GRANT SELECT (id, allocation_id, title, status) ON TABLE agro_work_items" in compact
+    assert "GRANT SELECT (allocation_id, observed_at, received_at, actor_id, status, created_at) ON TABLE agro_field_signals" in compact
+    assert "values_json" not in sql
+    assert "evidence_artifact_id" not in sql
+    assert "GRANT ALL" not in sql
+
+
+def test_farm_profile_latest_observation_compares_instants_not_sqlite_text_order(ffl_db, crop_allocation):
+    # 09:30Z is later than 10:00+05:30 despite sorting before it as text.
+    _record_signal(ffl_db, crop_allocation.id, observed_at="2026-08-01T10:00:00+05:30")
+    _record_signal(ffl_db, crop_allocation.id, observed_at="2026-08-01T09:30:00+00:00")
+
+    profile = farm_profiles.farm_profile(ffl_db, crop_allocation.operational_block_id)
+
+    assert profile["record"]["latest_observed_at"] == "2026-08-01T09:30:00+00:00"
+~~~
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: /Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_vc_runtime_privileges.py tests/ffl/test_farm_profile_routes.py -k 'profile_runtime_grant or latest_observation'
+
+Expected: FAIL because migration 0017 does not exist and the SQLite query still
+orders timestamp text lexically.
+
+- [ ] **Step 3: Implement the least-privilege production path**
+
+~~~sql
+BEGIN;
+SET LOCAL search_path = agro, pg_catalog;
+GRANT SELECT (id, allocation_id, title, status)
+ON TABLE agro_work_items TO agro_vc_runtime;
+GRANT SELECT (allocation_id, observed_at, received_at, actor_id, status, created_at)
+ON TABLE agro_field_signals TO agro_vc_runtime;
+COMMIT;
+~~~
+
+Modify runtime work serialization to select only id, allocation_id, title and
+status rather than SELECT star. In farm_profiles, select only safe timestamp
+metadata and calculate the latest instant in Python with timezone-aware
+datetime parsing; return the original accepted timestamp string. Use the same
+open-work status set as portfolio/season logic. Never query signal values,
+evidence, owner, template, or source columns.
+
+- [ ] **Step 4: Run focused green tests and full targeted checks**
+
+Run: /Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_vc_runtime_privileges.py tests/ffl/test_farm_profile_routes.py tests/ffl/test_api.py && git diff --check
+
+Expected: all tests pass and no whitespace error remains.
+
+- [ ] **Step 5: Commit the runtime fix**
+
+~~~bash
+git add db/postgres/0017_agro_profile_runtime_read_grants.sql ffl/services/farm_profiles.py ffl/api/routes.py tests/ffl/test_vc_runtime_privileges.py tests/ffl/test_farm_profile_routes.py docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md
+git commit -m "fix: grant safe profile runtime reads"
+~~~
+
+### Task 6: Complete verification and deployment handoff
 
 **Files:**
 - Modify: docs/superpowers/plans/2026-08-06-farm-and-farmer-profiles.md (checkboxes only)
