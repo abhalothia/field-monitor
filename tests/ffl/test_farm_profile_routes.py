@@ -205,7 +205,10 @@ def test_field_record_has_reviewed_geometry_state_and_crop_seasons(
     assert record["state"] == "reviewed"
     assert record["kind"] == "field"
     assert record["farm"] == {"id": farm.id, "name": farm.name}
-    assert record["geometry"] == {"state": "not_published"}
+    assert record["geometry"] == {
+        "state": "boundary_evidence_required",
+        "message": "A reviewed field boundary is required before this Field can appear on a map.",
+    }
     assert record["allocations"] == [{
         "id": crop_allocation.id,
         "season_id": crop_allocation.season_id,
@@ -833,6 +836,8 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert "A report is not a diagnosis, verified field attribution, or AGRO CEO action." in source
     assert "PersonContextPanel" in source
     assert "FieldRecordPanel" in source
+    assert "A reviewed field boundary is required before this Field can appear on a map." in source
+    assert "TrackWick source points, village context, and reported areas never become a Field boundary." in source
     assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
 
 

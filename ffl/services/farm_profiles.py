@@ -78,7 +78,7 @@ def field_record(
         "name": field["name"],
         "area_hectares": field["area_hectares"],
         "farm": farm_context,
-        "geometry": _published_geometry_state(conn, field["id"]),
+        "geometry": _field_geometry_state(conn, field["id"]),
         "allocations": _field_allocations(conn, field["id"]),
         "people": _field_people(conn, field["id"]),
         "updates": _updates_for_fields(
@@ -1008,10 +1008,20 @@ def _open_work_count_for_allocations(conn, allocation_ids: Sequence[str]) -> int
 
 
 def _published_geometry_state(conn, block_id: str) -> dict[str, str]:
-    # Canonical blocks have no published geometry DTO yet.  Do not infer one
-    # from a parcel, administrative place, or TrackWick source point.
+    # Compatibility DTO. Canonical field profiles expose the more specific
+    # boundary-evidence state below.
     del conn, block_id
     return {"state": "not_published"}
+
+
+def _field_geometry_state(conn, block_id: str) -> dict[str, str]:
+    # Do not infer geometry from a parcel, administrative place, or TrackWick
+    # source point. A reviewed manifest boundary is the only valid next step.
+    del conn, block_id
+    return {
+        "state": "boundary_evidence_required",
+        "message": "A reviewed field boundary is required before this Field can appear on a map.",
+    }
 
 
 def _reported_farm_summary(row: Mapping[str, Any]) -> dict[str, Any]:
