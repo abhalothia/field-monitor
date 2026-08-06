@@ -254,6 +254,10 @@ def test_acceptance_is_idempotent_and_creates_one_complete_canonical_set(ffl_db)
                 accepted.accepted_crop_allocation_id, accepted.accepted_grower_person_id))
     assert ffl_db.execute("SELECT COUNT(*) FROM land_parcels").fetchone()[0] == 1
     assert ffl_db.execute("SELECT COUNT(*) FROM operational_blocks").fetchone()[0] == 1
+    assert ffl_db.execute("SELECT COUNT(*) FROM farms").fetchone()[0] == 1
+    membership = ffl_db.execute("SELECT * FROM farm_fields").fetchone()
+    assert membership["operational_block_id"] == accepted.accepted_operational_block_id
+    assert membership["status"] == "active"
     assert ffl_db.execute("SELECT COUNT(*) FROM rights_to_operate").fetchone()[0] == 1
     assert ffl_db.execute("SELECT COUNT(*) FROM crop_allocations").fetchone()[0] == 1
     assert ffl_db.execute("SELECT COUNT(*) FROM trackwick_party_person_links").fetchone()[0] == 1
@@ -283,7 +287,7 @@ def test_acceptance_rolls_back_claim_and_every_canonical_write_on_failure(ffl_db
 
     assert get_farm_truth_case(ffl_db, case.id).status == "open"
     for table in (
-        "land_parcels", "operational_blocks", "block_parcels", "rights_to_operate",
+        "land_parcels", "operational_blocks", "farms", "farm_fields", "block_parcels", "rights_to_operate",
         "crop_allocations", "person_operating_relationships", "trackwick_party_person_links",
         "trackwick_plot_operating_links", "audit_events",
     ):

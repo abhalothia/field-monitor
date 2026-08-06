@@ -27,6 +27,11 @@ def test_manager_assets_define_the_fortune_coo_operating_views():
     assert 'id="farm-truth-accept-form"' in index_html
     assert 'id="farm-truth-needs-form"' in index_html
     assert 'id="farm-truth-reject-form"' in index_html
+    assert "function consumeFarmTruthReviewRequest()" in app_js
+    assert 'params.get("review") !== "farm-truth"' in app_js
+    assert "openFarmTruthReview();" in _function_body(
+        app_js, "renderManagerSessionStatus(session)", "consumeFarmTruthReviewRequest()"
+    )
 
     assert 'id="today-date"' in index_html
     assert 'id="today-time"' in index_html
