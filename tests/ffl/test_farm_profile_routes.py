@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -110,3 +112,13 @@ def test_profile_routes_require_manager_and_distinguish_absence(tmp_path):
     assert denied.status_code == 403
     assert absent.status_code == 404
     assert absent.json() == {"detail": "farm profile not found"}
+
+
+def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert 'readJson<FarmProfile>("/api/v1/farm-profiles/" + id)' in source
+    assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' in source
+    assert "WhatsApp updates" in source
+    assert "Coming soon" in source
+    assert "disabled-connection" in source

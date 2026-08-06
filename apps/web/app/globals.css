@@ -116,6 +116,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .field-card h3 { margin: 18px 0 5px; font-size: .9rem; line-height: 1.3; }
 .field-card p { color: var(--muted); font-size: .7rem; min-height: 2.3em; margin-bottom: 20px; }
 .field-card .card-detail { min-height: 0; margin: -9px 0 17px; color: #71806d; font-family: "DM Mono", monospace; font-size: .59rem; letter-spacing: .02em; text-transform: uppercase; }
+.profile-open { min-height: 36px; border: 0; background: transparent; cursor: pointer; padding: 7px 0 3px; text-align: left; }
 .empty-state { border: 1px dashed rgba(20, 61, 45, .35); color: var(--muted); padding: 28px; }
 .empty-state strong { color: var(--ink-soft); font-size: .9rem; }
 .empty-state p, .empty-copy { color: var(--muted); font-size: .77rem; line-height: 1.5; }
@@ -126,6 +127,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .person-initial { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--paddy); color: var(--ink-soft); font-family: "DM Serif Display", Georgia, serif; font-size: 1.15rem; }
 .person-row h3 { font-size: .78rem; margin: 0 0 3px; }
 .person-row p { color: var(--muted); font-size: .67rem; margin: 0; text-transform: capitalize; }
+.person-summary { min-width: 0; flex: 1; }
+.person-row .profile-open { flex: 0 0 auto; margin-left: auto; }
 .access-flow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .access-flow-grid article { min-height: 176px; border: 1px solid rgba(20, 61, 45, .17); background: rgba(220, 231, 211, .3); padding: 16px; }
 .access-flow-grid h3 { margin: 17px 0 7px; color: var(--ink); font-size: .84rem; }
@@ -167,6 +170,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .settings-rows > div:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
 .settings-rows strong { font-size: .77rem; }
 .settings-rows span { color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.settings-rows .disabled-connection { color: #71806d; cursor: default; }
+.disabled-connection strong { color: #71806d; font-weight: 700; }
+.disabled-connection em { display: inline-block; margin-left: 5px; border-radius: 99px; background: rgba(113, 128, 109, .13); color: #71806d; font-family: "DM Mono", monospace; font-size: .51rem; font-style: normal; font-weight: 500; letter-spacing: .04em; padding: 3px 6px; text-transform: uppercase; }
 .password-changer, .account-manager { border-top: 1px solid rgba(20, 61, 45, .17); margin-top: 24px; padding-top: 17px; }
 .password-changer summary, .account-manager summary { color: var(--ink-soft); cursor: pointer; font-size: .76rem; font-weight: 800; }
 .settings-actions { display: flex; align-items: center; gap: 18px; margin-top: 25px; }
@@ -178,6 +184,28 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .account-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; border-top: 1px solid rgba(20, 61, 45, .14); color: var(--muted); font-size: .68rem; padding: 10px 0; }
 .account-list span:first-child { color: var(--ink); font-weight: 800; }
 .account-list span:last-child { font-family: "DM Mono", monospace; font-size: .58rem; text-transform: uppercase; }
+
+.profile-panel { max-width: 720px; min-height: 0; padding: clamp(24px, 4vw, 42px); }
+.profile-back { margin-bottom: 34px; }
+.profile-panel .eyebrow { margin-bottom: 9px; }
+.profile-panel h2 { max-width: 18ch; margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.3rem, 5vw, 4rem); font-weight: 400; letter-spacing: -.055em; line-height: .94; }
+.profile-context { max-width: 58ch; color: var(--muted); font-size: .76rem; line-height: 1.55; margin: 14px 0 24px; }
+.profile-facts { display: grid; max-width: 580px; margin: 0; }
+.profile-facts > div { display: grid; grid-template-columns: minmax(120px, .65fr) minmax(0, 1.35fr); gap: 18px; border-top: 1px solid rgba(20, 61, 45, .14); padding: 11px 0; }
+.profile-facts > div:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
+.profile-facts dt { color: #71806d; font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .035em; text-transform: uppercase; }
+.profile-facts dd { color: var(--ink-soft); font-size: .73rem; line-height: 1.45; margin: 0; }
+.profile-relationships { max-width: 580px; }
+.profile-relationships h3 { color: var(--ink-soft); font-size: .75rem; margin: 0 0 10px; }
+.profile-relationships ul { display: grid; list-style: none; margin: 0; padding: 0; }
+.profile-relationships li { display: grid; gap: 3px; border-top: 1px solid rgba(20, 61, 45, .14); padding: 11px 0; }
+.profile-relationships li:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
+.profile-relationships strong { color: var(--ink-soft); font-size: .73rem; text-transform: capitalize; }
+.profile-relationships span, .profile-relationships p { color: var(--muted); font-size: .68rem; line-height: 1.45; margin: 0; text-transform: capitalize; }
+.profile-action { margin-top: 26px; }
+.profile-action .primary-action { margin-top: 0; }
+.profile-message { max-width: 50ch; color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 0; }
+.profile-error { color: #8b402c; }
 
 .personal-shell { display: grid; min-height: 100svh; grid-template-rows: auto 1fr; margin: 0 auto; max-width: 760px; padding: 20px clamp(18px, 5vw, 52px) 36px; }
 .personal-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); color: var(--muted); font-family: "DM Mono", monospace; font-size: .62rem; padding-bottom: 14px; text-transform: uppercase; }
@@ -220,6 +248,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .single-stage { min-height: 440px; padding: 30px 24px; }
   .single-stage h2 { font-size: clamp(2.8rem, 15vw, 4.2rem); }
   .single-surface { padding: 22px 18px; }
+  .person-row { align-items: flex-start; flex-wrap: wrap; }
+  .person-row .profile-open { flex-basis: calc(100% - 46px); margin-left: 46px; }
+  .profile-facts > div { grid-template-columns: 1fr; gap: 4px; }
   .settings-rows > div { grid-template-columns: 1fr; gap: 3px; }
   .account-form { grid-template-columns: 1fr; }
   .account-list li { grid-template-columns: minmax(0, 1fr) auto; }
