@@ -26,7 +26,7 @@
 
 | File | Responsibility |
 |---|---|
-| db/postgres/0017_agro_farm_graph.sql | Farm graph migration, triggers, indexes, grants. |
+| db/postgres/0018_agro_farm_graph.sql | Farm graph migration, triggers, indexes, grants. |
 | ffl/persistence/schema.py | SQLite parity schema/triggers. |
 | ffl/persistence/repository.py | Farm graph records and helpers. |
 | ffl/services/farm_profiles.py | Safe entity profiles and directories. |
@@ -39,7 +39,7 @@
 ### Task 1: Create the private Farm graph
 
 **Files:**
-- Create: db/postgres/0017_agro_farm_graph.sql
+- Create: db/postgres/0018_agro_farm_graph.sql
 - Modify: ffl/persistence/schema.py
 - Create: tests/ffl/test_farm_graph.py
 
@@ -108,7 +108,7 @@ Expected: PASS; many fields per Farm, one active Farm per Field, ended membershi
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add db/postgres/0017_agro_farm_graph.sql ffl/persistence/schema.py tests/ffl/test_farm_graph.py
+git add db/postgres/0018_agro_farm_graph.sql ffl/persistence/schema.py tests/ffl/test_farm_graph.py
 git commit -m "feat: add canonical farm graph"
 ~~~
 
@@ -357,7 +357,7 @@ git commit -m "feat: make command centre farm first"
 ### Task 6: Apply and verify the private production migration
 
 **Files:**
-- Apply: db/postgres/0017_agro_farm_graph.sql
+- Apply: db/postgres/0018_agro_farm_graph.sql
 
 **Interfaces:**
 - Consumes Tasks 1-5.
@@ -379,7 +379,7 @@ Expected: confirmed Fortune target and true private schema.
 
 Run:
 ~~~bash
-/Users/dakshbhatia/.homebrew/opt/libpq/bin/psql "$FFL_POSTGRES_DIRECT_URL" -v ON_ERROR_STOP=1 -f db/postgres/0017_agro_farm_graph.sql
+/Users/dakshbhatia/.homebrew/opt/libpq/bin/psql "$FFL_POSTGRES_DIRECT_URL" -v ON_ERROR_STOP=1 -f db/postgres/0018_agro_farm_graph.sql
 ~~~
 
 Expected: transaction commits with no browser/Data API grants.
@@ -400,4 +400,3 @@ Expected: tests/build pass and the latest Production deployment is Ready.
 - Spec coverage: Tasks 1-2 establish Farm/Field and many-to-many roles; Tasks 3-5 create safe profile pages; Task 6 migrates and deploys.
 - Safety coverage: source/canonical separation, date/filter bounds, redaction, reviewed relationships, and no inferred disease/farm/geometry are tested.
 - Scope control: crop season and disease remain contextual subrecords, and Farm is the only new primary destination.
-
