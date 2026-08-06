@@ -89,6 +89,58 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS farms (
+            id TEXT PRIMARY KEY,
+            operating_unit_id TEXT NOT NULL REFERENCES operating_units(id),
+            name TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+            reviewed_by_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS farm_fields (
+            id TEXT PRIMARY KEY,
+            farm_id TEXT NOT NULL REFERENCES farms(id),
+            operational_block_id TEXT NOT NULL REFERENCES operational_blocks(id),
+            starts_on TEXT NOT NULL,
+            ends_on TEXT,
+            status TEXT NOT NULL CHECK (status IN ('active', 'ended')),
+            reviewed_by_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            CHECK ((status = 'active' AND ends_on IS NULL) OR (status = 'ended' AND ends_on IS NOT NULL))
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_farm_fields_one_active_field
+            ON farm_fields (operational_block_id) WHERE status = 'active';
+
+        CREATE TRIGGER IF NOT EXISTS farm_fields_matching_operating_unit_insert
+        BEFORE INSERT ON farm_fields
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM farms
+            JOIN operational_blocks
+              ON operational_blocks.id = NEW.operational_block_id
+            WHERE farms.id = NEW.farm_id
+              AND farms.operating_unit_id = operational_blocks.operating_unit_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'farm and field must belong to the same operating unit');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS farm_fields_matching_operating_unit_update
+        BEFORE UPDATE OF farm_id, operational_block_id ON farm_fields
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM farms
+            JOIN operational_blocks
+              ON operational_blocks.id = NEW.operational_block_id
+            WHERE farms.id = NEW.farm_id
+              AND farms.operating_unit_id = operational_blocks.operating_unit_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'farm and field must belong to the same operating unit');
+        END;
+
         -- A person may be related to one and only one operating scope at a
         -- time.  The scope is explicit rather than inferred from a name or
         -- imported procurement row: a grower is not automatically a
