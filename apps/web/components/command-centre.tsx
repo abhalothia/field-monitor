@@ -883,19 +883,36 @@ function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: 
 }
 
 function ReportedFarmPanel({ record }: { record: ReportedFarmProfile }) {
+  const photoReferences = record.reported.plot_photo_references + record.reported.crop_photo_references;
   return <div className="entity-profile-content reported-farm-context">
     <p className="eyebrow">Reported farm candidate</p>
     <h2>{record.name}</h2>
     <p className="profile-context">TrackWick reported this candidate. It is not a reviewed Farm, Field boundary, or crop allocation.</p>
-    <dl className="profile-facts">
-      <div><dt>Reported farmer</dt><dd>{record.reported.farmer_name}</dd></div>
-      <div><dt>Place</dt><dd>{record.reported.place}</dd></div>
-      <div><dt>Reported area</dt><dd>{record.reported.reported_area_acres == null ? "Not reported" : `${record.reported.reported_area_acres} acres`}</dd></div>
-      <div><dt>Reported plots</dt><dd>{count(record.reported.reported_plot_count || undefined)}</dd></div>
-      <div><dt>Open source work</dt><dd>{count(record.reported.open_work)}</dd></div>
-      <div><dt>Latest activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
-    </dl>
-    <div className="profile-action"><a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a></div>
+    <div className="farm-profile-sections">
+      <section>
+        <h3>Source footprint</h3>
+        <dl className="profile-facts">
+          <div><dt>Reported farmer</dt><dd>{record.reported.farmer_name}</dd></div>
+          <div><dt>Reported place</dt><dd>{record.reported.place}</dd></div>
+          <div><dt>Reported area</dt><dd>{record.reported.reported_area_acres == null ? "Not reported" : `${record.reported.reported_area_acres} acres`}</dd></div>
+          <div><dt>Reported plots</dt><dd>{count(record.reported.reported_plot_count || undefined)}</dd></div>
+        </dl>
+      </section>
+      <section>
+        <h3>Evidence &amp; activity</h3>
+        <dl className="profile-facts">
+          <div><dt>Open source work</dt><dd>{count(record.reported.open_work)}</dd></div>
+          <div><dt>Latest activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
+          <div><dt>Photo references</dt><dd>{count(photoReferences)} reported references; media remains private</dd></div>
+        </dl>
+      </section>
+      <section>
+        <h3>Review state</h3>
+        <p className="profile-context">This source footprint can inform a review, but no boundary, crop allocation, owner relationship, or operational action has been created from it.</p>
+        {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
+        <div className="profile-action"><a className="primary-action" href="/manager">Open review workspace <span aria-hidden="true">→</span></a></div>
+      </section>
+    </div>
   </div>;
 }
 
