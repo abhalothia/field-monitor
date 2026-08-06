@@ -809,6 +809,7 @@ def test_reported_farm_profile_keeps_source_evidence_private_and_reviewable():
     assert "Evidence &amp; activity" in source
     assert "reported references; media remains private" in source
     assert "Open review workspace" in source
+    assert 'href="/manager?review=farm-truth"' in source
     assert "no boundary, crop allocation, owner relationship, or operational action" in source
 
 

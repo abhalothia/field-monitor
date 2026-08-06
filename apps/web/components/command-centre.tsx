@@ -631,7 +631,7 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
     {nextMove
       ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
       : reportedFarmCount
-        ? <a href="/manager" className="primary-action">Review reported farms <span aria-hidden="true">→</span></a>
+        ? <a href="/manager?review=farm-truth" className="primary-action">Review reported farms <span aria-hidden="true">→</span></a>
         : <Link href="/settings" className="primary-action">Open data connections <span aria-hidden="true">→</span></Link>}
     <footer>{statusLine} · {state.profile?.display_name || "Fortune Farms"}</footer>
   </section>;
@@ -948,7 +948,7 @@ function ReportedFarmPanel({ record }: { record: ReportedFarmProfile }) {
         <h3>Review state</h3>
         <p className="profile-context">This source footprint can inform a review, but no boundary, crop allocation, owner relationship, or operational action has been created from it.</p>
         {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
-        <div className="profile-action"><a className="primary-action" href="/manager">Open review workspace <span aria-hidden="true">→</span></a></div>
+        <div className="profile-action"><a className="primary-action" href="/manager?review=farm-truth">Open review workspace <span aria-hidden="true">→</span></a></div>
       </section>
     </div>
   </div>;
@@ -1105,7 +1105,7 @@ function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () =>
     <PersonProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
-        ? <a className="primary-action" href="/manager">Review in Farm Truth <span aria-hidden="true">→</span></a>
+        ? <a className="primary-action" href="/manager?review=farm-truth">Review in Farm Truth <span aria-hidden="true">→</span></a>
         : <a className="primary-action" href="/manager">Open in Farm Truth <span aria-hidden="true">→</span></a>}
     </div>
   </aside>;
@@ -1165,7 +1165,7 @@ function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, open
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
-  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
+  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
 }
 
 function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
@@ -1201,7 +1201,7 @@ function ReportedSignalQueue({ signals }: { signals: TrackwickSignal[] }) {
       <label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
       <label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
     </div>
-    {filtered.length ? <ol className="action-list reported-signal-list">{filtered.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager">Review <span aria-hidden="true">→</span></a></li>)}</ol> : <p className="empty-copy">No reported signals match these filters.</p>}
+    {filtered.length ? <ol className="action-list reported-signal-list">{filtered.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol> : <p className="empty-copy">No reported signals match these filters.</p>}
   </section>;
 }
 

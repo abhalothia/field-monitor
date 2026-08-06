@@ -93,7 +93,9 @@ const window = {
   document,
   localStorage: { getItem: () => null, setItem: () => {} },
   location: { pathname: "/manager", search: "" },
-  history: { replaceState: () => {} },
+  history: { replaceState: (_state, _title, path) => {
+    window.location.search = path.includes("?") ? "?" + path.split("?")[1] : "";
+  } },
   addEventListener: () => {},
   scrollTo: () => {},
   setTimeout: (callback) => callback(),
@@ -141,6 +143,7 @@ source = source.replace(startup, `  window.__managerTest = {
     },
     farmTruthContexts: farmTruthContexts,
     openFarmTruthReview: openFarmTruthReview,
+    consumeFarmTruthReviewRequest: consumeFarmTruthReviewRequest,
     closeManagerSessionDialog: closeManagerSessionDialog,
     renderPortfolio: renderPortfolio,
     renderFarmTruthDetail: renderFarmTruthDetail,
@@ -251,6 +254,11 @@ async function main() {
     ["unit-old\u001fseason-old", "unit-new\u001fseason-new"],
     "review contexts must not depend on active allocations"
   );
+
+  window.location.search = "?review=farm-truth&field=field-1";
+  assert.equal(api.consumeFarmTruthReviewRequest(), true, "review entry must be consumed once");
+  assert.equal(window.location.search, "?field=field-1", "review entry must not leave a replaying URL flag");
+  assert.equal(api.consumeFarmTruthReviewRequest(), false, "consumed review entry must not reopen the dialog");
 
   const staleContextFetch = holdNextFetch((request) => request.url.endsWith("/api/v1/farm-truth/contexts"));
   const staleContextRequest = api.loadFarmTruthReviewContexts();

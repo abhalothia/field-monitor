@@ -3222,6 +3222,29 @@ def accept_farm_truth_case(
             "INSERT INTO operational_blocks VALUES (?, ?, ?, ?, ?)",
             (operational_block_id, operating_unit_id, field_name, managed_area_hectares, block_created_at),
         )
+        farm_id = _active_farm_for_reviewed_registration(conn, review_case.registration_id)
+        if farm_id is None:
+            # The approved field name is the first confirmed canonical name for
+            # this source registration. Later accepted plots from the same
+            # registration become Fields on this same Farm.
+            farm_id, farm_created_at = _new_identity()
+            conn.execute(
+                """INSERT INTO farms
+                   (id, operating_unit_id, name, status, reviewed_by_person_id, created_at)
+                   VALUES (?, ?, ?, 'active', ?, ?)""",
+                (farm_id, operating_unit_id, field_name, reviewer_id, farm_created_at),
+            )
+        farm_field_id, farm_field_created_at = _new_identity()
+        conn.execute(
+            """INSERT INTO farm_fields
+               (id, farm_id, operational_block_id, starts_on, ends_on, status,
+                reviewed_by_person_id, created_at)
+               VALUES (?, ?, ?, ?, NULL, 'active', ?, ?)""",
+            (
+                farm_field_id, farm_id, operational_block_id, grower_effective_on,
+                reviewer_id, farm_field_created_at,
+            ),
+        )
         _, block_link_created_at = _new_identity()
         conn.execute(
             "INSERT INTO block_parcels VALUES (?, ?, ?)",
@@ -3342,6 +3365,33 @@ def accept_farm_truth_case(
             raise RuntimeError("claimed farm truth review case could not be accepted")
 
     return get_farm_truth_case(conn, case_id)  # type: ignore[return-value]
+
+
+def _active_farm_for_reviewed_registration(conn, registration_id: str) -> Optional[str]:
+    """Return the Farm already established by another reviewed plot in a registration."""
+    # Lock the source registration before the membership lookup so concurrent
+    # acceptance of two plots cannot create two canonical Farms for one farm
+    # candidate. SQLite's transaction lock supplies the equivalent guarantee.
+    conn.execute(
+        "SELECT registration.id FROM trackwick_registrations AS registration WHERE registration.id = ?"
+        + _farm_truth_lock_suffix(conn, "registration"),
+        (registration_id,),
+    ).fetchone()
+    row = conn.execute(
+        """SELECT farm.id
+           FROM trackwick_registration_plots AS plot
+           JOIN trackwick_plot_operating_links AS link
+             ON link.plot_id = plot.id AND link.link_status = 'reviewed'
+           JOIN farm_fields AS membership
+             ON membership.operational_block_id = link.operational_block_id
+              AND membership.status = 'active'
+           JOIN farms AS farm ON farm.id = membership.farm_id AND farm.status = 'active'
+           WHERE plot.registration_id = ?
+           ORDER BY farm.created_at, farm.id
+           LIMIT 1""",
+        (registration_id,),
+    ).fetchone()
+    return None if row is None else str(row["id"])
 
 
 def get_trackolap_record(conn: sqlite3.Connection, record_id: str) -> Optional[TrackolapStoredRecord]:

@@ -227,6 +227,22 @@
       invalidateFarmTruthInbox();
       resetFarmTruthDialogState(true);
     }
+    if (consumeFarmTruthReviewRequest()) {
+      openFarmTruthReview();
+    }
+  }
+
+  function consumeFarmTruthReviewRequest() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("review") !== "farm-truth") {
+      return false;
+    }
+    params.delete("review");
+    var query = params.toString();
+    window.history.replaceState(
+      {}, "", window.location.pathname + (query ? "?" + query : "")
+    );
+    return true;
   }
 
   function loadManagerSessionStatus() {
