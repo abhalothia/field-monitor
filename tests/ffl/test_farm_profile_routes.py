@@ -617,6 +617,27 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
 
 
+def test_command_centre_mobile_farm_facts_are_one_column_with_row_dividers():
+    css = Path("apps/web/app/globals.css").read_text()
+    mobile = css.split("@media (max-width: 520px) {", 1)[1]
+
+    assert ".farm-directory-card dl { grid-template-columns: 1fr; }" in mobile
+    assert ".farm-directory-card dl > div { border-top: 1px solid" in mobile
+    assert "border-left: 0" in mobile
+    assert "repeat(3, minmax(0, 1fr))" not in mobile
+
+
+def test_command_centre_session_expiry_restores_focus_to_opener_or_boundary():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "if (expired) pendingManagerExpiryFocus.current = true;" in source
+    assert "if (canOpenProfiles || panel || !pendingManagerExpiryFocus.current) return;" in source
+    assert "restoreFocusAfterManagerExpiry();" in source
+    assert "document.getElementById(MANAGER_ACCESS_BOUNDARY_ID)" in source
+    assert "target?.focus()" in source
+    assert "focusId={MANAGER_ACCESS_BOUNDARY_ID}" in source
+
+
 def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):
     person = repository.create_person(ffl_db, "Not a grower", "operations_lead")
     repository.create_person_operating_relationship(

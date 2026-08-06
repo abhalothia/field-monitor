@@ -316,9 +316,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .directory-filters { grid-template-columns: 1fr; }
   .directory-filter-actions { grid-column: auto; }
   .farm-directory-card { grid-template-columns: 1fr; }
-  .farm-directory-card dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .farm-directory-card dl > div { border-top: 0; border-left: 1px solid rgba(20, 61, 45, .13); padding: 0 8px; }
-  .farm-directory-card dl > div:first-child { border-left: 0; padding: 0 8px 0 0; }
+  .farm-directory-card dl { grid-template-columns: 1fr; }
+  .farm-directory-card dl > div { border-top: 1px solid rgba(20, 61, 45, .13); border-left: 0; padding: 8px 0; }
+  .farm-directory-card dl > div:first-child { border-top: 0; padding-top: 0; }
   .profile-summary-line, .context-link { align-items: flex-start; flex-direction: column; }
   .context-link { gap: 4px; }
   .context-link span { text-align: left; }

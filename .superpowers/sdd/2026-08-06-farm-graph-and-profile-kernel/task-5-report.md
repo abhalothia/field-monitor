@@ -34,3 +34,17 @@ Updated the command-centre source contract to assert the Task 4 Farm directory, 
 - `git diff --check`: passed.
 
 Pytest continues to report the repository's existing FastAPI/TestClient deprecation warning; no new warning or failure was introduced.
+
+## Important-review fixes
+
+- At `max-width: 520px`, Farm directory facts now use one grid column. Each fact is separated by a horizontal top border; the three-column row and vertical dividers were removed.
+- Manager-access transitions now distinguish a real authenticated-to-locked expiry from an initial locked render. After the expired panel is removed, focus moves to its directory opener when that element is still present, or to a focusable manager-access boundary otherwise. Initial unauthenticated loads do not receive forced focus.
+- Added focused contracts for the narrow mobile fact cascade and for the expiry teardown's opener/boundary focus path.
+
+Focused review verification:
+
+- `/Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_farm_profile_routes.py -k 'mobile_farm_facts or session_expiry_restores_focus'`: `2 passed, 24 deselected`.
+- `/Users/dakshbhatia/Documents/field-monitor/.venv/bin/pytest -q tests/ffl/test_farm_profile_routes.py`: `26 passed`.
+- `cd apps/web && pnpm typecheck`: passed.
+- `cd apps/web && pnpm build`: passed; all 11 Next.js routes generated successfully.
+- `git diff --check`: passed.

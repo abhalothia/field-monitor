@@ -590,6 +590,7 @@ const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
   dateFrom: "",
   dateTo: "",
 };
+const MANAGER_ACCESS_BOUNDARY_ID = "farm-manager-access-boundary";
 
 function filtersFromLocation() {
   const params = new URLSearchParams(window.location.search);
@@ -628,6 +629,8 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const directoryRequest = useRef(0);
   const panelRequest = useRef(0);
   const directoryOpener = useRef<string | null>(null);
+  const managerAccessWasEnabled = useRef(canOpenProfiles);
+  const pendingManagerExpiryFocus = useRef(false);
 
   useEffect(() => {
     function syncFromUrl() {
@@ -662,11 +665,20 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   }, [canOpenProfiles, expireManagerSession, filters, filtersReady]);
 
   useEffect(() => {
+    const expired = managerAccessWasEnabled.current && !canOpenProfiles;
+    managerAccessWasEnabled.current = canOpenProfiles;
     if (canOpenProfiles) return;
     directoryRequest.current += 1;
     panelRequest.current += 1;
+    if (expired) pendingManagerExpiryFocus.current = true;
     setPanel(null);
   }, [canOpenProfiles]);
+
+  useEffect(() => {
+    if (canOpenProfiles || panel || !pendingManagerExpiryFocus.current) return;
+    pendingManagerExpiryFocus.current = false;
+    restoreFocusAfterManagerExpiry();
+  }, [canOpenProfiles, panel]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -682,6 +694,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     window.history.pushState({}, "", "/fields");
     setDraftFilters(EMPTY_DIRECTORY_FILTERS);
     setFilters(EMPTY_DIRECTORY_FILTERS);
+  }
+
+  function restoreFocusAfterManagerExpiry() {
+    const openerId = directoryOpener.current;
+    directoryOpener.current = null;
+    const target = (openerId ? document.getElementById(openerId) : null)
+      || document.getElementById(MANAGER_ACCESS_BOUNDARY_ID);
+    target?.focus();
   }
 
   function panelHistory(openerId: string, nested: boolean) {
@@ -785,7 +805,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       <div className="directory-filter-actions"><button className="quiet-button" type="submit" disabled={!canOpenProfiles || directory.loading}>Apply filters</button><button className="text-link" type="button" onClick={clearFilters}>Clear</button></div>
     </form>
     {!canOpenProfiles
-      ? <EmptyState title="Manager access required" detail="Unlock Farm Truth to read the reviewed Farm directory. Reported candidates remain outside this canonical record." />
+      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Manager access required" detail="Unlock Farm Truth to read the reviewed Farm directory. Reported candidates remain outside this canonical record." />
       : directory.loading
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
         : directory.error
@@ -1137,8 +1157,8 @@ function AccountManager() {
   </details>;
 }
 
-function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <section className="empty-state"><strong>{title}</strong><p>{detail}</p></section>;
+function EmptyState({ title, detail, focusId }: { title: string; detail: string; focusId?: string }) {
+  return <section id={focusId} tabIndex={focusId ? -1 : undefined} className="empty-state"><strong>{title}</strong><p>{detail}</p></section>;
 }
 
 function actionLine(item: LedgerItem) {
