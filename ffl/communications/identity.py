@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional, Tuple, Union
 
 from ffl.services.allocation_relationship_coverage import (
@@ -49,7 +49,7 @@ def resolve_communication_endpoint(
     address: str,
     portal_id: str,
     allocation_id: Optional[str] = None,
-    received_at: Optional[Union[date, datetime, str]] = None,
+    received_at: Optional[Union[datetime, str]] = None,
 ) -> CommunicationResolution:
     """Resolve one reviewed endpoint inside one explicitly supplied portal.
 
@@ -183,18 +183,24 @@ def _address(value: object) -> Optional[str]:
     return normalized
 
 
-def _event_date(value: Optional[Union[date, datetime, str]]) -> Optional[str]:
+def _event_date(value: Optional[Union[datetime, str]]) -> Optional[str]:
+    instant = _utc_instant(value)
+    return instant.date().isoformat() if instant is not None else None
+
+
+def _utc_instant(value: Optional[Union[datetime, str]]) -> Optional[datetime]:
     if value is None:
-        return date.today().isoformat()
+        return datetime.now(timezone.utc)
     if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, str):
+        parsed = value
+    elif isinstance(value, str):
         try:
-            if "T" in value or value.endswith("Z"):
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
-            return date.fromisoformat(value).isoformat()
+            normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+            parsed = datetime.fromisoformat(normalized)
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)

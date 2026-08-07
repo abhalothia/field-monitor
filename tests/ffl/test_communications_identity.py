@@ -113,7 +113,7 @@ def test_resolution_maps_only_the_active_portal_membership_role(ffl_db, portal_c
     _verified(ffl_db, portal_context, role, address)
 
     resolution = resolve_communication_endpoint(
-        ffl_db, "loopmessage", address, portal_context.id, received_at="2026-08-07",
+        ffl_db, "loopmessage", address, portal_context.id, received_at="2026-08-07T00:00:00Z",
     )
 
     assert resolution.state == "eligible_" + role
@@ -125,7 +125,7 @@ def test_field_context_requires_current_allocation_coverage(ffl_db, portal_conte
 
     resolution = resolve_communication_endpoint(
         ffl_db, "loopmessage", address, portal_context.id,
-        allocation_id="allocation-outside-scope", received_at="2026-08-07",
+        allocation_id="allocation-outside-scope", received_at="2026-08-07T00:00:00Z",
     )
 
     assert resolution.state == "ambiguous_scope"
@@ -154,11 +154,11 @@ def test_field_resolution_never_guesses_between_allocations_but_exact_context_re
     _verified(ffl_db, portal_context, "farmer", address)
 
     ambiguous = resolve_communication_endpoint(
-        ffl_db, "loopmessage", address, portal_context.id, received_at="2026-08-07",
+        ffl_db, "loopmessage", address, portal_context.id, received_at="2026-08-07T00:00:00Z",
     )
     exact = resolve_communication_endpoint(
         ffl_db, "loopmessage", address, portal_context.id,
-        allocation_id=second.id, received_at="2026-08-07",
+        allocation_id=second.id, received_at="2026-08-07T00:00:00Z",
     )
 
     assert ambiguous.state == "ambiguous_scope"
@@ -194,7 +194,7 @@ def test_policy_rechecks_every_current_authority_before_dispatch(ffl_db, portal_
     profile, endpoint = _verified(ffl_db, portal_context, "farmer", address)
     resolution = resolve_communication_endpoint(
         ffl_db, "loopmessage", address, portal_context.id,
-        allocation_id=portal_context.allocation_id, received_at="2026-08-07",
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T00:00:00Z",
     )
     policy_args = (
         ffl_db, resolution, "weekly_farmer_checkin", "crop_allocation", portal_context.allocation_id,
@@ -252,7 +252,7 @@ def test_policy_enforces_quiet_hours_and_frequency_cap(ffl_db, portal_context):
     profile, endpoint = _verified(ffl_db, portal_context, "farmer", address)
     resolution = resolve_communication_endpoint(
         ffl_db, "loopmessage", address, portal_context.id,
-        allocation_id=portal_context.allocation_id, received_at="2026-08-07",
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T00:00:00Z",
     )
     set_scoped_consent(
         ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
@@ -276,3 +276,137 @@ def test_policy_enforces_quiet_hours_and_frequency_cap(ffl_db, portal_context):
     assert capped.code == "frequency_cap"
     assert allowed.allowed is True
     assert allowed.code == "allowed"
+
+
+def test_policy_binds_consent_scope_to_the_effective_allocation(ffl_db, portal_context):
+    allocation = ffl_db.execute(
+        "SELECT operating_unit_id, season_id FROM crop_allocations WHERE id = ?",
+        (portal_context.allocation_id,),
+    ).fetchone()
+    other_block = repository.create_operational_block(
+        ffl_db, allocation["operating_unit_id"], "Other consent block", 2.0,
+    )
+    other_allocation = repository.create_crop_allocation(
+        ffl_db, allocation["operating_unit_id"], other_block.id, allocation["season_id"],
+        "Wheat", None, 2.0,
+    )
+    repository.create_person_operating_relationship(
+        ffl_db, portal_context.people["farmer"].id, "crop_allocation", other_allocation.id,
+        "grower", "2026-06-01", provenance="reviewed other allocation",
+    )
+    address = "+919876543216"
+    profile, endpoint = _verified(ffl_db, portal_context, "farmer", address)
+    resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T00:00:00Z",
+    )
+    set_scoped_consent(
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", other_allocation.id, True,
+        "consent for the other allocation", portal_context.admin_id,
+    )
+
+    decision = may_dispatch(
+        ffl_db, resolution, "weekly_farmer_checkin", "crop_allocation", other_allocation.id,
+        allocation_id=portal_context.allocation_id,
+        dispatch_at="2026-08-07T12:00:00+00:00",
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "scope_not_covered"
+
+
+@pytest.mark.parametrize("scope_type", ["operating_unit", "operational_block", "land_parcel"])
+def test_policy_proves_broader_consent_scope_contains_the_allocation(
+    ffl_db, portal_context, scope_type,
+):
+    allocation = ffl_db.execute(
+        "SELECT operating_unit_id, operational_block_id FROM crop_allocations WHERE id = ?",
+        (portal_context.allocation_id,),
+    ).fetchone()
+    scope_id = {
+        "operating_unit": allocation["operating_unit_id"],
+        "operational_block": allocation["operational_block_id"],
+    }.get(scope_type)
+    if scope_type == "land_parcel":
+        parcel = repository.create_land_parcel(
+            ffl_db, allocation["operating_unit_id"], "Consent title parcel", 5.0,
+        )
+        repository.link_block_parcel(
+            ffl_db, allocation["operational_block_id"], parcel.id,
+        )
+        scope_id = parcel.id
+    repository.create_person_operating_relationship(
+        ffl_db, portal_context.people["farmer"].id, scope_type,
+        scope_id, "grower", "2026-06-01",
+        provenance="reviewed whole-unit relationship",
+    )
+    address = "+919876543217"
+    profile, endpoint = _verified(ffl_db, portal_context, "farmer", address)
+    resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T00:00:00Z",
+    )
+    set_scoped_consent(
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        scope_type, scope_id, True, "reviewed broader-scope consent", portal_context.admin_id,
+    )
+
+    decision = may_dispatch(
+        ffl_db, resolution, "weekly_farmer_checkin", scope_type,
+        scope_id, allocation_id=portal_context.allocation_id,
+        dispatch_at="2026-08-07T12:00:00+00:00",
+    )
+
+    assert decision.allowed is True
+
+
+def test_equivalent_instants_use_one_utc_coverage_date_and_naive_time_fails_closed(
+    ffl_db, portal_context,
+):
+    address = "+919876543218"
+    profile, endpoint = _verified(ffl_db, portal_context, "farmer", address)
+    prior_resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T12:00:00Z",
+    )
+    set_scoped_consent(
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", portal_context.allocation_id, True,
+        "time-bound consent", portal_context.admin_id,
+    )
+    ffl_db.execute(
+        "UPDATE person_operating_relationships SET starts_on = '2026-08-08' WHERE person_id = ?",
+        (portal_context.people["farmer"].id,),
+    )
+    offset_instant = "2026-08-08T00:30:00+05:30"
+    utc_instant = "2026-08-07T19:00:00Z"
+
+    offset_resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at=offset_instant,
+    )
+    utc_resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at=utc_instant,
+    )
+    naive_resolution = resolve_communication_endpoint(
+        ffl_db, "loopmessage", address, portal_context.id,
+        allocation_id=portal_context.allocation_id, received_at="2026-08-07T19:00:00",
+    )
+
+    assert offset_resolution == utc_resolution
+    assert utc_resolution.state == "ambiguous_scope"
+    assert naive_resolution.state == "known_ineligible"
+
+    args = (
+        ffl_db, prior_resolution, "weekly_farmer_checkin", "crop_allocation",
+        portal_context.allocation_id,
+    )
+    offset_decision = may_dispatch(*args, dispatch_at=offset_instant)
+    utc_decision = may_dispatch(*args, dispatch_at=utc_instant)
+    naive_decision = may_dispatch(*args, dispatch_at="2026-08-07T19:00:00")
+
+    assert offset_decision == utc_decision
+    assert utc_decision.code == "scope_not_covered"
+    assert naive_decision.code == "scope_not_covered"

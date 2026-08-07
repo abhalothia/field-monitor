@@ -83,6 +83,9 @@ def may_dispatch(
         if resolution.state == "ambiguous_scope":
             return _deny("scope_not_covered")
         return _deny("membership_inactive")
+    dispatch_instant = _dispatch_time(dispatch_at)
+    if dispatch_instant is None:
+        return _deny("scope_not_covered")
 
     effective_allocation_id = allocation_id
     if effective_allocation_id is None and scope_type == "crop_allocation":
@@ -95,16 +98,17 @@ def may_dispatch(
     ):
         return _deny("scope_not_covered")
     if effective_allocation_id is not None:
-        dispatch_date = _dispatch_time(dispatch_at)
-        if dispatch_date is None:
-            return _deny("scope_not_covered")
         coverage = active_person_allocation_coverage(
             conn,
             resolution.person_id,
             effective_allocation_id,
-            on_date=dispatch_date.date().isoformat(),
+            on_date=dispatch_instant.date().isoformat(),
         )
         if not coverage.eligible:
+            return _deny("scope_not_covered")
+        if not _scope_covers_allocation(
+            conn, scope_type, scope_id, effective_allocation_id
+        ):
             return _deny("scope_not_covered")
 
     try:
@@ -123,10 +127,9 @@ def may_dispatch(
         return _deny("consent_not_active")
 
     if quiet_hours is not None:
-        at = _dispatch_time(dispatch_at)
         quiet = _quiet_window(quiet_hours)
         try:
-            local_time = at.astimezone(ZoneInfo(current["time_zone"])).time() if at is not None else None
+            local_time = dispatch_instant.astimezone(ZoneInfo(current["time_zone"])).time()
         except (ZoneInfoNotFoundError, ValueError, TypeError):
             local_time = None
         if local_time is None or quiet is None or _inside_quiet_hours(local_time, quiet):
@@ -156,14 +159,52 @@ def _dispatch_time(value: Optional[Union[datetime, str]]) -> Optional[datetime]:
         parsed = value
     elif isinstance(value, str):
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+            parsed = datetime.fromisoformat(normalized)
         except ValueError:
             return None
     else:
         return None
-    if parsed.tzinfo is None:
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None
-    return parsed
+    return parsed.astimezone(timezone.utc)
+
+
+def _scope_covers_allocation(
+    conn, scope_type: str, scope_id: str, allocation_id: str,
+) -> bool:
+    """Prove consent scope containment through the canonical farm hierarchy."""
+    if scope_type == "crop_allocation":
+        return scope_id == allocation_id
+    statements = {
+        "operating_unit": """SELECT 1
+            FROM crop_allocations allocation
+            WHERE allocation.id = ? AND allocation.status = 'active'
+              AND allocation.operating_unit_id = ?""",
+        "operational_block": """SELECT 1
+            FROM crop_allocations allocation
+            JOIN operational_blocks block
+              ON block.id = allocation.operational_block_id
+             AND block.operating_unit_id = allocation.operating_unit_id
+            WHERE allocation.id = ? AND allocation.status = 'active'
+              AND block.id = ?""",
+        "land_parcel": """SELECT 1
+            FROM crop_allocations allocation
+            JOIN block_parcels linked
+              ON linked.operational_block_id = allocation.operational_block_id
+            JOIN land_parcels parcel
+              ON parcel.id = linked.land_parcel_id
+             AND parcel.operating_unit_id = allocation.operating_unit_id
+            WHERE allocation.id = ? AND allocation.status = 'active'
+              AND parcel.id = ?""",
+    }
+    statement = statements.get(scope_type)
+    if statement is None:
+        return False
+    try:
+        return conn.execute(statement, (allocation_id, scope_id)).fetchone() is not None
+    except Exception:
+        return False
 
 
 def _quiet_window(value: object) -> Optional[Tuple[time, time]]:
