@@ -411,6 +411,24 @@ class _PrivateEvidenceCollector:
             for values in self._rows[table].values()
         )
 
+    def unique_farmer_for_mobile(self, value: Any) -> Optional[str]:
+        """Resolve a registration only when its private mobile has one farmer.
+
+        TrackWick's old registration tasks omit ``customerIden`` even though
+        the customer feed and registration form carry the same mobile.  A
+        unique in-memory exact match restores the source relationship without
+        treating a name, address, or fuzzy match as identity evidence.
+        """
+        mobile = _private_mobile(value)
+        if mobile is None:
+            return None
+        parties = {
+            str(row["party_id"])
+            for row in self._rows["trackwick_contact_points"].values()
+            if row.get("contact_value") == mobile
+        }
+        return next(iter(parties)) if len(parties) == 1 else None
+
 
 def _normalise_private_customer(
     customer: Mapping[str, Any], config: TrackwickApiConfig, fallback_time: datetime,
@@ -516,8 +534,12 @@ def _normalise_private_task(
             task_id, provider_task_id, form_details, observed_at, config, collector,
         )
     if type_key == "new farmer registration":
+        registration_farmer_party_id = (
+            farmer_party_id
+            or collector.unique_farmer_for_mobile(form_details.get("Mobile No"))
+        )
         _normalise_private_registration(
-            task_id, farmer_party_id, form_details, status, observed_at, config, collector,
+            task_id, registration_farmer_party_id, form_details, status, observed_at, config, collector,
         )
     if type_key in _SOIL_TASK_TYPES:
         _add_private_location(

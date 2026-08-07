@@ -179,6 +179,32 @@ def test_private_evidence_normaliser_rejects_unapproved_media_hosts_and_invalid_
     assert "trackwick_location_observations" not in by_table
 
 
+def test_private_registration_uses_only_a_unique_customer_mobile_when_task_identity_is_absent():
+    registration = {
+        "id": "registration-without-customer-id",
+        "type": "New Farmer Registration",
+        "status": "Completed",
+        "created": 1785750000000,
+        "formDetails": {"Mobile No": "9999999999", "Village": "Dargava"},
+    }
+    customer = {
+        "iden": "farmer-1", "name": "Fortune Farmer", "mobile": "9999999999",
+        "createdOn": 1785750000000,
+    }
+    result = normalise_trackwick_private_evidence(
+        TrackwickFetchResult(tasks=(registration,), customers=(customer,), attendance=(), task_pages=1),
+        CONFIG,
+        as_of=datetime.fromisoformat("2026-08-03T10:00:00+05:30"),
+    )
+
+    rows = result.records_by_table()
+    farmer = next(row for row in rows["trackwick_parties"] if row.values["party_kind"] == "farmer")
+    registration_row = rows["trackwick_registrations"][0]
+
+    assert registration_row.values["farmer_party_id"] == farmer.values["id"]
+    assert "9999999999" not in repr(registration_row.values)
+
+
 def test_private_evidence_normaliser_accepts_a_plot_photo_only_when_its_exact_label_is_configured():
     config = TrackwickApiConfig(
         customer_id="trackwick-tenant",
