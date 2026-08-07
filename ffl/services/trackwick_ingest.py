@@ -302,6 +302,16 @@ def _private_graph_requires_repair(conn, source_id: str) -> bool:
     A missing parent means a source registration or visit cannot be combined
     with its reported farmer, worker, or review workflow without guessing.
     """
+    # A new approved private mapping must process the historical source once;
+    # ordinary delta windows cannot update an old registration's linkage.
+    current_mapping = conn.execute(
+        """SELECT 1 FROM trackwick_registrations
+           WHERE source_id = ? AND data_quality_status = 'valid'
+             AND mapping_version != ? LIMIT 1""",
+        (source_id, PRIVATE_EVIDENCE_MAPPING_VERSION),
+    ).fetchone()
+    if current_mapping is not None:
+        return True
     for child_table, child_key in (
         ("trackwick_visits", "task_id"),
         ("trackwick_registrations", "task_id"),

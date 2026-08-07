@@ -35,7 +35,7 @@ DEFAULT_FORM_TITLE = "Farmer Visit"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 _PAGE_FETCH_CONCURRENCY = 12
 MAPPING_VERSION = "trackwick-task-v3"
-PRIVATE_EVIDENCE_MAPPING_VERSION = "trackwick-private-v1"
+PRIVATE_EVIDENCE_MAPPING_VERSION = "trackwick-private-v2"
 
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CUSTOMER_NAME_CODE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?=\s*\()")
