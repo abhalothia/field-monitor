@@ -132,6 +132,28 @@ def list_entity_directory(
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _PROFILE_DIRECTORY_LIMIT:
         raise ValueError("limit must be between 1 and 100")
     bounds = _record_date_bounds(date_from, date_to)
+    if state == "all":
+        if kind != "farm":
+            return []
+        # A manager's Farm directory needs both explicitly reviewed Farms and
+        # separately-labelled TrackWick candidates.  Do not make the browser
+        # infer this by combining two endpoints: the server remains the one
+        # authority for the distinct record states.
+        reviewed = list_entity_directory(
+            conn, kind, query, crop, date_from, date_to, limit, "reviewed",
+        )
+        reported = _reported_farm_directory(conn, query, crop, bounds, limit)
+        return sorted(
+            [*reviewed, *reported],
+            key=lambda item: (
+                item.get("latest_update_at") is None,
+                item.get("latest_update_at") or "",
+                item["name"],
+                item["id"],
+            ),
+            reverse=True,
+        )[:limit]
+
     if state not in {None, "reviewed"}:
         if state == "reported" and kind == "farm":
             return _reported_farm_directory(conn, query, crop, bounds, limit)

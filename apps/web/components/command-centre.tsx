@@ -585,6 +585,7 @@ export function CommandCentre({ view }: { view: View }) {
         </nav>
         <div className="command-tools">
           {state.session?.authenticated ? <a href="/manager" className="quiet-button">{t.farmTruth}</a> : null}
+          {!state.session?.authenticated ? <Link href={`/login?next=/${view}`} className="quiet-button">Sign in</Link> : null}
           <button type="button" className="language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
           <button type="button" className="quiet-button" onClick={() => void load()} disabled={state.loading}>{state.loading ? t.loading : t.refresh}</button>
         </div>
@@ -624,24 +625,24 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   const nextMove = portfolio?.risk_action_ledger.items[0];
   const firstTruth = readiness?.next_stage;
   const reportedFarmCount = trackwick?.counts.farm_candidates || 0;
-  const statusLine = nextMove
-    ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
-    : reportedFarmCount
-      ? `${count(reportedFarmCount)} reported farms await review`
+  const statusLine = reportedFarmCount
+    ? `${count(reportedFarmCount)} reported farms · ${count(trackwick?.counts.farmers)} farmers · ${count(trackwick?.counts.field_workers)} field workers`
+    : nextMove
+      ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
       : history
         ? `${count(history.coverage.quantity_qtl)} qtl · ${count(history.coverage.villages)} villages · ${count(history.coverage.varieties)} varieties`
         : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} operating checks complete` : "Reading the operating record";
-  const title = nextMove
-    ? nextMove.title
-    : reportedFarmCount
-      ? `Review ${count(reportedFarmCount)} reported farms.`
+  const title = reportedFarmCount
+    ? `${count(reportedFarmCount)} reported farms in TrackWick.`
+    : nextMove
+      ? nextMove.title
       : history
         ? `${count(history.coverage.quantity_qtl)} qtl of past purchase context.`
         : firstTruth?.title || "Start with one reviewed farm.";
-  const detail = nextMove
-    ? actionLine(nextMove)
-    : reportedFarmCount
-      ? "TrackWick has source context for people, reported farms, and field activity. Review it before it becomes AGRO CEO field truth."
+  const detail = reportedFarmCount
+    ? `${count(trackwick?.counts.reported_visits)} reported visits · ${count(trackwick?.counts.reported_signals)} disease and pest reports · ${count(trackwick?.counts.open_work)} open source work. Review source facts before they become AGRO CEO field truth.`
+    : nextMove
+      ? actionLine(nextMove)
       : history
         ? `${history.coverage.months.join(" · ")} · historical Fortune procurement by village and variety. It is not a current crop, farmer, or field map.`
         : firstTruth?.next_action || "The operating record begins with a real field, not a guessed one.";
@@ -649,17 +650,17 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
     <p className="eyebrow">{nextMove ? "One next move" : reportedFarmCount ? "Reported field context" : history ? "Historical supply context" : "Start here"}</p>
     <h2>{title}</h2>
     <p>{detail}</p>
-    {nextMove
-      ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
-      : reportedFarmCount
-        ? <a href="/manager?review=farm-truth" className="primary-action">Review reported farms <span aria-hidden="true">→</span></a>
+    {reportedFarmCount
+      ? <Link href="/fields?state=reported" className="primary-action">Browse reported farms <span aria-hidden="true">→</span></Link>
+      : nextMove
+        ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
         : <Link href="/settings" className="primary-action">Open data connections <span aria-hidden="true">→</span></Link>}
     <footer>{statusLine} · {state.profile?.display_name || "Fortune Farms"}</footer>
   </section>;
 }
 
 const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
-  state: "all",
+  state: "reported",
   query: "",
   dateFrom: "",
   dateTo: "",
@@ -670,7 +671,7 @@ function filtersFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const state = params.get("state");
   return {
-    state: state === "reviewed" || state === "reported" ? state : "all",
+    state: state === "all" || state === "reviewed" || state === "reported" ? state : "reported",
     query: params.get("query") || "",
     dateFrom: params.get("date_from") || "",
     dateTo: params.get("date_to") || "",
@@ -680,7 +681,7 @@ function filtersFromLocation() {
 function directoryParams(filters: DirectoryFilters) {
   const params = new URLSearchParams();
   params.set("kind", "farm");
-  if (filters.state !== "all") params.set("state", filters.state);
+  params.set("state", filters.state);
   if (filters.query.trim()) params.set("query", filters.query.trim());
   if (filters.dateFrom) params.set("date_from", filters.dateFrom);
   if (filters.dateTo) params.set("date_to", filters.dateTo);
@@ -767,7 +768,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   }
 
   function clearFilters() {
-    window.history.pushState({}, "", "/fields");
+    window.history.pushState({}, "", "/fields?state=reported");
     setDraftFilters(EMPTY_DIRECTORY_FILTERS);
     setFilters(EMPTY_DIRECTORY_FILTERS);
   }
@@ -901,7 +902,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       <div className="directory-filter-actions"><button className="quiet-button" type="submit" disabled={!canOpenProfiles || directory.loading}>Apply filters</button><button className="text-link" type="button" onClick={clearFilters}>Clear</button></div>
     </form>
     {!canOpenProfiles
-      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Manager access required" detail="Unlock Farm Truth to read the reviewed Farm directory. Reported candidates remain outside this canonical record." />
+      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open the Farm directory" detail="The private source directory is available to named Fortune admins. Reported candidates remain distinct from reviewed Farms." action={{ href: "/login?next=/fields", label: "Sign in" }} />
       : directory.loading
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
         : directory.error
@@ -1105,7 +1106,7 @@ function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
   text: string;
   open: (openerId: string) => void;
 }) {
-  if (!canOpenProfiles) return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;
+  if (!canOpenProfiles) return <Link id={controlId} className="profile-locked" href="/login">Sign in to open</Link>;
   return <button id={controlId} type="button" className="text-link profile-open" onClick={(event) => open(event.currentTarget.id)} aria-label={label}>{text} <span aria-hidden="true">→</span></button>;
 }
 
@@ -1378,8 +1379,8 @@ function AccountManager() {
   </details>;
 }
 
-function EmptyState({ title, detail, focusId }: { title: string; detail: string; focusId?: string }) {
-  return <section id={focusId} tabIndex={focusId ? -1 : undefined} className="empty-state"><strong>{title}</strong><p>{detail}</p></section>;
+function EmptyState({ title, detail, focusId, action }: { title: string; detail: string; focusId?: string; action?: { href: string; label: string } }) {
+  return <section id={focusId} tabIndex={focusId ? -1 : undefined} className="empty-state"><strong>{title}</strong><p>{detail}</p>{action ? <Link className="text-link" href={action.href}>{action.label} <span aria-hidden="true">→</span></Link> : null}</section>;
 }
 
 function actionLine(item: LedgerItem) {

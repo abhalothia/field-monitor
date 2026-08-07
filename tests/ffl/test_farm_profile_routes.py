@@ -405,6 +405,9 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
     reported = farm_profiles.list_entity_directory(
         ffl_db, "farm", state="reported", query="Dargava",
     )
+    all_states = farm_profiles.list_entity_directory(
+        ffl_db, "farm", state="all", query="Dargava",
+    )
     canonical = farm_profiles.list_entity_directory(ffl_db, "farm")
     after = ffl_db.execute("SELECT count(id) AS count FROM farms").fetchone()["count"]
     with TestClient(app) as client:
@@ -428,6 +431,7 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
         "latest_update_at": now,
         "destination": {"kind": "review_reported_farm", "id": "source-registration"},
     }]
+    assert all_states == reported
     assert reported_response.status_code == 200
     assert reported_response.json() == reported
     assert canonical_response.json() == []
@@ -798,7 +802,7 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert "Coming soon" in source
     assert "disabled-connection" in source
     assert "canOpenProfiles={Boolean(state.session?.authenticated)}" in source
-    assert 'className="profile-locked" href="/manager">Manager access required' in source
+    assert 'className="profile-locked" href="/login">Sign in to open' in source
     assert "directoryOpener.current = openerId" in source
     assert "document.getElementById(openerId)?.focus()" in source
     assert '<div className="disabled-connection" aria-disabled="true">' in source
@@ -848,7 +852,7 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert "FieldRecordPanel" in source
     assert "A reviewed field boundary is required before this Field can appear on a map." in source
     assert "TrackWick source points, village context, and reported areas never become a Field boundary." in source
-    assert 'return <a id={controlId} className="profile-locked" href="/manager">Manager access required</a>;' in source
+    assert 'return <Link id={controlId} className="profile-locked" href="/login">Sign in to open</Link>;' in source
 
 
 def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label():
