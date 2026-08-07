@@ -579,17 +579,22 @@ export function CommandCentre({ view }: { view: View }) {
       const cached = window.sessionStorage.getItem(OPERATING_CACHE_KEY);
       if (!cached) return;
       const value = JSON.parse(cached) as Partial<State>;
-      setState((current) => ({ ...current, ...value, loading: false, error: null }));
+      if (!value.session?.authenticated) return;
+      setState((current) => ({ ...current, ...value, session: { authenticated: true }, loading: false, error: null }));
     } catch { /* a bad local cache should never block the operating record */ }
   }, []);
 
   useEffect(() => { stateRef.current = state; }, [state]);
 
   useEffect(() => {
-    if (!state.profile || !state.trackwick) return;
+    if (state.session && !state.session.authenticated) {
+      try { window.sessionStorage.removeItem(OPERATING_CACHE_KEY); } catch { /* cache cleanup never blocks the record */ }
+      return;
+    }
+    if (!state.session?.authenticated || !state.profile || !state.trackwick) return;
     try {
       const { session: _session, loading: _loading, error: _error, needsLaunchLogin: _needsLaunchLogin, ...cached } = state;
-      window.sessionStorage.setItem(OPERATING_CACHE_KEY, JSON.stringify(cached));
+      window.sessionStorage.setItem(OPERATING_CACHE_KEY, JSON.stringify({ ...cached, session: { authenticated: true } }));
     } catch { /* cache is an enhancement, not a dependency */ }
   }, [state]);
 
@@ -615,7 +620,8 @@ export function CommandCentre({ view }: { view: View }) {
     }
     const previous = stateRef.current;
     const session = results[4].status === "fulfilled" ? results[4].value.value : previous.session;
-    const privateResults = session?.authenticated
+    const hasPrivateAccess = Boolean(session?.authenticated);
+    const privateResults = hasPrivateAccess
       ? await Promise.allSettled([
           readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value),
           readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100").then(({ value }) => value),
@@ -623,7 +629,7 @@ export function CommandCentre({ view }: { view: View }) {
         ])
       : [];
     const privateFailed = privateResults.some((result) => result.status === "rejected");
-    const currentRecordExists = Boolean(previous.profile || previous.trackwick);
+    const currentRecordExists = Boolean(previous.profile);
     setState((current) => ({
       profile: results[0].status === "fulfilled" ? results[0].value.value : current.profile,
       portfolio: results[1].status === "fulfilled" ? results[1].value.value : current.portfolio,
@@ -631,9 +637,9 @@ export function CommandCentre({ view }: { view: View }) {
       lanes: results[3].status === "fulfilled" ? results[3].value.value : current.lanes,
       session,
       readiness: results[5].status === "fulfilled" ? results[5].value.value : current.readiness,
-      trackwick: privateResults[0]?.status === "fulfilled" ? privateResults[0].value : current.trackwick,
-      agents: privateResults[2]?.status === "fulfilled" ? privateResults[2].value : current.agents,
-      canonicalFarmers: privateResults[1]?.status === "fulfilled" ? privateResults[1].value : current.canonicalFarmers,
+      trackwick: hasPrivateAccess ? (privateResults[0]?.status === "fulfilled" ? privateResults[0].value : current.trackwick) : null,
+      agents: hasPrivateAccess ? (privateResults[2]?.status === "fulfilled" ? privateResults[2].value : current.agents) : null,
+      canonicalFarmers: hasPrivateAccess ? (privateResults[1]?.status === "fulfilled" ? privateResults[1].value : current.canonicalFarmers) : [],
       procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : current.procurementHistory,
       loading: false,
       needsLaunchLogin: !session?.authenticated && !currentRecordExists,
@@ -742,8 +748,8 @@ export function CommandCentre({ view }: { view: View }) {
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "map" ? <MapView state={state} /> : null}
-      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
-      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
+      {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
+      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load()} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
       <nav className="mobile-nav" aria-label="Primary views">
@@ -1135,10 +1141,11 @@ function directoryParams(filters: DirectoryFilters) {
   return params;
 }
 
-function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
+function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSession }: {
   t: Translation;
   state: State;
   canOpenProfiles: boolean;
+  accessResolved: boolean;
   expireManagerSession: () => void;
 }) {
   const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
@@ -1185,8 +1192,8 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   }, [draftFilters.query, filters, filtersReady]);
 
   useEffect(() => {
-    if (!filtersReady || !canOpenProfiles) {
-      if (filtersReady) setDirectory({ items: [], loading: false, error: null, stale: false });
+    if (!filtersReady || !accessResolved || !canOpenProfiles) {
+      if (filtersReady && accessResolved) setDirectory({ items: [], loading: false, error: null, stale: false });
       return;
     }
     const request = ++directoryRequest.current;
@@ -1216,7 +1223,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
         if (message === "Manager access expired.") expireManagerSession();
         setDirectory((current) => ({ items: current.items, loading: false, error: current.items.length ? null : message, stale: Boolean(current.items.length) }));
       });
-  }, [canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
+  }, [accessResolved, canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
 
   useEffect(() => {
     const expired = managerAccessWasEnabled.current && !canOpenProfiles;
@@ -1388,10 +1395,12 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
   return <section className="directory-workspace farm-directory">
     <div className="directory-toolbar directory-toolbar-controls"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><MultiFilter label="Status" values={filters.state} options={[["all", "All farms"], ["reported", "To review"], ["reviewed", "Active"]]} onChange={(state) => updateDirectoryFilters({ state })} /><MultiFilter label="Activity" values={filters.activity} options={[["all", "All activity"], ["open_tasks", "Open tasks"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(activity) => updateDirectoryFilters({ activity })} /><SortMenu value={filters.order} onChange={(order) => updateDirectoryFilters({ order })} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} /><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
-    {!canOpenProfiles
+    {!accessResolved
+      ? <DirectoryLoadingState label="Opening farms" />
+      : !canOpenProfiles
       ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/farms", label: "Sign in" }} />
       : directory.loading && !directory.items.length
-        ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
+        ? <DirectoryLoadingState label="Updating farms" />
         : directory.items.length
           ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
             ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm to review</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.reported_farmer_name}</p><div className="entity-card-metrics"><span><strong>{count(farm.reported_plot_count || undefined)}</strong> Plots</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>
@@ -1594,11 +1603,12 @@ function EntityUpdates({ updates }: { updates: EntityUpdate[] }) {
   })}</ol>;
 }
 
-function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection, openProfile, closeProfile }: {
+function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, accessResolved, selection, openProfile, closeProfile }: {
   farmers: ReviewedFarmerCard[];
   readiness: PilotReadiness | null;
   trackwick: TrackwickBoard | null;
   canOpenProfiles: boolean;
+  accessResolved: boolean;
   selection: ProfileSelection | null;
   openProfile: (id: string, kind: PersonKind, recordState: "reviewed" | "reported", openerId: string) => Promise<void>;
   closeProfile: () => void;
@@ -1617,7 +1627,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="directory-workspace people-workspace">
     <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Farmers</h1><span>{count(farmers.length || sourceFarmers.length)}</span></div></div>
-    {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Farms</span></div></div></button>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
+    {!accessResolved ? <DirectoryLoadingState label="Opening farmers" /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Farms</span></div></div></button>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
 
@@ -1982,6 +1992,15 @@ function AccountManager() {
 
 function EmptyState({ title, detail, focusId, action }: { title: string; detail: string; focusId?: string; action?: { href: string; label: string } }) {
   return <section id={focusId} tabIndex={focusId ? -1 : undefined} className="empty-state"><strong>{title}</strong><p>{detail}</p>{action ? <Link className="text-link" href={action.href}>{action.label} <span aria-hidden="true">→</span></Link> : null}</section>;
+}
+
+function DirectoryLoadingState({ label }: { label: string }) {
+  return <section className="directory-loading" role="status" aria-live="polite" aria-label={label}>
+    <p><span className="directory-loading-dot" aria-hidden="true" />{label}</p>
+    <div className="directory-skeleton-grid" aria-hidden="true">
+      {Array.from({ length: 8 }, (_, index) => <i className="directory-skeleton-card" key={index} />)}
+    </div>
+  </section>;
 }
 
 function actionLine(item: LedgerItem) {

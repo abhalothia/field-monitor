@@ -912,6 +912,17 @@ def test_command_centre_session_expiry_restores_focus_to_opener_or_boundary():
     assert "focusId={MANAGER_ACCESS_BOUNDARY_ID}" in source
 
 
+def test_command_centre_uses_authenticated_cache_and_directory_skeleton_before_session_resolves():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "if (!value.session?.authenticated) return;" in source
+    assert 'session: { authenticated: true }, loading: false, error: null' in source
+    assert "if (!state.session?.authenticated || !state.profile || !state.trackwick) return;" in source
+    assert 'function DirectoryLoadingState({ label }: { label: string })' in source
+    assert '!accessResolved\n      ? <DirectoryLoadingState label="Opening farms" />' in source
+    assert '!accessResolved ? <DirectoryLoadingState label="Opening farmers" />' in source
+
+
 def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):
     person = repository.create_person(ffl_db, "Not a grower", "operations_lead")
     repository.create_person_operating_relationship(
