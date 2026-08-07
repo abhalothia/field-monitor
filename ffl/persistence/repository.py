@@ -159,6 +159,19 @@ class FarmCandidateReviewCase:
     created_at: str
     updated_at: str
 
+
+@dataclass(frozen=True)
+class AgentNotification:
+    """A manager-owned plain-language operating notification."""
+
+    id: str
+    name: str
+    natural_language_rule: str
+    enabled: bool
+    created_by_person_id: str
+    created_at: str
+    updated_at: str
+
 _TRACKWICK_PRIVATE_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "trackwick_parties": (
         ("id", "party_kind", "provider_identifier", "display_name", "crm_status", "provider_owner_identifier", "provider_tag", "provider_created_at"),
@@ -409,6 +422,13 @@ def _farm_candidate_review_case(row: sqlite3.Row) -> FarmCandidateReviewCase:
         row["review_reason"], row["owner_person_id"], row["reviewed_by_person_id"],
         row["reviewed_at"], row["accepted_farm_id"], row["accepted_grower_person_id"],
         row["created_at"], row["updated_at"],
+    )
+
+
+def _agent_notification(row: sqlite3.Row) -> AgentNotification:
+    return AgentNotification(
+        row["id"], row["name"], row["natural_language_rule"], bool(row["enabled"]),
+        row["created_by_person_id"], row["created_at"], row["updated_at"],
     )
 
 
@@ -3423,6 +3443,70 @@ def _active_farm_for_reviewed_registration(conn, registration_id: str) -> Option
         (registration_id,),
     ).fetchone()
     return None if row is None else str(row["id"])
+
+
+def create_agent_notification(
+    conn: sqlite3.Connection, created_by_person_id: str, name: str,
+    natural_language_rule: str, enabled: bool = True,
+) -> AgentNotification:
+    """Store a manager's notification intent without executing it."""
+    created_by_person_id = _required_text(created_by_person_id, "created_by_person_id", 128)
+    name = _required_text(name, "name", 80)
+    natural_language_rule = _required_text(natural_language_rule, "natural_language_rule", 500)
+    if len(natural_language_rule) < 8:
+        raise ValueError("natural_language_rule must be at least 8 characters")
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be a boolean")
+    if get_person(conn, created_by_person_id) is None:
+        raise ValueError("manager does not exist")
+    identifier, now = _new_identity()
+    conn.execute(
+        """INSERT INTO agent_notifications (
+               id, name, natural_language_rule, enabled, created_by_person_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (identifier, name, natural_language_rule, enabled, created_by_person_id, now, now),
+    )
+    conn.commit()
+    return get_agent_notification(conn, identifier)  # type: ignore[return-value]
+
+
+def get_agent_notification(conn: sqlite3.Connection, notification_id: str) -> Optional[AgentNotification]:
+    row = conn.execute("SELECT * FROM agent_notifications WHERE id = ?", (notification_id,)).fetchone()
+    return _agent_notification(row) if row is not None else None
+
+
+def list_agent_notifications(conn: sqlite3.Connection) -> List[AgentNotification]:
+    rows = conn.execute(
+        "SELECT * FROM agent_notifications ORDER BY updated_at DESC, id DESC"
+    ).fetchall()
+    return [_agent_notification(row) for row in rows]
+
+
+def update_agent_notification(
+    conn: sqlite3.Connection, notification_id: str, *, name: Optional[str] = None,
+    natural_language_rule: Optional[str] = None, enabled: Optional[bool] = None,
+) -> AgentNotification:
+    current = get_agent_notification(conn, notification_id)
+    if current is None:
+        raise ValueError("agent does not exist")
+    next_name = current.name if name is None else _required_text(name, "name", 80)
+    next_rule = current.natural_language_rule if natural_language_rule is None else _required_text(
+        natural_language_rule, "natural_language_rule", 500,
+    )
+    if len(next_rule) < 8:
+        raise ValueError("natural_language_rule must be at least 8 characters")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ValueError("enabled must be a boolean")
+    next_enabled = current.enabled if enabled is None else enabled
+    _, now = _new_identity()
+    conn.execute(
+        """UPDATE agent_notifications
+           SET name = ?, natural_language_rule = ?, enabled = ?, updated_at = ?
+           WHERE id = ?""",
+        (next_name, next_rule, next_enabled, now, notification_id),
+    )
+    conn.commit()
+    return get_agent_notification(conn, notification_id)  # type: ignore[return-value]
 
 
 def get_farm_candidate_review_case(

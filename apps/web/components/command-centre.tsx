@@ -370,6 +370,10 @@ type ProfileSelection = {
   reauth?: boolean;
 };
 
+type OperatingAgent = { id: string; name: string; count: number; summary: string };
+type CustomAgent = { id: string; name: string; instruction: string; enabled: boolean; updated_at: string };
+type AgentBoard = { agents: OperatingAgent[]; custom_agents: CustomAgent[] };
+
 type State = {
   profile: OperatingProfile | null;
   portfolio: Portfolio | null;
@@ -378,6 +382,7 @@ type State = {
   session: ManagerSession | null;
   readiness: PilotReadiness | null;
   trackwick: TrackwickBoard | null;
+  agents: AgentBoard | null;
   canonicalFarmers: ReviewedFarmerCard[];
   procurementHistory: ProcurementHistory | null;
   loading: boolean;
@@ -393,6 +398,7 @@ const EMPTY_STATE: State = {
   session: null,
   readiness: null,
   trackwick: null,
+  agents: null,
   canonicalFarmers: [],
   procurementHistory: null,
   loading: true,
@@ -413,11 +419,11 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", fields: "Fields", farmers: "Farmers", actions: "Actions", settings: "Settings",
+    home: "Home", fields: "Fields", farmers: "Farmers", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
-    reviewedFields: "Reviewed fields", people: "People", nextMove: "The next move", dataReadiness: "Data readiness",
+    reviewedFields: "Reviewed fields", people: "People", nextMove: "Agents", dataReadiness: "Data readiness",
     unlock: "Unlock manager actions", lock: "Lock manager actions", manager: "Manager access",
     signIn: "Sign in", signal: "signals", source: "sources", fieldUpdates: "field updates",
     evidence: "Proof required", work: "work", noActions: "No open actions need attention.",
@@ -425,11 +431,11 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", fields: "खेत", farmers: "किसान", actions: "काम", settings: "सेटिंग्स",
+    home: "होम", fields: "खेत", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
-    reviewedFields: "सत्यापित खेत", people: "लोग", nextMove: "अगला कदम", dataReadiness: "डेटा की तैयारी",
+    reviewedFields: "सत्यापित खेत", people: "लोग", nextMove: "एजेंट", dataReadiness: "डेटा की तैयारी",
     unlock: "मैनेजर कार्रवाइयां खोलें", lock: "मैनेजर कार्रवाइयां बंद करें", manager: "मैनेजर पहुंच",
     signIn: "साइन इन", signal: "संकेत", source: "स्रोत", fieldUpdates: "खेत अपडेट",
     evidence: "प्रमाण ज़रूरी", work: "काम", noActions: "ध्यान देने वाला कोई खुला काम नहीं है।",
@@ -513,12 +519,13 @@ export function CommandCentre({ view }: { view: View }) {
       return;
     }
     const session = results[4].status === "fulfilled" ? results[4].value.value : null;
-    const [trackwick, canonicalFarmers] = session?.authenticated
+    const [trackwick, canonicalFarmers, agents] = session?.authenticated
       ? await Promise.all([
           readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value).catch(() => null),
           readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100").then(({ value }) => value).catch(() => []),
+          readJson<AgentBoard>("/api/v1/agents").then(({ value }) => value).catch(() => null),
         ])
-      : [null, []];
+      : [null, [], null];
     setState({
       profile: results[0].status === "fulfilled" ? results[0].value.value : null,
       portfolio: results[1].status === "fulfilled" ? results[1].value.value : null,
@@ -527,6 +534,7 @@ export function CommandCentre({ view }: { view: View }) {
       session,
       readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
       trackwick,
+      agents,
       canonicalFarmers,
       procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : null,
       loading: false,
@@ -621,7 +629,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
-      {view === "actions" ? <ActionsView t={t} portfolio={state.portfolio} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "field_worker" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
+      {view === "actions" ? <AgentsView agents={state.agents} canOpenProfiles={Boolean(state.session?.authenticated)} reload={() => void load()} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
   );
@@ -1254,22 +1262,73 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
   </div>;
 }
 
-function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, openProfile, closeProfile }: {
-  t: Translation;
-  portfolio: Portfolio | null;
-  trackwick: TrackwickBoard | null;
+function AgentsView({ agents, canOpenProfiles, reload }: {
+  agents: AgentBoard | null;
   canOpenProfiles: boolean;
-  selection: ProfileSelection | null;
-  openProfile: (id: string, kind: "field_worker", recordState: "reported", openerId: string) => Promise<void>;
-  closeProfile: () => void;
+  reload: () => void;
 }) {
-  const actions = portfolio?.risk_action_ledger.items || [];
-  const sourceWork = trackwick?.inbox || [];
-  const workers = trackwick?.field_workers || [];
-  const signals = trackwick?.signals || [];
-  if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Work</p><h2>Actions</h2></div></div><EmptyState title="Sign in to see actions" detail="Tasks and updates are private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Work</p><h2>Open actions</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : <ActionRows items={actions} empty={t.noActions} />}{sourceWork.length ? <section className="reported-source-work"><div className="surface-heading"><div><p className="eyebrow">Tasks</p><h2>Open tasks</h2></div><span className="count-badge">{count(sourceWork.length)}</span></div><SourceWorkRows items={sourceWork} /></section> : null}{trackwick ? <TrackwickSourceCoverage counts={trackwick.counts} /> : null}{signals.length ? <ReportedSignalQueue signals={signals} total={trackwick?.counts.reported_signals || signals.length} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
+  const [name, setName] = useState("");
+  const [instruction, setInstruction] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>Agents</h2></div></div><EmptyState title="Sign in to see agents" detail="The operating record is private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
+
+  async function createAgent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch("/api/v1/agents", {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, instruction }),
+      });
+      const payload = await response.json().catch(() => null) as { detail?: string } | null;
+      if (!response.ok) throw new Error(payload?.detail || "Agent could not be saved.");
+      setName(""); setInstruction(""); setMessage("Agent saved."); reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Agent could not be saved.");
+    } finally { setBusy(false); }
+  }
+
+  return <section className="single-surface actions-surface agents-stage">
+    <div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>Agents</h2></div><span className="count-badge">{count(agents?.agents.length)}</span></div>
+    <p className="surface-copy">Four simple checks keep the field moving.</p>
+    <div className="agent-list">
+      {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>
+        <strong className="agent-count">{count(agent.count)}</strong>
+        <div><h3>{agent.name}</h3><p>{agent.summary}</p></div>
+        <Link href={agent.id === "disease-watch" ? "/fields?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
+      </article>)}
+      {!agents ? <p className="empty-copy">Loading agents…</p> : null}
+    </div>
+    <section className="agent-builder">
+      <div><p className="eyebrow">Your agent</p><h3>Tell us what to watch</h3><p>Write a plain-language notification for anything in your operating data.</p></div>
+      <form className="agent-form" onSubmit={createAgent}>
+        <label>Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. High-priority farmers" required /></label>
+        <label>Notification<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} minLength={8} placeholder="Tell me when a farmer has two disease reports in a week." required /></label>
+        <button className="primary-action" disabled={busy}>{busy ? "Saving…" : "Save agent"} <span aria-hidden="true">→</span></button>
+      </form>
+      {message ? <p className="form-error" role="status">{message}</p> : null}
+      {agents?.custom_agents.length ? <div className="custom-agent-list">{agents.custom_agents.map((agent) => <CustomAgentEditor key={agent.id} agent={agent} reload={reload} />)}</div> : null}
+    </section>
+  </section>;
+}
+
+function CustomAgentEditor({ agent, reload }: { agent: CustomAgent; reload: () => void }) {
+  const [name, setName] = useState(agent.name);
+  const [instruction, setInstruction] = useState(agent.instruction);
+  const [enabled, setEnabled] = useState(agent.enabled);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  async function update(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setMessage(null);
+    try {
+      const response = await fetch(`/api/v1/agents/${agent.id}`, { method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, instruction, enabled }) });
+      const payload = await response.json().catch(() => null) as { detail?: string } | null;
+      if (!response.ok) throw new Error(payload?.detail || "Agent could not be updated.");
+      setMessage("Saved."); reload();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Agent could not be updated."); } finally { setBusy(false); }
+  }
+  return <details className="custom-agent"><summary><span><strong>{agent.name}</strong><small>{agent.enabled ? "Active" : "Paused"}</small></span><span>Edit</span></summary><form className="agent-form" onSubmit={update}><label>Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required /></label><label>Notification<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} minLength={8} required /></label><label className="agent-enabled"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Active</label><button className="quiet-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></form>{message ? <p className="form-error" role="status">{message}</p> : null}</details>;
 }
 
 function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["counts"] }) {

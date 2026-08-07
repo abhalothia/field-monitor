@@ -599,6 +599,19 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS agent_notifications (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 80),
+            natural_language_rule TEXT NOT NULL CHECK (length(trim(natural_language_rule)) BETWEEN 8 AND 500),
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            created_by_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_agent_notifications_enabled_updated
+            ON agent_notifications (enabled, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS source_runs (
             id TEXT PRIMARY KEY,
             source_id TEXT NOT NULL REFERENCES source_registry(id),
