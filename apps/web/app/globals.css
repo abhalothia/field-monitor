@@ -74,6 +74,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .command-intro .eyebrow { margin-bottom: 9px; }
 .command-intro h1 { margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.6rem, 4.6vw, 4.3rem); font-weight: 400; letter-spacing: -.065em; line-height: .9; }
 .command-intro > p { margin: 0 0 4px; color: var(--muted); font-size: .67rem; }
+.command-intro-compact { padding: 18px 0 12px; }
+.command-intro-compact .eyebrow { display: none; }
+.command-intro-compact h1 { font-family: Manrope, Arial, sans-serif; font-size: 1.35rem; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+.mobile-nav { display: none; }
 .honest-notice { border-left: 3px solid var(--gold); background: rgba(242, 226, 180, .48); color: #70561d; font-size: .76rem; line-height: 1.45; margin: 0 0 18px; padding: 10px 12px; }
 
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 14px; }
@@ -209,7 +213,6 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .cached-map-fallback::before { background-image: linear-gradient(rgba(20, 61, 45, .055) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 61, 45, .055) 1px, transparent 1px); background-size: 48px 48px; }
 .cached-map-fallback::after { background: radial-gradient(circle at 68% 28%, rgba(255, 255, 255, .38), transparent 32%), radial-gradient(circle at 23% 72%, rgba(255, 255, 255, .25), transparent 38%); }
 .cached-map-fallback svg { z-index: 1; width: 100%; height: 100%; min-height: 360px; }
-.cached-map-fallback > p { position: absolute; z-index: 2; top: 15px; left: 17px; margin: 0; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .55rem; letter-spacing: .06em; text-transform: uppercase; }
 .cached-map-route { fill: none; stroke: rgba(20, 61, 45, .12); stroke-width: 3; stroke-linecap: round; }
 .cached-map-route.muted { stroke-width: 2; stroke-dasharray: 4 9; }
 .cached-map-point { cursor: pointer; outline: none; }
@@ -406,8 +409,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .personal-item footer { border-top: 1px solid rgba(20, 61, 45, .16); color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .6rem; margin-top: 20px; padding-top: 12px; text-transform: uppercase; }
 
 @media (max-width: 860px) {
-  .command-header { flex-wrap: wrap; padding-bottom: 11px; }
-  .command-nav { order: 3; width: 100%; overflow-x: auto; }
+  .command-header { padding-bottom: 11px; }
+  .command-nav { display: none; }
   .nav-link { padding: 8px 10px; white-space: nowrap; }
   .command-tools { margin-left: auto; }
   .command-intro { align-items: start; flex-direction: column; padding: 36px 0 22px; }
@@ -423,6 +426,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .directory-filter-actions { grid-column: 1 / -1; }
   .farm-card-grid { grid-template-columns: 1fr; }
+  .command-shell { padding-bottom: 96px; }
+  .mobile-nav { position: fixed; z-index: 1000; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; display: grid; grid-template-columns: repeat(5, 1fr); overflow: hidden; border: 1px solid rgba(20, 61, 45, .24); border-radius: 15px; background: rgba(255, 252, 241, .94); box-shadow: 0 14px 34px rgba(45, 55, 35, .18); backdrop-filter: blur(14px); }
+  .mobile-nav a { display: grid; min-height: 54px; place-items: center; color: #627361; font-size: .61rem; font-weight: 800; text-align: center; }
+  .mobile-nav a.active { background: var(--ink); color: #fff9ec; }
 }
 
 @media (max-width: 520px) {

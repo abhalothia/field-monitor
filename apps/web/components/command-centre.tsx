@@ -679,7 +679,7 @@ export function CommandCentre({ view }: { view: View }) {
         </div>
       </header>
 
-      <section className="command-intro">
+      <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           <h1>{headingFor(view, t)}</h1>
@@ -693,6 +693,9 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load()} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
+      <nav className="mobile-nav" aria-label="Primary views">
+        {NAV.filter((item) => item.view !== "settings").map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "active" : ""}>{t[item.view]}</Link>)}
+      </nav>
     </main>
   );
 }
@@ -735,6 +738,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
   const [mapReady, setMapReady] = useState(false);
   const [mapHealth, setMapHealth] = useState<"loading" | "ready" | "cached">("loading");
   const visible = useMemo(() => preview ? points.slice(0, 700) : points, [points, preview]);
+  const hasMapPoints = visible.length > 0;
   const dataKey = `${preview}:${visible.length}:${visible[0]?.id || ""}:${visible.at(-1)?.id || ""}`;
 
   const select = useCallback((point: MapPoint | null) => {
@@ -745,6 +749,10 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
   useEffect(() => { setActive(selectedPoint || null); }, [selectedPoint]);
 
   useEffect(() => {
+    // The board arrives after the shell. Wait until there is a real map node
+    // and cached points before booting Leaflet; otherwise an early empty pass
+    // would leave the real map permanently in its fallback state.
+    if (!hasMapPoints) return;
     let cancelled = false;
     setMapHealth("loading");
     void import("leaflet").then((module) => {
@@ -792,7 +800,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
         leafletRef.current = null;
       }
     };
-  }, [preview]);
+  }, [hasMapPoints, preview]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -874,7 +882,6 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
         </g>;
       })}
     </svg>
-    <p>Cached field activity</p>
   </div>;
 }
 
