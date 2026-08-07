@@ -338,10 +338,17 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 
 .farm-directory { max-width: none; }
 .directory-filters { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(250px, 1.5fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }
-.directory-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
-.directory-filters input, .directory-filters select { width: 100%; min-height: 42px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
+.directory-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .045em; text-transform: uppercase; }
+.directory-filters input, .directory-filters select { width: 100%; min-height: 46px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .8rem; letter-spacing: 0; padding: 9px 12px; text-transform: none; }
 .directory-filter-actions { display: flex; align-items: center; gap: 9px; min-height: 42px; }
 .directory-filter-actions .text-link { border: 0; background: transparent; cursor: pointer; padding: 8px 2px; white-space: nowrap; }
+.directory-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 28px; border-bottom: 1px solid var(--line); margin-bottom: 20px; padding-bottom: 18px; }
+.directory-title { display: flex; align-items: center; gap: 10px; min-height: 46px; }
+.directory-title h2 { margin: 0; color: var(--ink); font-family: Manrope, Arial, sans-serif; font-size: 1.08rem; font-weight: 800; letter-spacing: -.035em; }
+.directory-title span { border-radius: 999px; background: var(--paddy); color: #315738; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .035em; padding: 5px 8px; white-space: nowrap; }
+.farm-directory .directory-filters { grid-template-columns: minmax(150px, .58fr) minmax(280px, 1.6fr) auto; border: 0; margin: 0; padding: 0; }
+.farm-directory .directory-filter-actions { min-height: 46px; }
+.people-toolbar { grid-template-columns: 1fr; }
 .farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .farm-directory-card { display: grid; min-width: 0; min-height: 138px; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 16px; }
 .directory-card-button { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; }
@@ -435,6 +442,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .single-surface { min-height: 0; }
   .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .directory-filter-actions { grid-column: 1 / -1; }
+  .directory-toolbar { grid-template-columns: 1fr; gap: 14px; }
+  .farm-directory .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .farm-card-grid { grid-template-columns: 1fr; }
   .command-shell { padding-bottom: 96px; }
   .mobile-nav { position: fixed; z-index: 1000; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; display: grid; grid-template-columns: repeat(5, 1fr); overflow: hidden; border: 1px solid rgba(20, 61, 45, .24); border-radius: 15px; background: rgba(255, 252, 241, .94); box-shadow: 0 14px 34px rgba(45, 55, 35, .18); backdrop-filter: blur(14px); }
@@ -469,6 +478,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .account-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .account-list span:last-child { display: none; }
   .directory-filters { grid-template-columns: 1fr; }
+  .farm-directory .directory-filters { grid-template-columns: 1fr; }
   .map-controls { grid-template-columns: 1fr; }
   .map-controls label:first-child { grid-column: auto; }
   .map-type-tabs button { font-size: .61rem; padding: 0 5px; }
