@@ -10,6 +10,7 @@ from ffl.integrations.trackolap.trackwick import (
     normalise_trackwick_private_evidence,
 )
 from ffl.persistence import repository
+from ffl.services.operating_enrichment import refresh_source_snapshots
 from ffl.services.trackwick_board import command_centre_board_for_source, manager_board_for_source
 
 
@@ -205,7 +206,7 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     safe_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
     safe_serialized = repr(safe_board).lower()
     assert set(safe_board) == {
-        "source", "counts", "farms", "farmers", "field_workers", "signals", "inbox", "limitations",
+        "source", "counts", "farms", "farmers", "field_workers", "signals", "inbox", "map", "limitations",
     }
     assert set(safe_board["farms"][0]) == {
         "id", "farmer_name", "place", "reported_area_acres", "reported_plot_count",
@@ -243,11 +244,28 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "observed_at": "2026-08-03T15:30:00+05:30",
         "farmer_name": "Ramesh Kumar",
     }]
-    assert safe_board["inbox"][0]["label"] == "TrackWick source work"
+    assert safe_board["inbox"][0]["label"] == "Field work"
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
-    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333", "private disease value 7731", "private source field"):
+    assert safe_board["map"]["points"][0]["subject"]["kind"] == "reported_farm"
+    for forbidden in ("crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333", "private disease value 7731", "private source field"):
         assert forbidden not in safe_serialized
+
+    # The snapshot is a private read model: it adds only factual metrics and
+    # derived tags to the already-safe board, never a raw source field.
+    assert refresh_source_snapshots(
+        ffl_db, source.id, source_run_id=run.id, refreshed_at="2026-08-04T10:00:00+05:30",
+    ) == 3
+    enriched_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
+    farmer_snapshot = enriched_board["farmers"][0]["operating"]
+    worker_snapshot = enriched_board["field_workers"][0]["operating"]
+    farm_snapshot = enriched_board["farms"][0]["operating"]
+    assert farmer_snapshot["metrics"]["open_task_count"] == 1
+    assert farmer_snapshot["metrics"]["disease_report_count"] == 1
+    assert worker_snapshot["metrics"]["farmer_count"] == 1
+    assert farm_snapshot["metrics"]["reported_area_acres"] == 5.5
+    assert "needs_attention" in {tag["key"] for tag in farmer_snapshot["tags"]}
+    assert "PRIVATE DISEASE VALUE 7731" not in repr(enriched_board)
 
     # Production's populated source cache can predate the typed task table.
     # Published normalized follow-ups keep the browser board useful and safe.
@@ -258,7 +276,7 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
 
     assert fallback_board["counts"]["farm_candidates"] == 1
     assert fallback_board["counts"]["open_work"] == 1
-    assert fallback_board["inbox"][0]["label"] == "TrackWick source work"
+    assert fallback_board["inbox"][0]["label"] == "Field work"
     assert "Farmer Visit" not in repr(fallback_board)
 
 

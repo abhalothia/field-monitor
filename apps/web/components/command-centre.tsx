@@ -75,6 +75,25 @@ type PilotReadiness = {
   stages: PilotStage[];
   counts: { people: number; operating_units: number; active_allocations: number; open_work_items: number };
 };
+type OperatingTag = { key: string; label: string; tone: "attention" | "current" | "neutral" };
+type OperatingSnapshot = {
+  metrics: {
+    farm_count: number;
+    farmer_count: number;
+    open_task_count: number;
+    completed_work_count: number;
+    visit_count: number;
+    disease_report_count: number;
+    pest_report_count: number;
+    location_evidence_count: number;
+    photo_reference_count: number;
+    attendance_present_days: number;
+    reported_area_acres?: number | null;
+    latest_activity_at?: string | null;
+    refreshed_at?: string | null;
+  };
+  tags: OperatingTag[];
+};
 type TrackwickFarm = {
   id: string;
   farmer_name: string;
@@ -85,6 +104,7 @@ type TrackwickFarm = {
   latest_activity_at?: string | null;
   crop_photo_references: number;
   plot_photo_references: number;
+  operating?: OperatingSnapshot;
 };
 type TrackwickFarmer = {
   id: string;
@@ -95,6 +115,7 @@ type TrackwickFarmer = {
   open_work: number;
   latest_activity_at?: string | null;
   crop_photo_references: number;
+  operating?: OperatingSnapshot;
 };
 type TrackwickFieldWorker = {
   id: string;
@@ -104,6 +125,7 @@ type TrackwickFieldWorker = {
   completed_work: number;
   latest_activity_at?: string | null;
   latest_attendance_on?: string | null;
+  operating?: OperatingSnapshot;
 };
 type TrackwickSignal = {
   id: string;
@@ -150,7 +172,7 @@ type MapPoint = {
   confidence: string;
   observed_at: string;
   label: string;
-  subject: { kind: MapSubjectKind; id: string | null; name: string; place: string | null; farmer_name: string | null; open_work: number };
+  subject: { kind: MapSubjectKind; id: string | null; name: string; place: string | null; farmer_name: string | null; open_work: number; operating?: OperatingSnapshot };
 };
 type ReviewedFarmerCard = {
   state: "reviewed";
@@ -184,6 +206,7 @@ type ReviewedFarmDirectoryItem = {
   crops: string[];
   open_work_count: number;
   latest_update_at?: string | null;
+  operating?: OperatingSnapshot;
 };
 type ReportedFarmDirectoryItem = {
   state: "reported";
@@ -195,6 +218,7 @@ type ReportedFarmDirectoryItem = {
   reported_plot_count?: number | null;
   open_work_count: number;
   latest_update_at?: string | null;
+  operating?: OperatingSnapshot;
   destination: { kind: "review_reported_farm"; id: string };
 };
 type FarmDirectoryItem = ReviewedFarmDirectoryItem | ReportedFarmDirectoryItem;
@@ -259,6 +283,7 @@ type ReportedFarmProfile = {
     latest_activity_at?: string | null;
     plot_photo_references: number;
     crop_photo_references: number;
+    operating?: OperatingSnapshot;
   };
   limitations: string[];
 };
@@ -340,6 +365,7 @@ type ReportedFarmerProfile = {
     open_work?: number;
     latest_activity_at?: string | null;
     crop_photo_references?: number;
+    operating?: OperatingSnapshot;
     source_activity?: ReportedSourceActivity;
   };
   account?: { state: "not_created" };
@@ -356,6 +382,7 @@ type ReportedFieldWorkerProfile = {
     completed_work?: number;
     latest_activity_at?: string | null;
     latest_attendance_on?: string | null;
+    operating?: OperatingSnapshot;
     source_activity?: ReportedSourceActivity;
   };
   account?: { state: "not_created" };
@@ -537,6 +564,15 @@ function updatedAgo(value?: string | null) {
   if (days < 60) return `Updated ${days} day${days === 1 ? "" : "s"} ago`;
   const months = Math.floor(days / 30);
   return `Updated ${months} month${months === 1 ? "" : "s"} ago`;
+}
+
+function OperatingTagChips({ snapshot, limit = 3 }: { snapshot?: OperatingSnapshot; limit?: number }) {
+  return <>{snapshot?.tags.slice(0, limit).map((tag) => <span className={`operating-tag ${tag.tone}`} key={tag.key}>{tag.label}</span>)}</>;
+}
+
+function OperatingTags({ snapshot, limit = 3, className = "" }: { snapshot?: OperatingSnapshot; limit?: number; className?: string }) {
+  if (!snapshot?.tags.length) return null;
+  return <div className={`operating-tags ${className}`.trim()}><OperatingTagChips snapshot={snapshot} limit={limit} /></div>;
 }
 
 function activityTimestamp(value?: string | null) {
@@ -1034,16 +1070,17 @@ function MapTabs<T extends string>({ label, value, onChange, options }: { label:
 function MapInspector({ point, state, close }: { point: MapPoint; state: State; close: () => void }) {
   const subject = point.subject;
   const status = mapActivityStatus(point);
+  const metrics = subject.operating?.metrics;
   const matchingActivity = (state.trackwick?.map?.points || []).filter((candidate) => candidate.subject.kind === subject.kind && candidate.subject.id === subject.id).sort((a, b) => new Date(b.observed_at).valueOf() - new Date(a.observed_at).valueOf());
   const farm = subject.kind === "reported_farm" ? state.trackwick?.farms.find((candidate) => candidate.id === subject.id) : null;
   const farmer = subject.kind === "farmer" ? state.trackwick?.farmers.find((candidate) => candidate.id === subject.id) : null;
   const worker = subject.kind === "field_worker" ? state.trackwick?.field_workers.find((candidate) => candidate.id === subject.id) : null;
   const facts = subject.kind === "reported_farm"
-    ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(farm?.open_work ?? subject.open_work)], ["Field Activity", count(matchingActivity.length)]]
+    ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(metrics?.open_task_count ?? farm?.open_work ?? subject.open_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
     : subject.kind === "farmer"
-      ? [["Farms", count(farmer?.farm_candidates)], ["Open Tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(farmer?.crop_photo_references)], ["Field Activity", count(matchingActivity.length)]]
+      ? [["Farms", count(metrics?.farm_count ?? farmer?.farm_candidates)], ["Open Tasks", count(metrics?.open_task_count ?? farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(metrics?.photo_reference_count ?? farmer?.crop_photo_references)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
       : subject.kind === "field_worker"
-        ? [["Farmers Assigned", count(worker?.reported_farmer_reach)], ["Open Tasks", count(worker?.open_work ?? subject.open_work)], ["Completed Work", count(worker?.completed_work)], ["Field Activity", count(matchingActivity.length)]]
+        ? [["Farmers Assigned", count(metrics?.farmer_count ?? worker?.reported_farmer_reach)], ["Open Tasks", count(metrics?.open_task_count ?? worker?.open_work ?? subject.open_work)], ["Completed Work", count(metrics?.completed_work_count ?? worker?.completed_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
         : [["Place", subject.place || "—"], ["Open Tasks", count(subject.open_work)], ["Field Activity", count(matchingActivity.length)], ["Last Activity", dateTime(point.observed_at)]];
   return <aside className="map-inspector" aria-label="Selected map record">
     <div className="map-inspector-record">
@@ -1051,7 +1088,7 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
       <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
       <h2>{subject.name}</h2>
       <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}<span>{updatedAgo(point.observed_at)}</span></p>
-      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span></div>
+      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span><OperatingTagChips snapshot={subject.operating} limit={2} /></div>
       <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
       {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
@@ -1068,8 +1105,13 @@ function mapTooltip(point: MapPoint) {
 type MapActivityTone = "attention" | "current" | "earlier";
 
 function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: string } {
-  if (point.subject.open_work > 0) return { tone: "attention", label: point.subject.open_work === 1 ? "1 open task" : `${point.subject.open_work} open tasks` };
-  const age = Date.now() - new Date(point.observed_at).valueOf();
+  const metrics = point.subject.operating?.metrics;
+  const openTasks = metrics?.open_task_count ?? point.subject.open_work;
+  if (openTasks > 0) return { tone: "attention", label: openTasks === 1 ? "1 open task" : `${openTasks} open tasks` };
+  if (metrics?.disease_report_count) return { tone: "attention", label: "Disease reported" };
+  if (metrics?.pest_report_count) return { tone: "attention", label: "Pest reported" };
+  const activityAt = metrics?.latest_activity_at || point.observed_at;
+  const age = Date.now() - new Date(activityAt).valueOf();
   if (age <= 7 * 86_400_000) return { tone: "current", label: "Updated this week" };
   if (age <= 30 * 86_400_000) return { tone: "current", label: "Updated this month" };
   return { tone: "earlier", label: "Earlier activity" };
@@ -1432,7 +1474,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
         ? <DirectoryLoadingState label="Updating farms" />
         : directory.items.length
           ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
-            ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm to review</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.reported_farmer_name}</p><div className="entity-card-metrics"><span><strong>{count(farm.reported_plot_count || undefined)}</strong> Plots</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>
+            ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm to review</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.reported_farmer_name}</p><div className="entity-card-metrics"><span><strong>{count(farm.reported_plot_count || undefined)}</strong> Plots</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><OperatingTags snapshot={farm.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>
             : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.crops.join(" · ") || "No active crop recorded"}</p><div className="entity-card-metrics"><span><strong>{count(farm.field_count)}</strong> Fields</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
@@ -1504,6 +1546,7 @@ function ReportedFarmPanel({ record, operatingUnit }: {
     <p className="eyebrow">Farm</p>
     <h2>{record.name}</h2>
     <p className="profile-context">Review the farm. Build the record as work happens.</p>
+    <OperatingTags snapshot={record.reported.operating} limit={6} className="profile-operating-tags" />
     <div className="farm-profile-sections">
       <section>
         <h3>Farm details</h3>
@@ -1685,7 +1728,7 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
         ? activityTimestamp(left.latest_activity_at) - activityTimestamp(right.latest_activity_at) || personName(left.name).localeCompare(personName(right.name))
         : right.open_work - left.open_work || activityTimestamp(right.latest_activity_at) - activityTimestamp(left.latest_activity_at) || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><OperatingTags snapshot={person.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1718,6 +1761,7 @@ function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () =>
     <p className="eyebrow">{subject}</p>
     <h2>{profile.name}</h2>
     <p className="profile-context">{reported ? "Farm history, field activity, and current work in one place." : profile.limitations?.[0] || "Current operating relationships in one place."}</p>
+    {reported ? <OperatingTags snapshot={profile.reported?.operating} limit={6} className="profile-operating-tags" /> : null}
     <PersonProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
@@ -1875,7 +1919,7 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   return <section className="reported-field-workers">
     <div className="surface-heading"><div><p className="eyebrow">Field team</p><h2>Field workers</h2></div><span className="count-badge">{count(workers.length)}</span></div>
     <div className="directory-secondary-toolbar"><label className="directory-find"><span className="sr-only">Find field workers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(40); }} placeholder="Find field worker" /></label><div className="directory-view-tabs" aria-label="Field worker view"><button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setVisibleCount(40); }}>All</button><button type="button" className={view === "attention" ? "active" : ""} onClick={() => { setView("attention"); setVisibleCount(40); }}>Open tasks</button><button type="button" className={view === "recent" ? "active" : ""} onClick={() => { setView("recent"); setVisibleCount(40); }}>Active</button></div><label className="directory-order"><span className="sr-only">Order field workers</span><select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(40); }}><option value="tasks">Order: open tasks</option><option value="assigned">Order: farmers assigned</option><option value="activity">Order: latest activity</option></select></label></div>
-    <div className="people-list source-card-grid">{visible.map((worker) => <button id={`profile-reported-field-worker-${worker.id}`} type="button" className="person-row compact-entity-card" key={worker.id} onClick={(event) => void openProfile(worker.id, "field_worker", "reported", event.currentTarget.id)}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Field worker</p><h3>{worker.name}</h3><div className="entity-card-metrics"><span><strong>{count(worker.reported_farmer_reach)}</strong> Farmers Assigned</span><span className={worker.open_work ? "attention" : undefined}><strong>{count(worker.open_work)}</strong> Open Tasks</span><span><strong>{count(worker.completed_work)}</strong> Completed</span></div><p className="entity-card-updated">{updatedAgo(worker.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(ordered.length - visible.length)} remaining)</button> : null}
+    <div className="people-list source-card-grid">{visible.map((worker) => <button id={`profile-reported-field-worker-${worker.id}`} type="button" className="person-row compact-entity-card" key={worker.id} onClick={(event) => void openProfile(worker.id, "field_worker", "reported", event.currentTarget.id)}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Field worker</p><h3>{worker.name}</h3><div className="entity-card-metrics"><span><strong>{count(worker.reported_farmer_reach)}</strong> Farmers Assigned</span><span className={worker.open_work ? "attention" : undefined}><strong>{count(worker.open_work)}</strong> Open Tasks</span><span><strong>{count(worker.completed_work)}</strong> Completed</span></div><OperatingTags snapshot={worker.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(worker.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(ordered.length - visible.length)} remaining)</button> : null}
   </section>;
 }
 

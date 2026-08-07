@@ -778,7 +778,7 @@ def _reported_farm_directory(
         if skipped < offset:
             skipped += 1
             continue
-        items.append({
+        item = {
             "state": "reported",
             "kind": "reported_farm_candidate",
             "id": row["id"],
@@ -789,7 +789,10 @@ def _reported_farm_directory(
             "open_work_count": row["open_work"],
             "latest_update_at": occurred_at,
             "destination": {"kind": "review_reported_farm", "id": row["id"]},
-        })
+        }
+        if row.get("operating") is not None:
+            item["operating"] = row["operating"]
+        items.append(item)
         if len(items) >= limit:
             break
     return items
@@ -1168,7 +1171,8 @@ def _reported_farm_summary(row: Mapping[str, Any]) -> dict[str, Any]:
             "latest_activity_at",
             "plot_photo_references",
             "crop_photo_references",
-        )
+            "operating",
+        ) if key in row
     }
 
 
@@ -1181,7 +1185,8 @@ def _reported_farmer_summary(row: Mapping[str, Any]) -> dict[str, Any]:
             "open_work",
             "latest_activity_at",
             "crop_photo_references",
-        )
+            "operating",
+        ) if key in row
     }
 
 
@@ -1194,5 +1199,6 @@ def _reported_field_worker_summary(row: Mapping[str, Any]) -> dict[str, Any]:
             "completed_work",
             "latest_activity_at",
             "latest_attendance_on",
-        )
+            "operating",
+        ) if key in row
     }

@@ -14,6 +14,7 @@ import json
 from typing import Any, Iterable, Mapping, Optional
 
 from ffl.persistence import repository
+from ffl.services import operating_enrichment
 from ffl.services.trackwick_ingest import SOURCE_KEY
 
 
@@ -122,11 +123,16 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
     worker_rows = _worker_rows(workers, tasks_by_worker, latest_worker_day)
     signal_rows = _reported_signal_rows(conn, source.id, party_by_id)
     inbox_rows = _inbox_rows(tasks, party_by_id)
+    operating_snapshots = operating_enrichment.snapshot_index_for_source(conn, source.id)
+    _attach_operating_snapshot(farm_rows, "reported_farm", operating_snapshots)
+    _attach_operating_snapshot(farmer_rows, "farmer", operating_snapshots)
+    _attach_operating_snapshot(worker_rows, "field_worker", operating_snapshots)
     map_points, map_truncated = _map_points(
         locations,
         registrations,
         party_by_id,
         tasks,
+        operating_snapshots,
     )
     counts = {
         "farmers": len(farmers),
@@ -205,9 +211,9 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
             "crop_photo_references", "plot_photo_references", "reported_visits",
             "reported_input_events", "reported_signals", "geotagged_evidence",
         )},
-        "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
-        "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
-        "field_workers": [{key: row.get(key) for key in ("id", "name", "reported_farmer_reach", "open_work", "completed_work", "latest_activity_at", "latest_attendance_on")} for row in board["field_workers"]],
+        "farms": [_safe_projection(row, ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references", "operating")) for row in board["farms"]],
+        "farmers": [_safe_projection(row, ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references", "operating")) for row in board["farmers"]],
+        "field_workers": [_safe_projection(row, ("id", "name", "reported_farmer_reach", "open_work", "completed_work", "latest_activity_at", "latest_attendance_on", "operating")) for row in board["field_workers"]],
         "signals": [{key: row.get(key) for key in ("id", "finding_kind", "declared_severity", "observed_at", "farmer_name")} for row in board["signals"]],
         "inbox": [{
             "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
@@ -222,6 +228,11 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         },
         "limitations": ["Reported farm candidates require Fortune review before they become canonical farms.", "Photo counts are references only; image files and links remain private."],
     }
+
+
+def _safe_projection(row: Mapping[str, Any], keys: Iterable[str]) -> dict[str, Any]:
+    """Return browser fields only, omitting enrichment during rollout gaps."""
+    return {key: row[key] for key in keys if key in row and row[key] is not None}
 
 
 def _latest_source_run(conn, source_id: str) -> Optional[Mapping[str, Any]]:
@@ -470,6 +481,18 @@ def _group_by(rows: Iterable[Mapping[str, Any]], key: str) -> dict[str, list[Map
     return grouped
 
 
+def _attach_operating_snapshot(
+    rows: Iterable[dict[str, Any]],
+    entity_kind: str,
+    snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> None:
+    """Attach only the shared safe snapshot; missing backfill never blanks UI."""
+    for row in rows:
+        snapshot = snapshots.get((entity_kind, str(row["id"])))
+        if snapshot is not None:
+            row["operating"] = dict(snapshot)
+
+
 def _media_counts(rows: Iterable[Mapping[str, Any]]) -> dict[str, Counter[str]]:
     counts: dict[str, Counter[str]] = defaultdict(Counter)
     for row in rows:
@@ -637,6 +660,7 @@ def _map_points(
     registrations: Iterable[Mapping[str, Any]],
     parties: Mapping[str, Mapping[str, Any]],
     tasks: Iterable[Mapping[str, Any]],
+    operating_snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], bool]:
     registration_by_id = {str(row["id"]): row for row in registrations}
     registrations_by_task = {
@@ -665,7 +689,7 @@ def _map_points(
             farmer = parties.get(str(task["farmer_party_id"]))
         elif location["party_id"]:
             farmer = parties.get(str(location["party_id"]))
-        subject = _map_subject(location, registration, task, farmer, parties)
+        subject = _map_subject(location, registration, task, farmer, parties, operating_snapshots)
         points.append({
             "id": key,
             "latitude": float(location["latitude"]),
@@ -687,6 +711,7 @@ def _map_subject(
     task: Optional[Mapping[str, Any]],
     farmer: Optional[Mapping[str, Any]],
     parties: Mapping[str, Mapping[str, Any]],
+    operating_snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Browser-safe context for a single map glance card.
 
@@ -694,7 +719,7 @@ def _map_subject(
     represented as a reviewed field boundary.
     """
     if registration is not None:
-        return {
+        subject = {
             "kind": "reported_farm",
             "id": str(registration["id"]),
             "name": _place(registration),
@@ -702,6 +727,7 @@ def _map_subject(
             "farmer_name": farmer["display_name"] if farmer is not None else None,
             "open_work": int(task["task_status"] in _OPEN_TASK_STATUSES) if task is not None else 0,
         }
+        return _subject_with_operating(subject, operating_snapshots)
     party = None
     if task is not None:
         party_id = task["field_worker_party_id"] or task["farmer_party_id"]
@@ -709,7 +735,7 @@ def _map_subject(
     elif location["party_id"]:
         party = parties.get(str(location["party_id"]))
     if party is not None:
-        return {
+        subject = {
             "kind": str(party["party_kind"]),
             "id": str(party["id"]),
             "name": party["display_name"],
@@ -717,6 +743,7 @@ def _map_subject(
             "farmer_name": farmer["display_name"] if farmer is not None else None,
             "open_work": int(task["task_status"] in _OPEN_TASK_STATUSES) if task is not None else 0,
         }
+        return _subject_with_operating(subject, operating_snapshots)
     if task is not None:
         return {
             "kind": "work",
@@ -762,6 +789,17 @@ def _location(row: Optional[Mapping[str, Any]]) -> Optional[dict[str, Any]]:
         "confidence": row["location_confidence"],
         "observed_at": row["observed_at"],
     }
+
+
+def _subject_with_operating(
+    subject: dict[str, Any], snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> dict[str, Any]:
+    entity_id = subject.get("id")
+    if entity_id:
+        snapshot = snapshots.get((str(subject["kind"]), str(entity_id)))
+        if snapshot is not None:
+            subject["operating"] = dict(snapshot)
+    return subject
 
 
 def _place(registration: Mapping[str, Any]) -> str:

@@ -29,6 +29,7 @@ from ffl.integrations.trackolap.trackwick import (
     refresh_trackwick,
 )
 from ffl.persistence import repository
+from ffl.services import operating_enrichment
 from ffl.services.sources import environment_credential_resolver
 
 
@@ -183,6 +184,12 @@ def refresh_live_trackwick(
                 references_enabled=(
                     resolved_config.task_plot_reference_form_key is not None
                 ),
+                commit=False,
+            )
+            operating_enrichment.refresh_source_snapshots(
+                conn,
+                source.id,
+                source_run_id=run.id,
                 commit=False,
             )
             conn.commit()

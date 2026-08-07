@@ -1265,6 +1265,31 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (field_worker_party_id, observed_on)
         );
 
+        -- One safe, deterministic operating snapshot per reported entity.
+        -- It stores counts and timestamps only; provider fields, contact data,
+        -- coordinates, diagnosis values, and raw source payloads stay private.
+        CREATE TABLE IF NOT EXISTS entity_operating_snapshots (
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            source_run_id TEXT REFERENCES source_runs(id),
+            entity_kind TEXT NOT NULL CHECK (entity_kind IN ('reported_farm', 'farmer', 'field_worker')),
+            entity_id TEXT NOT NULL,
+            farm_count INTEGER NOT NULL DEFAULT 0 CHECK (farm_count >= 0),
+            farmer_count INTEGER NOT NULL DEFAULT 0 CHECK (farmer_count >= 0),
+            open_task_count INTEGER NOT NULL DEFAULT 0 CHECK (open_task_count >= 0),
+            completed_work_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_work_count >= 0),
+            visit_count INTEGER NOT NULL DEFAULT 0 CHECK (visit_count >= 0),
+            disease_report_count INTEGER NOT NULL DEFAULT 0 CHECK (disease_report_count >= 0),
+            pest_report_count INTEGER NOT NULL DEFAULT 0 CHECK (pest_report_count >= 0),
+            location_evidence_count INTEGER NOT NULL DEFAULT 0 CHECK (location_evidence_count >= 0),
+            photo_reference_count INTEGER NOT NULL DEFAULT 0 CHECK (photo_reference_count >= 0),
+            attendance_present_days INTEGER NOT NULL DEFAULT 0 CHECK (attendance_present_days >= 0),
+            reported_area_acres REAL CHECK (reported_area_acres IS NULL OR reported_area_acres >= 0),
+            latest_activity_at TEXT,
+            enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),
+            refreshed_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, entity_kind, entity_id)
+        );
+
         CREATE TABLE IF NOT EXISTS trackwick_party_person_links (
             id TEXT PRIMARY KEY,
             party_id TEXT NOT NULL REFERENCES trackwick_parties(id),
@@ -1684,6 +1709,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON trackwick_location_observations (latitude, longitude);
         CREATE INDEX IF NOT EXISTS idx_trackwick_worker_days_worker_date
             ON trackwick_worker_days (field_worker_party_id, observed_on);
+        CREATE INDEX IF NOT EXISTS idx_entity_operating_snapshot_activity
+            ON entity_operating_snapshots (source_id, entity_kind, latest_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_entity_operating_snapshot_open_work
+            ON entity_operating_snapshots (source_id, entity_kind, open_task_count, latest_activity_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_party_links_person
             ON trackwick_party_person_links (person_id, link_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_plot_links_parcel
