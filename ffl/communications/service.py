@@ -5,17 +5,35 @@ from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
 from ffl.communications import private
+from ffl.communications.interactions import (
+    create_interaction_run,
+    find_interaction_for_dispatch_callback,
+    find_interaction_for_inbound,
+    interaction_for_legacy_prompt,
+    mark_interaction_responded,
+    record_interaction_dispatch,
+    transition_interaction_run,
+    update_interaction_dispatch_status,
+)
 from ffl.communications.ports import CommunicationsProvider, ProviderAmbiguousError, ProviderRejectedError
 from ffl.persistence import repository
 from ffl.services import evidence, operations, season
 
 
 WORK_PROMPT_PURPOSE = "work_prompt"
+_LEGACY_PROMPT_INTENTS = (
+    "confirm", "decline", "report_deviation", "submit_evidence",
+    "request_callback", "help", "opt_out",
+)
 
 
 def _suppress_opted_out_endpoint(conn: sqlite3.Connection, endpoint_id: str, provenance: str) -> None:
     if persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
         persistence.set_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE, False, provenance)
+
+
+def _dispatch_status(prompt_status: str) -> str:
+    return prompt_status if prompt_status in {"scheduled", "delivered", "failed", "unknown"} else "accepted"
 
 
 def send_work_prompt(
@@ -45,12 +63,35 @@ def send_work_prompt(
     prompt, created = persistence.create_prompt(
         conn, work.id, work.allocation_id, endpoint_id, template_id, initiated_by_person_id, idempotency_key
     )
+    interaction = interaction_for_legacy_prompt(conn, prompt["id"])
+    if interaction is None:
+        interaction = create_interaction_run(
+            conn,
+            None,
+            endpoint_id,
+            allocation_id=work.allocation_id,
+            work_item_id=work.id,
+            legacy_prompt_id=prompt["id"],
+            expected_intents=_LEGACY_PROMPT_INTENTS,
+            expires_at=(datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+        )
+        if not created and prompt["provider_message_id"]:
+            interaction = record_interaction_dispatch(
+                conn, interaction.id, prompt["provider_message_id"],
+                status=_dispatch_status(prompt["status"]),
+            )
+            if prompt["status"] == "responded":
+                interaction = mark_interaction_responded(conn, interaction.id)
+            elif prompt["status"] == "no_response":
+                interaction = transition_interaction_run(conn, interaction.id, "expired")
+            elif prompt["status"] == "failed":
+                interaction = transition_interaction_run(conn, interaction.id, "cancelled")
     if not created:
         return prompt
     persistence.create_delivery_attempt(conn, prompt["id"], "attempting")
     try:
         result = provider.send_message(
-            endpoint["address"], template["body"], provider.sender_id, prompt["id"]
+            endpoint["address"], template["body"], provider.sender_id, interaction.context_token
         )
     except ProviderRejectedError as error:
         if error.error_code == 500:
@@ -68,6 +109,7 @@ def send_work_prompt(
         persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="provider transport outcome unknown")
         return persistence.update_prompt(conn, prompt["id"], "unknown")
     persistence.create_delivery_attempt(conn, prompt["id"], "accepted", result.provider_message_id)
+    record_interaction_dispatch(conn, interaction.id, result.provider_message_id, status="accepted")
     return persistence.update_prompt(conn, prompt["id"], result.status, result.provider_message_id)
 
 
@@ -236,7 +278,44 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
 
     if event["event_type"] in ("message_failed", "message_delivered", "message_scheduled", "unknown"):
         prompt = persistence.find_prompt_for_message(conn, event["message_id"])
+        interaction = None
+        if stored["endpoint_id"]:
+            callback_dispatch_status = {
+                "message_failed": "failed",
+                "message_delivered": "delivered",
+                "message_scheduled": "scheduled",
+                "unknown": "unknown",
+            }[event["event_type"]]
+            interaction = find_interaction_for_dispatch_callback(
+                conn,
+                provider.name,
+                stored["endpoint_id"],
+                event["message_id"],
+                event.get("passthrough"),
+            )
+            if interaction is not None and interaction.status in ("ready", "dispatching") and event["message_id"]:
+                interaction = record_interaction_dispatch(
+                    conn,
+                    interaction.id,
+                    event["message_id"],
+                    status=callback_dispatch_status,
+                )
+            elif interaction is not None:
+                try:
+                    update_interaction_dispatch_status(
+                        conn, interaction.id, callback_dispatch_status,
+                    )
+                except ValueError:
+                    pass
+            if prompt is None and interaction is not None and interaction.legacy_prompt_id:
+                prompt_row = conn.execute(
+                    "SELECT * FROM communication_prompts WHERE id = ?",
+                    (interaction.legacy_prompt_id,),
+                ).fetchone()
+                prompt = dict(prompt_row) if prompt_row is not None else None
         if prompt is None:
+            # Compatibility for messages dispatched before interaction runs
+            # existed.  New sends never put a prompt identifier in passthrough.
             prompt = persistence.find_prompt_for_passthrough(conn, event.get("passthrough"), provider.name, event["contact"])
         if prompt is not None:
             lifecycle = {"message_failed": "failed", "message_delivered": "delivered", "message_scheduled": "scheduled", "unknown": "unknown"}
@@ -266,6 +345,12 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
             prompt = dict(prompt_row) if prompt_row is not None else None
         if prompt is not None and prompt["status"] in ("accepted", "scheduled", "delivered"):
             persistence.update_prompt(conn, prompt["id"], "responded")
+        existing_draft = json.loads(existing_candidate["draft_json"])
+        if existing_draft.get("interaction_run_id"):
+            try:
+                mark_interaction_responded(conn, existing_draft["interaction_run_id"])
+            except ValueError:
+                pass
         persistence.update_event_status(conn, stored["id"], "review_required")
         return
 
@@ -273,22 +358,38 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
         persistence.add_attachment(conn, stored["id"], url, event["message_type"])
         for url in event["attachments"]
     ]
-    prompt = persistence.single_open_prompt(conn, endpoint["id"]) if endpoint else None
+    interaction = find_interaction_for_inbound(
+        conn,
+        provider.name,
+        endpoint["id"],
+        event.get("reply_to_message_id"),
+        event.get("passthrough"),
+    ) if endpoint else None
+    prompt = None
+    if interaction is not None and interaction.legacy_prompt_id:
+        prompt_row = conn.execute(
+            "SELECT * FROM communication_prompts WHERE id = ?", (interaction.legacy_prompt_id,),
+        ).fetchone()
+        prompt = dict(prompt_row) if prompt_row is not None else None
     intent = event["text"].strip().upper()
     kind = "exception" if intent == "REPORT_DEVIATION" else "signal"
     persistence.create_candidate(
         conn, stored["id"], prompt["id"] if prompt else None,
-        prompt["allocation_id"] if prompt else None, prompt["work_item_id"] if prompt else None,
+        interaction.allocation_id if interaction else None,
+        interaction.work_item_id if interaction else None,
         endpoint["id"] if endpoint else None, kind,
         {
             "text": event["text"], "intent": intent, "message_type": event["message_type"],
             "attachment_ids": [attachment["id"] for attachment in attachments],
-            "context_resolved": prompt is not None,
+            "context_resolved": interaction is not None,
+            "interaction_run_id": interaction.id if interaction else None,
             "observed_at": event["raw"].get("observed_at"),
         },
     )
     if prompt is not None:
         persistence.update_prompt(conn, prompt["id"], "responded")
+    if interaction is not None:
+        mark_interaction_responded(conn, interaction.id)
     persistence.update_event_status(conn, stored["id"], "review_required")
     return
 

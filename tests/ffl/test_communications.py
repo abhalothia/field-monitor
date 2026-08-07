@@ -79,8 +79,14 @@ def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acc
         assert provider.sent[0]["contact"] == "+15550000001"
         assert "सिंचाई" in provider.sent[0]["text"]
 
-        first = _inbound(client, provider, "webhook-inbound-1")
-        replay = _inbound(client, provider, "webhook-inbound-1")
+        first = _inbound(
+            client, provider, "webhook-inbound-1",
+            reply_to_message_id=prompt["provider_message_id"],
+        )
+        replay = _inbound(
+            client, provider, "webhook-inbound-1",
+            reply_to_message_id=prompt["provider_message_id"],
+        )
         assert first.status_code == 200
         assert replay.json()["status"] == "duplicate"
 
@@ -135,7 +141,7 @@ def test_invalid_signature_opt_out_and_delivery_failure_remain_visible(tmp_path)
 
 def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_record(tmp_path):
     for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
-        _send_prompt(client, work, endpoint, template, seed)
+        first_prompt = _send_prompt(client, work, endpoint, template, seed)
         second_work = create_work_item(
             conn, seed["allocation_id"], "Second open prompt", seed["operator_id"],
             "2026-07-11T09:00:00+00:00", initial_status="planned",
@@ -145,15 +151,24 @@ def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_
         candidate = client.get("/api/v1/communications/inbox").json()["candidates"][0]
         assert ambiguous.status_code == 200
         assert candidate["work_item_id"] is None
+        assert json.loads(conn.execute(
+            "SELECT draft_json FROM communication_candidates WHERE id = ?", (candidate["id"],),
+        ).fetchone()[0])["context_resolved"] is False
+        assert {
+            row["status"]
+            for row in conn.execute("SELECT status FROM communication_interaction_runs").fetchall()
+        } == {"dispatched"}
         assert client.post(
             "/api/v1/communications/candidates/{}/accept".format(candidate["id"]),
             json={"reviewer_id": seed["manager_id"], "signal_template_id": "missing", "signal_template_version": 1},
         ).status_code == 422
 
-        # Resolve by leaving exactly one open prompt, then accept a normal signal.
-        conn.execute("UPDATE communication_prompts SET status = 'responded' WHERE work_item_id = ?", (second_work.id,))
-        conn.commit()
-        resolved = _inbound(client, provider, "webhook-signal", message_id="inbound-signal", text="crop looks fine")
+        # Exact provider reply correlation resolves the intended run even while
+        # both prompts remain open. Endpoint history alone is never authority.
+        resolved = _inbound(
+            client, provider, "webhook-signal", message_id="inbound-signal",
+            text="crop looks fine", reply_to_message_id=first_prompt["provider_message_id"],
+        )
         signal_candidate = client.get("/api/v1/communications/inbox").json()["candidates"][-1]
         assert resolved.status_code == 200
         signal_template = conn.execute("SELECT id, version FROM signal_templates WHERE name = 'crop_exception'").fetchone()
@@ -434,6 +449,7 @@ def test_outbound_crash_reconciles_without_resending_and_passthrough_recovers_me
         prompt = conn.execute("SELECT * FROM communication_prompts").fetchone()
         assert prompt["status"] == "pending"
         assert len(provider.sent) == 1
+        assert provider.sent[0]["passthrough"] != prompt["id"]
 
         provider.crash_after_accept = False
         assert reconcile_outbound_messages(conn, provider) == 1
@@ -444,7 +460,8 @@ def test_outbound_crash_reconciles_without_resending_and_passthrough_recovers_me
         delivered = client.post(
             "/api/v1/communications/loopmessage/webhook",
             json={"event": "message_delivered", "contact": "+15550000001", "text": "",
-                  "message_id": "fake-message-1", "passthrough": prompt["id"], "webhook_id": "crash-delivered", "sender": "fake-whatsapp-sender"},
+                  "message_id": "fake-message-1", "passthrough": provider.sent[0]["passthrough"],
+                  "webhook_id": "crash-delivered", "sender": "fake-whatsapp-sender"},
             headers={"Authorization": provider.webhook_authorization},
         )
         assert delivered.status_code == 200

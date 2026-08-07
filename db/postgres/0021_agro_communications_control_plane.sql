@@ -93,6 +93,44 @@ CREATE TABLE IF NOT EXISTS agro_communication_scoped_consent_events (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+-- A run freezes the recipient/context decision that existed before one send.
+-- Raw opaque context tokens are never persisted; only a one-way digest can be
+-- used for exact inbound correlation.  ``profile_id`` is nullable solely for
+-- a legacy prompt adapter, which must supply ``legacy_prompt_id`` instead.
+CREATE TABLE IF NOT EXISTS agro_communication_interaction_runs (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT REFERENCES agro_communication_profiles(id),
+    endpoint_id TEXT NOT NULL REFERENCES agro_communication_endpoints(id),
+    allocation_id TEXT REFERENCES agro_crop_allocations(id),
+    work_item_id TEXT REFERENCES agro_work_items(id),
+    field_information_request_id TEXT REFERENCES agro_field_information_requests(id),
+    workflow_version_id TEXT,
+    campaign_snapshot_id TEXT,
+    legacy_prompt_id TEXT UNIQUE REFERENCES agro_communication_prompts(id),
+    context_token_hash TEXT NOT NULL UNIQUE
+        CHECK (char_length(context_token_hash) = 64 AND context_token_hash = lower(context_token_hash)),
+    expected_intents_json JSONB NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'ready', 'dispatching', 'dispatched', 'responded', 'expired', 'cancelled'
+    )),
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    CHECK (expires_at > created_at),
+    CHECK (profile_id IS NOT NULL OR legacy_prompt_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS agro_communication_interaction_dispatches (
+    id TEXT PRIMARY KEY,
+    interaction_run_id TEXT NOT NULL UNIQUE REFERENCES agro_communication_interaction_runs(id),
+    provider TEXT NOT NULL,
+    provider_message_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'accepted', 'scheduled', 'delivered', 'failed', 'unknown'
+    )),
+    created_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (provider, provider_message_id)
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS agro_idx_communication_endpoint_verifications_active
     ON agro_communication_endpoint_verifications (endpoint_id, profile_id)
     WHERE status = 'active';
@@ -118,6 +156,22 @@ CREATE INDEX IF NOT EXISTS agro_idx_communication_scoped_consent_events_endpoint
     ON agro_communication_scoped_consent_events (endpoint_id, created_at);
 CREATE INDEX IF NOT EXISTS agro_idx_communication_scoped_consent_events_actor
     ON agro_communication_scoped_consent_events (actor_person_id, created_at);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_profile
+    ON agro_communication_interaction_runs (profile_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_endpoint_status
+    ON agro_communication_interaction_runs (endpoint_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_allocation
+    ON agro_communication_interaction_runs (allocation_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_work_item
+    ON agro_communication_interaction_runs (work_item_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_field_request
+    ON agro_communication_interaction_runs (field_information_request_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_workflow
+    ON agro_communication_interaction_runs (workflow_version_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_campaign
+    ON agro_communication_interaction_runs (campaign_snapshot_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_dispatches_message
+    ON agro_communication_interaction_dispatches (provider, provider_message_id);
 
 CREATE OR REPLACE FUNCTION agro_reject_scoped_consent_event_mutation()
 RETURNS trigger
@@ -134,6 +188,24 @@ LANGUAGE plpgsql
 AS $function$
 BEGIN
     RAISE EXCEPTION 'communication scoped consent capture is immutable';
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION agro_reject_interaction_capture_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RAISE EXCEPTION 'communication interaction capture is immutable';
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION agro_reject_interaction_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RAISE EXCEPTION 'communication interactions are append-only';
 END;
 $function$;
 
@@ -157,12 +229,44 @@ CREATE TRIGGER agro_communication_scoped_consent_events_no_delete
     BEFORE DELETE ON agro_communication_scoped_consent_events
     FOR EACH ROW EXECUTE FUNCTION agro_reject_scoped_consent_event_mutation();
 
+DROP TRIGGER IF EXISTS agro_communication_interaction_runs_capture_immutable
+    ON agro_communication_interaction_runs;
+CREATE TRIGGER agro_communication_interaction_runs_capture_immutable
+    BEFORE UPDATE OF profile_id, endpoint_id, allocation_id, work_item_id,
+        field_information_request_id, workflow_version_id, campaign_snapshot_id,
+        legacy_prompt_id, context_token_hash, expected_intents_json, created_at, expires_at
+    ON agro_communication_interaction_runs
+    FOR EACH ROW EXECUTE FUNCTION agro_reject_interaction_capture_mutation();
+
+DROP TRIGGER IF EXISTS agro_communication_interaction_runs_no_delete
+    ON agro_communication_interaction_runs;
+CREATE TRIGGER agro_communication_interaction_runs_no_delete
+    BEFORE DELETE ON agro_communication_interaction_runs
+    FOR EACH ROW EXECUTE FUNCTION agro_reject_interaction_delete();
+
+DROP TRIGGER IF EXISTS agro_communication_interaction_dispatches_capture_immutable
+    ON agro_communication_interaction_dispatches;
+CREATE TRIGGER agro_communication_interaction_dispatches_capture_immutable
+    BEFORE UPDATE OF interaction_run_id, provider, provider_message_id, created_at
+    ON agro_communication_interaction_dispatches
+    FOR EACH ROW EXECUTE FUNCTION agro_reject_interaction_capture_mutation();
+
+DROP TRIGGER IF EXISTS agro_communication_interaction_dispatches_no_delete
+    ON agro_communication_interaction_dispatches;
+CREATE TRIGGER agro_communication_interaction_dispatches_no_delete
+    BEFORE DELETE ON agro_communication_interaction_dispatches
+    FOR EACH ROW EXECUTE FUNCTION agro_reject_interaction_delete();
+
 REVOKE ALL ON TABLE agro_communication_profiles FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_endpoint_verifications FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_endpoint_scopes FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_scoped_consents FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_scoped_consent_events FROM PUBLIC;
+REVOKE ALL ON TABLE agro_communication_interaction_runs FROM PUBLIC;
+REVOKE ALL ON TABLE agro_communication_interaction_dispatches FROM PUBLIC;
 REVOKE ALL ON FUNCTION agro_reject_scoped_consent_event_mutation() FROM PUBLIC;
 REVOKE ALL ON FUNCTION agro_reject_scoped_consent_capture_mutation() FROM PUBLIC;
+REVOKE ALL ON FUNCTION agro_reject_interaction_capture_mutation() FROM PUBLIC;
+REVOKE ALL ON FUNCTION agro_reject_interaction_delete() FROM PUBLIC;
 
 COMMIT;

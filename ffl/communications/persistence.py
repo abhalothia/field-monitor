@@ -219,6 +219,38 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS communication_interaction_runs (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            allocation_id TEXT REFERENCES crop_allocations(id),
+            work_item_id TEXT REFERENCES work_items(id),
+            field_information_request_id TEXT REFERENCES field_information_requests(id),
+            workflow_version_id TEXT,
+            campaign_snapshot_id TEXT,
+            legacy_prompt_id TEXT UNIQUE REFERENCES communication_prompts(id),
+            context_token_hash TEXT NOT NULL UNIQUE
+                CHECK (length(context_token_hash) = 64 AND context_token_hash = lower(context_token_hash)),
+            expected_intents_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'ready', 'dispatching', 'dispatched', 'responded', 'expired', 'cancelled'
+            )),
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            CHECK (expires_at > created_at),
+            CHECK (profile_id IS NOT NULL OR legacy_prompt_id IS NOT NULL)
+        );
+        CREATE TABLE IF NOT EXISTS communication_interaction_dispatches (
+            id TEXT PRIMARY KEY,
+            interaction_run_id TEXT NOT NULL UNIQUE REFERENCES communication_interaction_runs(id),
+            provider TEXT NOT NULL,
+            provider_message_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'accepted', 'scheduled', 'delivered', 'failed', 'unknown'
+            )),
+            created_at TEXT NOT NULL,
+            UNIQUE (provider, provider_message_id)
+        );
         CREATE TABLE IF NOT EXISTS communication_events (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
@@ -266,6 +298,18 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_communication_prompts_endpoint_status
             ON communication_prompts(endpoint_id, status);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_profile
+            ON communication_interaction_runs(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_endpoint_status
+            ON communication_interaction_runs(endpoint_id, status, expires_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_allocation
+            ON communication_interaction_runs(allocation_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_work_item
+            ON communication_interaction_runs(work_item_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_field_request
+            ON communication_interaction_runs(field_information_request_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_interaction_dispatches_message
+            ON communication_interaction_dispatches(provider, provider_message_id);
         CREATE INDEX IF NOT EXISTS idx_communication_events_contact ON communication_events(provider, contact_fingerprint);
         CREATE TABLE IF NOT EXISTS communication_deliveries (
             id TEXT PRIMARY KEY,
@@ -309,6 +353,31 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_communication_reconciliations_prompt
             ON communication_reconciliations(prompt_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS communication_interaction_runs_capture_immutable
+        BEFORE UPDATE OF profile_id, endpoint_id, allocation_id, work_item_id,
+                         field_information_request_id, workflow_version_id,
+                         campaign_snapshot_id, legacy_prompt_id, context_token_hash,
+                         expected_intents_json, created_at, expires_at
+        ON communication_interaction_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'communication interaction run capture is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_interaction_runs_no_delete
+        BEFORE DELETE ON communication_interaction_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'communication interaction runs are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_interaction_dispatches_capture_immutable
+        BEFORE UPDATE OF interaction_run_id, provider, provider_message_id, created_at
+        ON communication_interaction_dispatches
+        BEGIN
+            SELECT RAISE(ABORT, 'communication interaction dispatch capture is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_interaction_dispatches_no_delete
+        BEFORE DELETE ON communication_interaction_dispatches
+        BEGIN
+            SELECT RAISE(ABORT, 'communication interaction dispatches are append-only');
+        END;
         """
     )
     _add_column(conn, "communication_templates", "provider_template_id TEXT")
