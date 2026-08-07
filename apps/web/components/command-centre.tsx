@@ -513,6 +513,12 @@ function dateTime(value?: string | null) {
   return Number.isNaN(date.valueOf()) ? "—" : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(date);
 }
 
+function hasRecentActivity(value?: string | null, days = 30) {
+  if (!value) return false;
+  const timestamp = new Date(value).valueOf();
+  return !Number.isNaN(timestamp) && timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
 function roleName(role: string) {
   return role.replaceAll("_", " ");
 }
@@ -1546,14 +1552,16 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   const [visibleCount, setVisibleCount] = useState(100);
   const [query, setQuery] = useState("");
   const [order, setOrder] = useState<"activity" | "farms" | "name">("activity");
-  const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const [view, setView] = useState<"all" | "attention" | "recent">("all");
+  const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase())
+    && (view === "all" || view === "attention" && person.open_work > 0 || view === "recent" && hasRecentActivity(person.latest_activity_at)));
   const ordered = [...matched].sort((left, right) => order === "name"
     ? personName(left.name).localeCompare(personName(right.name))
     : order === "farms"
       ? right.farm_candidates - left.farm_candidates || right.open_work - left.open_work || personName(left.name).localeCompare(personName(right.name))
       : right.open_work - left.open_work || right.farm_candidates - left.farm_candidates || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-filters people-filters"><label>Find farmer<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Search by name" /></label><label>Order by<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  return <><div className="directory-secondary-toolbar"><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label><div className="directory-view-tabs" aria-label="Farmer view"><button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setVisibleCount(100); }}>All</button><button type="button" className={view === "attention" ? "active" : ""} onClick={() => { setView("attention"); setVisibleCount(100); }}>Open tasks</button><button type="button" className={view === "recent" ? "active" : ""} onClick={() => { setView("recent"); setVisibleCount(100); }}>Active</button></div><label className="directory-order"><span className="sr-only">Order farmers</span><select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Order: open tasks</option><option value="farms">Order: farm count</option><option value="name">Order: name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1663,9 +1671,8 @@ function AgentsView({ agents, reload }: {
     } finally { setBusy(false); }
   }
 
-  return <section className="single-surface actions-surface agents-stage">
-    <div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>What needs attention</h2></div><span className="count-badge">{count(agents?.agents.length)}</span></div>
-    <p className="surface-copy">Four simple checks keep the field moving.</p>
+  return <section className="directory-workspace agents-workspace">
+    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Agents</h1><span>{count(agents?.agents.length)}</span></div></div>
     <div className="agent-list">
       {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>
         <strong className="agent-count">{count(agent.count)}</strong>
@@ -1732,7 +1739,9 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   const [visibleCount, setVisibleCount] = useState(40);
   const [query, setQuery] = useState("");
   const [order, setOrder] = useState<"tasks" | "assigned" | "activity">("tasks");
-  const matched = workers.filter((worker) => worker.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const [view, setView] = useState<"all" | "attention" | "recent">("all");
+  const matched = workers.filter((worker) => worker.name.toLowerCase().includes(query.trim().toLowerCase())
+    && (view === "all" || view === "attention" && worker.open_work > 0 || view === "recent" && hasRecentActivity(worker.latest_activity_at)));
   const ordered = [...matched].sort((left, right) => order === "assigned"
     ? right.reported_farmer_reach - left.reported_farmer_reach || right.open_work - left.open_work || left.name.localeCompare(right.name)
     : order === "activity"
@@ -1741,7 +1750,7 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   const visible = ordered.slice(0, visibleCount);
   return <section className="reported-field-workers">
     <div className="surface-heading"><div><p className="eyebrow">Field team</p><h2>Field workers</h2></div><span className="count-badge">{count(workers.length)}</span></div>
-    <div className="directory-filters people-filters"><label>Find worker<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(40); }} placeholder="Search by name" /></label><label>Order by<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(40); }}><option value="tasks">Open tasks</option><option value="assigned">Farmers assigned</option><option value="activity">Latest activity</option></select></label></div>
+    <div className="directory-secondary-toolbar"><label className="directory-find"><span className="sr-only">Find field workers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(40); }} placeholder="Find field worker" /></label><div className="directory-view-tabs" aria-label="Field worker view"><button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setVisibleCount(40); }}>All</button><button type="button" className={view === "attention" ? "active" : ""} onClick={() => { setView("attention"); setVisibleCount(40); }}>Open tasks</button><button type="button" className={view === "recent" ? "active" : ""} onClick={() => { setView("recent"); setVisibleCount(40); }}>Active</button></div><label className="directory-order"><span className="sr-only">Order field workers</span><select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(40); }}><option value="tasks">Order: open tasks</option><option value="assigned">Order: farmers assigned</option><option value="activity">Order: latest activity</option></select></label></div>
     <div className="people-list source-card-grid">{visible.map((worker) => <button id={`profile-reported-field-worker-${worker.id}`} type="button" className="person-row compact-entity-card" key={worker.id} onClick={(event) => void openProfile(worker.id, "field_worker", "reported", event.currentTarget.id)}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Field worker</p><h3>{worker.name}</h3><div className="entity-card-metrics"><span><strong>{count(worker.reported_farmer_reach)}</strong> Farmers Assigned</span><span className={worker.open_work ? "attention" : undefined}><strong>{count(worker.open_work)}</strong> Open Tasks</span><span><strong>{count(worker.completed_work)}</strong> Completed</span></div><p className="entity-card-updated">Updated {dateTime(worker.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(ordered.length - visible.length)} remaining)</button> : null}
   </section>;
 }
@@ -1786,9 +1795,8 @@ function SettingsView({ t, state, managerBusy, logout }: {
   const trackwickStatus = trackwick?.source.state === "succeeded"
     ? `Updated ${dateTime(trackwick.source.last_synced_at)}.`
     : "No field updates yet.";
-  return <section className="single-surface settings-stage">
-    <div className="surface-heading"><div><p className="eyebrow">Private setup</p><h2>Access and connections</h2></div></div>
-    <p className="surface-copy">{state.profile?.display_name || "Fortune Farms"} stays private until a named person is given the exact access they need.</p>
+  return <section className="directory-workspace settings-workspace">
+    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Settings</h1></div></div>
     <div className="settings-rows">
       <div><strong>People</strong><span>{session?.authenticated ? "Manage named ID access below." : "Use your admin ID to manage access."}</span></div>
       <div><strong>Purchase history</strong><span>{history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages, ${history.coverage.months.join(" · ")}. Historical context only.` : "No reviewed purchase history yet."}</span></div>

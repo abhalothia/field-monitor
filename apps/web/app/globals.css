@@ -273,11 +273,13 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-inspector-history strong { color: var(--ink-soft); font-size: .69rem; }
 .map-inspector-history span { color: var(--muted); font-size: .62rem; }
 .map-inspector-record .primary-action { margin-top: auto; align-self: flex-start; }
-.fields-stage, .people-stage, .actions-surface, .settings-stage { width: 100%; max-width: none; }
+.fields-stage, .people-stage, .actions-surface, .settings-stage, .agents-workspace, .settings-workspace { width: 100%; max-width: none; }
 .fields-stage .geometry-list { margin-top: 18px; }
 .people-stage { width: 100%; max-width: none; }
 .people-stage .people-list { max-width: none; }
 .actions-surface, .settings-stage { max-width: none; }
+.agents-workspace .agent-list { margin-top: 0; }
+.settings-workspace .settings-rows { margin-top: 0; }
 .settings-rows { display: grid; margin: 24px 0; }
 .settings-rows > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; border-top: 1px solid rgba(20, 61, 45, .14); padding: 13px 0; }
 .settings-rows > div:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
@@ -353,6 +355,12 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .directory-view-tabs button.active { background: var(--ink); color: #fff9ec; }
 .directory-find { display: block; min-width: 0; }
 .directory-find input { width: 100%; min-height: 46px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 999px; background: rgba(255, 253, 244, .78); color: var(--ink); font: inherit; font-size: .82rem; padding: 9px 17px; }
+.directory-secondary-toolbar { display: grid; grid-template-columns: minmax(250px, 1fr) auto minmax(190px, .42fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--line); margin: -2px 0 18px; padding-bottom: 18px; }
+.directory-secondary-toolbar .directory-view-tabs { min-height: 42px; }
+.directory-secondary-toolbar .directory-view-tabs button { min-width: 82px; padding: 0 13px; }
+.directory-secondary-toolbar .directory-find input, .directory-order select { min-height: 42px; }
+.directory-order { display: block; }
+.directory-order select { width: 100%; border: 1px solid rgba(20, 61, 45, .28); border-radius: 999px; background: rgba(255, 253, 244, .78); color: var(--ink); font: inherit; font-size: .74rem; font-weight: 700; padding: 8px 13px; }
 .people-toolbar { grid-template-columns: 1fr; }
 .farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .farm-directory-card { display: grid; min-width: 0; min-height: 138px; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 16px; }
@@ -447,8 +455,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .single-surface { min-height: 0; }
   .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .directory-filter-actions { grid-column: 1 / -1; }
-  .directory-toolbar { grid-template-columns: 1fr; gap: 12px; }
+  .directory-toolbar, .directory-secondary-toolbar { grid-template-columns: 1fr; gap: 12px; }
   .directory-view-tabs, .directory-find { width: 100%; }
+  .directory-order { width: 100%; }
   .farm-card-grid { grid-template-columns: 1fr; }
   .command-shell { padding-bottom: 96px; }
   .mobile-nav { position: fixed; z-index: 1000; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; display: grid; grid-template-columns: repeat(5, 1fr); overflow: hidden; border: 1px solid rgba(20, 61, 45, .24); border-radius: 15px; background: rgba(255, 252, 241, .94); box-shadow: 0 14px 34px rgba(45, 55, 35, .18); backdrop-filter: blur(14px); }
