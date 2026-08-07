@@ -813,17 +813,22 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
       layer.clearLayers();
       for (const group of mapClusters(visible, map.getZoom())) {
         if (group.points.length > 1) {
+          const status = mapClusterStatus(group.points);
+          const color = mapMarkerColor(status.tone);
           const marker = L.circleMarker([group.latitude, group.longitude], {
-            radius: Math.min(18, 8 + Math.log2(group.points.length) * 2),
-            color: "#143d2d", weight: 1.5, fillColor: "#dce7d3", fillOpacity: .94,
-          }).bindTooltip(`${count(group.points.length)} field activities`, { direction: "top", sticky: true });
+            radius: Math.min(22, 6 + Math.sqrt(group.points.length) * 1.25),
+            color: color.stroke, weight: 1.5, fillColor: color.fill, fillOpacity: .96,
+          }).bindTooltip(`${count(group.points.length)} field activities · ${status.label}`, { direction: "top", sticky: true });
           marker.on("click", () => map.setView([group.latitude, group.longitude], Math.min(map.getZoom() + 2, 16)));
           marker.addTo(layer);
           continue;
         }
         const point = group.points[0];
+        const status = mapActivityStatus(point);
+        const color = mapMarkerColor(status.tone);
         const marker = L.circleMarker([point.latitude, point.longitude], {
-          radius: active?.id === point.id ? 8 : 5.5, color: "#143d2d", weight: active?.id === point.id ? 2.5 : 1.25, fillColor: "#f9f6ea", fillOpacity: .96,
+          radius: active?.id === point.id ? 9 : status.tone === "attention" ? 7.2 : 5.8,
+          color: color.stroke, weight: active?.id === point.id ? 2.8 : 1.35, fillColor: color.fill, fillOpacity: .97,
         }).bindTooltip(mapTooltip(point), { direction: "top", sticky: true, opacity: .98 });
         marker.on("click", () => select(point));
         marker.addTo(layer);
@@ -877,7 +882,8 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
         const y = 590 - ((group.latitude - extent.minLat) / extent.latSpan) * 530;
         const first = group.points[0];
         const radius = Math.min(18, 5 + Math.log2(group.points.length + 1) * 3);
-        return <g key={`${group.latitude}:${group.longitude}:${index}`} className="cached-map-point" role="button" tabIndex={0} aria-label={`${first.subject.name}, ${count(group.points.length)} activities`} onClick={() => onSelect(first)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(first); } }}>
+        const status = mapClusterStatus(group.points);
+        return <g key={`${group.latitude}:${group.longitude}:${index}`} className={`cached-map-point ${status.tone}`} role="button" tabIndex={0} aria-label={`${first.subject.name}, ${count(group.points.length)} activities, ${status.label}`} onClick={() => onSelect(first)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(first); } }}>
           <title>{`${first.subject.name} · ${count(group.points.length)} activities`}</title><circle cx={x} cy={y} r={radius} /><circle cx={x} cy={y} r="2.4" className="cached-map-point-core" />
         </g>;
       })}
@@ -888,7 +894,7 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
 function MapView({ state }: { state: State }) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"all" | MapSubjectKind>("all");
-  const [days, setDays] = useState<"all" | "7" | "30" | "90">("all");
+  const [days, setDays] = useState<"all" | "7" | "30">("all");
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const allPoints = state.trackwick?.map?.points || [];
   const points = useMemo(() => {
@@ -910,34 +916,39 @@ function MapView({ state }: { state: State }) {
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
-      <div className="map-type-tabs" aria-label="Map view"><span>View</span><div>{([ ["all", "Everything"], ["reported_farm", "Fields"], ["farmer", "Farmers"], ["field_worker", "Workers"] ] as const).map(([value, label]) => <button type="button" key={value} className={kind === value ? "active" : ""} aria-pressed={kind === value} onClick={() => setKind(value)}>{label}</button>)}</div></div>
-      <label>When<select value={days} onChange={(event) => setDays(event.target.value as typeof days)}><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
-      <p><strong>{count(points.length)}</strong> mapped activities</p>
+      <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Fields"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
+      <MapTabs label="When" value={days} onChange={setDays} options={[["all", "All time"], ["7", "This week"], ["30", "This month"]]} />
     </div>
     <div className="map-content"><div className="map-canvas"><OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} /></div></div>
     {selected ? <MapInspector point={selected} state={state} close={() => setSelected(null)} /> : null}
   </section>;
 }
 
+function MapTabs<T extends string>({ label, value, onChange, options }: { label: string; value: T; onChange: (value: T) => void; options: ReadonlyArray<readonly [T, string]> }) {
+  return <div className="map-type-tabs" aria-label={label}><span>{label}</span><div>{options.map(([option, title]) => <button type="button" key={option} className={value === option ? "active" : ""} aria-pressed={value === option} onClick={() => onChange(option)}>{title}</button>)}</div></div>;
+}
+
 function MapInspector({ point, state, close }: { point: MapPoint; state: State; close: () => void }) {
   const subject = point.subject;
+  const status = mapActivityStatus(point);
   const matchingActivity = (state.trackwick?.map?.points || []).filter((candidate) => candidate.subject.kind === subject.kind && candidate.subject.id === subject.id).sort((a, b) => new Date(b.observed_at).valueOf() - new Date(a.observed_at).valueOf());
   const farm = subject.kind === "reported_farm" ? state.trackwick?.farms.find((candidate) => candidate.id === subject.id) : null;
   const farmer = subject.kind === "farmer" ? state.trackwick?.farmers.find((candidate) => candidate.id === subject.id) : null;
   const worker = subject.kind === "field_worker" ? state.trackwick?.field_workers.find((candidate) => candidate.id === subject.id) : null;
   const facts = subject.kind === "reported_farm"
-    ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open tasks", count(farm?.open_work ?? subject.open_work)], ["Field activity", count(matchingActivity.length)]]
+    ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(farm?.open_work ?? subject.open_work)], ["Field Activity", count(matchingActivity.length)]]
     : subject.kind === "farmer"
-      ? [["Fields", count(farmer?.farm_candidates)], ["Open tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo evidence", count(farmer?.crop_photo_references)], ["Field activity", count(matchingActivity.length)]]
+      ? [["Fields", count(farmer?.farm_candidates)], ["Open Tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(farmer?.crop_photo_references)], ["Field Activity", count(matchingActivity.length)]]
       : subject.kind === "field_worker"
-        ? [["Farmer reach", count(worker?.reported_farmer_reach)], ["Open tasks", count(worker?.open_work ?? subject.open_work)], ["Completed work", count(worker?.completed_work)], ["Field activity", count(matchingActivity.length)]]
-        : [["Place", subject.place || "—"], ["Open tasks", count(subject.open_work)], ["Field activity", count(matchingActivity.length)], ["Last activity", dateTime(point.observed_at)]];
+        ? [["Farmers Assigned", count(worker?.reported_farmer_reach)], ["Open Tasks", count(worker?.open_work ?? subject.open_work)], ["Completed Work", count(worker?.completed_work)], ["Field Activity", count(matchingActivity.length)]]
+        : [["Place", subject.place || "—"], ["Open Tasks", count(subject.open_work)], ["Field Activity", count(matchingActivity.length)], ["Last Activity", dateTime(point.observed_at)]];
   return <aside className="map-inspector" aria-label="Selected map record">
     <div className="map-inspector-record">
       <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
       <p className="eyebrow">{subject.kind === "reported_farm" ? "Field" : subject.kind.replaceAll("_", " ")}</p>
       <h2>{subject.name}</h2>
       <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}</p>
+      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Field" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span></div>
       <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
       {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
@@ -948,7 +959,32 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
 function mapTooltip(point: MapPoint) {
   const label = escapeMapText(point.subject.name || point.label);
   const detail = point.subject.place || point.subject.farmer_name || dateTime(point.observed_at);
-  return `<strong>${label}</strong><br><span>${escapeMapText(detail)}</span>`;
+  return `<strong>${label}</strong><br><span>${escapeMapText(detail)} · ${mapActivityStatus(point).label}</span>`;
+}
+
+type MapActivityTone = "attention" | "current" | "recent" | "earlier";
+
+function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: string } {
+  if (point.subject.open_work > 0) return { tone: "attention", label: point.subject.open_work === 1 ? "1 open task" : `${point.subject.open_work} open tasks` };
+  const age = Date.now() - new Date(point.observed_at).valueOf();
+  if (age <= 7 * 86_400_000) return { tone: "current", label: "Updated this week" };
+  if (age <= 30 * 86_400_000) return { tone: "recent", label: "Updated this month" };
+  return { tone: "earlier", label: "Earlier activity" };
+}
+
+function mapClusterStatus(points: MapPoint[]) {
+  const statuses = points.map(mapActivityStatus);
+  const attention = statuses.filter((status) => status.tone === "attention").length;
+  const current = statuses.filter((status) => status.tone === "current").length;
+  const recent = statuses.filter((status) => status.tone === "recent").length;
+  if (attention) return { tone: "attention" as const, label: `${count(attention)} need attention` };
+  if (current) return { tone: "current" as const, label: `${count(current)} updated this week` };
+  if (recent) return { tone: "recent" as const, label: `${count(recent)} updated this month` };
+  return { tone: "earlier" as const, label: "Earlier activity" };
+}
+
+function mapMarkerColor(tone: MapActivityTone) {
+  return ({ attention: { stroke: "#9a6722", fill: "#f6dfaa" }, current: { stroke: "#143d2d", fill: "#dce7d3" }, recent: { stroke: "#4c7158", fill: "#e7eddd" }, earlier: { stroke: "#7c8977", fill: "#f5f0df" } })[tone];
 }
 
 function escapeMapText(value: string) {
@@ -971,11 +1007,12 @@ function mapClusters(points: MapPoint[], zoom: number) {
 
 function MapGlance({ point, close }: { point: MapPoint; close: () => void }) {
   const subject = point.subject;
+  const status = mapActivityStatus(point);
   return <aside className="map-glance" aria-live="polite">
     <button type="button" className="map-glance-close" onClick={close} aria-label="Close map card">×</button>
     <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
     <strong>{subject.name}</strong>
-    <p>{[subject.place, subject.farmer_name, subject.open_work ? `${subject.open_work} open task${subject.open_work === 1 ? "" : "s"}` : null, `Updated ${dateTime(point.observed_at)}`].filter(Boolean).join(" · ")}</p>
+    <p>{[subject.place, subject.farmer_name, status.label, `Updated ${dateTime(point.observed_at)}`].filter(Boolean).join(" · ")}</p>
     {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="text-link">Open profile <span aria-hidden="true">→</span></Link> : null}
   </aside>;
 }
