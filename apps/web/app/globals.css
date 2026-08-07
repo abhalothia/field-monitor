@@ -362,17 +362,14 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .directory-order { display: block; }
 .directory-order select { width: 100%; border: 1px solid rgba(20, 61, 45, .28); border-radius: 999px; background: rgba(255, 253, 244, .78); color: var(--ink); font: inherit; font-size: .74rem; font-weight: 700; padding: 8px 13px; }
 .people-toolbar { grid-template-columns: 1fr; }
-.farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-.farm-directory-card { display: grid; min-width: 0; min-height: 138px; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 16px; }
+.farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+.farm-directory-card { display: grid; min-width: 0; min-height: 170px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); padding: 17px; }
 .directory-card-button { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; }
 .directory-card-button:hover, .directory-card-button:focus-visible, .compact-entity-card:hover, .compact-entity-card:focus-visible { border-color: rgba(20, 61, 45, .55); background: rgba(220, 231, 211, .48); transform: translateY(-1px); }
-.farm-directory-card h3 { margin: 11px 0 4px; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.18rem; font-weight: 400; letter-spacing: -.035em; }
-.farm-directory-card p { color: var(--muted); font-size: .69rem; line-height: 1.45; margin: 0; }
-.farm-directory-card dl { display: grid; align-content: start; min-width: 96px; margin: 0; }
-.farm-directory-card dl > div { display: grid; gap: 3px; border-top: 1px solid rgba(20, 61, 45, .13); padding: 8px 0; }
-.farm-directory-card dl > div:first-child { border-top: 0; padding-top: 0; }
-.farm-directory-card dt { color: #71806d; font-family: "DM Mono", monospace; font-size: .51rem; letter-spacing: .035em; text-transform: uppercase; }
-.farm-directory-card dd { color: var(--ink-soft); font-size: .68rem; margin: 0; }
+.farm-initial { flex: 0 0 auto; }
+.farm-card-summary { min-width: 0; }
+.farm-directory-card h3 { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.34rem; font-weight: 400; letter-spacing: -.04em; line-height: 1; margin: 0; }
+.farm-card-context { overflow: hidden; color: var(--muted); font-size: .67rem; line-height: 1.35; margin: 7px 0 0; text-overflow: ellipsis; white-space: nowrap; }
 
 .source-card-grid { grid-template-columns: repeat(auto-fill, minmax(278px, 1fr)); gap: 14px; max-width: none !important; }
 .source-card-grid .person-row { display: grid; width: 100%; min-height: 158px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); color: inherit; font: inherit; padding: 17px; text-align: left; }
