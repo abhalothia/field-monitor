@@ -98,7 +98,7 @@ def refresh_trackwick_source(
     }
 
 
-@router.post("/cron-refresh")
+@router.api_route("/cron-refresh", methods=["GET", "POST"])
 def refresh_trackwick_source_on_schedule(request: Request) -> dict:
     """Run the same private refresh from Vercel Cron, never from the browser."""
     expected = os.environ.get("CRON_SECRET")

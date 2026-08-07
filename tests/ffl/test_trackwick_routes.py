@@ -57,6 +57,10 @@ def test_trackwick_cron_refresh_requires_only_the_server_cron_secret(tmp_path, m
             "/api/v1/trackwick/cron-refresh",
             headers={"Authorization": "Bearer cron-secret"},
         )
+        scheduled_get = client.get(
+            "/api/v1/trackwick/cron-refresh",
+            headers={"Authorization": "Bearer cron-secret"},
+        )
 
     assert denied.status_code == 403
     assert allowed.status_code == 200
@@ -66,6 +70,8 @@ def test_trackwick_cron_refresh_requires_only_the_server_cron_secret(tmp_path, m
         "valid_count": 0,
         "quarantined_count": 0,
     }
+    assert scheduled_get.status_code == 200
+    assert scheduled_get.json() == allowed.json()
 
 
 def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
