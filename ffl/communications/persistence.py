@@ -486,8 +486,8 @@ def create_communication_profile(
     ).fetchone()
     if membership is None:
         raise ValueError("communication profile requires an explicit portal membership")
-    if membership["portal_status"] != "active" or membership["membership_status"] == "suspended":
-        raise ValueError("communication profile portal membership is not active")
+    if membership["portal_status"] != "active" or membership["membership_status"] != "active":
+        raise ValueError("communication profile requires an active portal membership")
     if not locale or len(locale) > 35:
         raise ValueError("communication profile locale is invalid")
     try:
@@ -722,7 +722,7 @@ def has_scoped_consent(
            JOIN portal_memberships membership
              ON membership.portal_id = profile.portal_id
             AND membership.person_id = profile.person_id
-            AND membership.membership_status <> 'suspended'
+            AND membership.membership_status = 'active'
            JOIN communication_endpoints endpoint
              ON endpoint.id = consent.endpoint_id
             AND endpoint.person_id = profile.person_id

@@ -32,17 +32,29 @@ def seeded_portal(ffl_db, crop_allocation):
         "INSERT INTO customer_portals VALUES (?, ?, ?, ?, 'active', ?)",
         ("portal-2", "portal-two", "Portal Two", "portal-two.example.test", now),
     )
+    for identity_id, person_id, phone, auth_subject in (
+        ("identity-farmer", farmer.id, "+919800000001", "auth-farmer"),
+        ("identity-admin", admin.id, "+919800000002", "auth-admin"),
+    ):
+        ffl_db.execute(
+            """INSERT INTO portal_identities
+               (id, person_id, phone_e164, auth_subject, identity_status, invited_at,
+                verified_at, last_authenticated_at, created_at)
+               VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, ?)""",
+            (identity_id, person_id, phone, auth_subject, now, now, now),
+        )
     for membership_id, portal_id, person_id, role in (
         ("membership-farmer", "portal-1", farmer.id, "farmer"),
         ("membership-admin", "portal-1", admin.id, "admin"),
         ("membership-farmer-2", "portal-2", farmer.id, "farmer"),
     ):
+        identity_id = "identity-admin" if person_id == admin.id else "identity-farmer"
         ffl_db.execute(
             """INSERT INTO portal_memberships
                (id, portal_id, person_id, identity_id, portal_role, membership_status,
                 invited_at, activated_at, created_at)
-               VALUES (?, ?, ?, NULL, ?, 'identity_pending', NULL, NULL, ?)""",
-            (membership_id, portal_id, person_id, role, now),
+               VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)""",
+            (membership_id, portal_id, person_id, identity_id, role, now, now, now),
         )
     relationship = repository.create_person_operating_relationship(
         ffl_db, farmer.id, "crop_allocation", crop_allocation.id, "grower",
@@ -125,6 +137,30 @@ def test_endpoint_verification_rejects_an_existing_endpoint_for_another_person(f
         verify_endpoint(
             ffl_db, profile["id"], "loopmessage", "+919876543210",
             "portal_invitation", seeded_portal.admin_id,
+        )
+
+
+@pytest.mark.parametrize("membership_status", ["identity_pending", "invited"])
+def test_communication_profile_requires_active_membership(ffl_db, seeded_portal, membership_status):
+    if membership_status == "identity_pending":
+        ffl_db.execute(
+            """UPDATE portal_memberships
+               SET membership_status = 'identity_pending', identity_id = NULL,
+                   invited_at = NULL, activated_at = NULL
+               WHERE portal_id = ? AND person_id = ?""",
+            (seeded_portal.id, seeded_portal.farmer_id),
+        )
+    else:
+        ffl_db.execute(
+            """UPDATE portal_memberships
+               SET membership_status = 'invited', invited_at = ?, activated_at = NULL
+               WHERE portal_id = ? AND person_id = ?""",
+            ("2026-08-07T12:30:00+00:00", seeded_portal.id, seeded_portal.farmer_id),
+        )
+
+    with pytest.raises(ValueError, match="active portal membership"):
+        create_communication_profile(
+            ffl_db, seeded_portal.id, seeded_portal.farmer_id, "hi-IN", "Asia/Kolkata",
         )
 
 
@@ -228,6 +264,23 @@ def test_scoped_consent_requires_its_active_tenant_verification_and_scope_chain(
     assert not has_scoped_consent(
         ffl_db, second_profile["id"], endpoint["id"], "weekly_farmer_checkin",
         "crop_allocation", seeded_portal.allocation_id,
+    )
+
+    ffl_db.execute(
+        """UPDATE portal_memberships
+           SET membership_status = 'invited', invited_at = ?, activated_at = NULL
+           WHERE portal_id = ? AND person_id = ?""",
+        ("2026-08-07T12:30:00+00:00", seeded_portal.id, seeded_portal.farmer_id),
+    )
+    assert not has_scoped_consent(
+        ffl_db, first_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id,
+    )
+    ffl_db.execute(
+        """UPDATE portal_memberships
+           SET membership_status = 'active', activated_at = ?
+           WHERE portal_id = ? AND person_id = ?""",
+        ("2026-08-07T12:31:00+00:00", seeded_portal.id, seeded_portal.farmer_id),
     )
 
     ffl_db.execute(
