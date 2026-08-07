@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -151,6 +152,20 @@ def test_farm_record_has_four_sections_and_labels_reported_events(ffl_db, farm):
     assert "contact_value" not in repr(record)
     assert "provider_identifier" not in repr(record)
     assert "longitude" not in repr(record)
+
+
+def test_farm_directory_activity_filters_and_orders_are_deterministic():
+    now = datetime.now(timezone.utc)
+    items = [
+        {"id": "older", "name": "Older Farm", "open_work_count": 4, "latest_update_at": (now - timedelta(days=31)).isoformat()},
+        {"id": "current", "name": "Current Farm", "open_work_count": 1, "latest_update_at": (now - timedelta(hours=1)).isoformat()},
+        {"id": "missing", "name": "Missing Farm", "open_work_count": 0, "latest_update_at": None},
+    ]
+
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "open_tasks")] == ["older", "current", "missing"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "recently_updated")] == ["current", "older", "missing"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, {"updated_week"}, "name")] == ["current"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, {"no_recent_update"}, "name")] == ["missing", "older"]
 
 
 def test_field_worker_context_lists_safe_assignments(ffl_db, worker):
@@ -736,6 +751,11 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
             "/api/v1/farms?date_from=2026-08-02&date_to=2026-08-01", headers=headers,
         )
         directory = client.get("/api/v1/farms?query=Fortune&crop=Rice", headers=headers)
+        filtered_directory = client.get(
+            "/api/v1/farms?state=reviewed,reported&activity=open_tasks,updated_week&order=least_updated",
+            headers=headers,
+        )
+        invalid_order = client.get("/api/v1/farms?order=unknown", headers=headers)
         farm_record = client.get("/api/v1/farms/" + farm.id, headers=headers)
         field_record = client.get("/api/v1/fields/" + block.id, headers=headers)
         person_record = client.get(
@@ -762,6 +782,8 @@ def test_entity_routes_require_manager_validate_bounds_and_return_safe_records(t
         "state": "reviewed", "kind": "farm", "id": farm.id, "name": "Fortune Farm",
         "field_count": 1, "crops": ["Rice"], "open_work_count": 0, "latest_update_at": None,
     }]
+    assert filtered_directory.status_code == 200
+    assert invalid_order.status_code == 422
     assert farm_record.status_code == field_record.status_code == person_record.status_code == 200
     assert farmer_record.status_code == 200
     assert invalid_people_kind.status_code == 422

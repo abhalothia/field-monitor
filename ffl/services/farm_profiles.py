@@ -22,6 +22,7 @@ _FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field s
 _PROFILE_UPDATE_LIMIT = 30
 _PROFILE_DIRECTORY_LIMIT = 100
 _PROFILE_DATE_WINDOW_DAYS = 366
+_FARM_DIRECTORY_ASSEMBLY_LIMIT = 10_000
 _NOT_ATTRIBUTED_CONTEXT = {
     "state": "not_attributed",
     "message": "Historical purchase cohorts are not attributed to this farm.",
@@ -148,12 +149,14 @@ def list_entity_directory(
     if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
         raise ValueError("order contains an unsupported value")
     if kind == "farm" and (states != {"reviewed"} or activity_filters or order != "open_tasks"):
-        # These filters need a single ordering across reviewed Farms and reported
-        # candidates, so assemble the bounded safe DTOs before paging.
-        reviewed = list_entity_directory(
-            conn, kind, query, crop, date_from, date_to, _PROFILE_DIRECTORY_LIMIT, "reviewed",
+        # These filters need one ordering across reviewed Farms and reported
+        # candidates. Assemble safe DTOs first; pagination happens afterwards.
+        reviewed = _reviewed_farm_directory(
+            conn, query, crop, bounds, _FARM_DIRECTORY_ASSEMBLY_LIMIT,
         ) if "reviewed" in states else []
-        reported = _reported_farm_directory(conn, query, crop, bounds, 10_000) if "reported" in states else []
+        reported = _reported_farm_directory(
+            conn, query, crop, bounds, _FARM_DIRECTORY_ASSEMBLY_LIMIT,
+        ) if "reported" in states else []
         items = _filter_and_order_farm_directory([*reviewed, *reported], activity_filters, order)
         return items[offset:offset + limit]
 
@@ -164,30 +167,7 @@ def list_entity_directory(
         return []
 
     if kind == "farm":
-        predicates = ["farm.status = 'active'"]
-        params: list[Any] = []
-        if query is not None:
-            predicates.append("lower(farm.name) LIKE ?")
-            params.append("%" + query.lower() + "%")
-        if crop is not None:
-            predicates.append(
-                """EXISTS (
-                       SELECT 1 FROM farm_fields AS membership
-                       JOIN crop_allocations AS allocation
-                         ON allocation.operational_block_id = membership.operational_block_id
-                       WHERE membership.farm_id = farm.id AND membership.status = 'active'
-                         AND allocation.status = 'active'
-                         AND lower(allocation.crop_name) LIKE ?
-                   )"""
-            )
-            params.append("%" + crop.lower() + "%")
-        params.extend((limit, offset))
-        rows = conn.execute(
-            """SELECT farm.id, farm.name FROM farms AS farm
-               WHERE """ + " AND ".join(predicates) + " ORDER BY farm.name, farm.id LIMIT ? OFFSET ?",
-            tuple(params),
-        ).fetchall()
-        items = [_farm_directory_item(conn, row, bounds) for row in rows]
+        items = _reviewed_farm_directory(conn, query, crop, bounds, limit, offset)
     elif kind == "field":
         predicates = ["farm_fields.status = 'active'", "farms.status = 'active'"]
         params = []
@@ -690,6 +670,37 @@ def _update_within_bounds(
     instant_date = _timestamp_instant(occurred_at).date()
     start, end = bounds
     return (start is None or instant_date >= start) and (end is None or instant_date <= end)
+
+
+def _reviewed_farm_directory(
+    conn, query: str | None, crop: str | None, bounds: tuple[date | None, date | None],
+    limit: int, offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Build safe reviewed Farm cards before directory pagination or global sorting."""
+    predicates = ["farm.status = 'active'"]
+    params: list[Any] = []
+    if query is not None:
+        predicates.append("lower(farm.name) LIKE ?")
+        params.append("%" + query.lower() + "%")
+    if crop is not None:
+        predicates.append(
+            """EXISTS (
+                   SELECT 1 FROM farm_fields AS membership
+                   JOIN crop_allocations AS allocation
+                     ON allocation.operational_block_id = membership.operational_block_id
+                   WHERE membership.farm_id = farm.id AND membership.status = 'active'
+                     AND allocation.status = 'active'
+                     AND lower(allocation.crop_name) LIKE ?
+               )"""
+        )
+        params.append("%" + crop.lower() + "%")
+    params.extend((limit, offset))
+    rows = conn.execute(
+        """SELECT farm.id, farm.name FROM farms AS farm
+           WHERE """ + " AND ".join(predicates) + " ORDER BY farm.name, farm.id LIMIT ? OFFSET ?",
+        tuple(params),
+    ).fetchall()
+    return [_farm_directory_item(conn, row, bounds) for row in rows]
 
 
 def _directory_activity_timestamp(value: str | None) -> float:

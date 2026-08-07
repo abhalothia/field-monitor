@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CommandSearch, CommandSearchItem } from "./command-search";
+import { FarmActivityFilter, FarmOrder, FarmStateFilter, MultiFilter, SortMenu } from "./directory-controls";
 
 type View = "home" | "map" | "fields" | "farmers" | "actions" | "settings";
 type Language = "en" | "hi";
@@ -318,9 +320,6 @@ type ContextPanel = {
   history: ContextHistoryItem[];
   reauth?: boolean;
 };
-type FarmStateFilter = "all" | "reviewed" | "reported";
-type FarmActivityFilter = "all" | "open_tasks" | "updated_week" | "updated_month" | "no_recent_update";
-type FarmOrder = "open_tasks" | "recently_updated" | "least_updated" | "name";
 type DirectoryFilters = {
   state: FarmStateFilter[];
   activity: FarmActivityFilter[];
@@ -407,14 +406,6 @@ type State = {
   needsLaunchLogin: boolean;
   stale: boolean;
   updatedAt: string | null;
-};
-
-type SearchResult = {
-  id: string;
-  kind: "farm" | "farmer" | "field_worker";
-  name: string;
-  detail: string;
-  href: string;
 };
 
 const EMPTY_STATE: State = {
@@ -739,7 +730,7 @@ export function CommandCentre({ view }: { view: View }) {
           <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
         </div>
       </header>
-      {searchOpen ? <GlobalSearch state={state} close={() => setSearchOpen(false)} refresh={() => void load()} /> : null}
+      {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load()} /> : null}
 
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
@@ -766,64 +757,20 @@ function headingFor(view: View, t: Translation) {
   return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
 }
 
-function GlobalSearch({ state, close, refresh }: { state: State; close: () => void; refresh: () => void }) {
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const needle = query.trim().toLowerCase();
-  const results = useMemo(() => {
-    if (!needle) return [];
-    const all: SearchResult[] = [
-      ...(state.trackwick?.farms || []).map((farm) => ({ id: farm.id, kind: "farm" as const, name: farm.place, detail: farm.farmer_name, href: `/farms?reported_farm=${encodeURIComponent(farm.id)}` })),
-      ...(state.trackwick?.farmers || []).map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: personName(farmer.name), detail: `${count(farmer.farm_candidates)} farms · ${count(farmer.open_work)} open tasks`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
-      ...(state.trackwick?.field_workers || []).map((worker) => ({ id: worker.id, kind: "field_worker" as const, name: worker.name, detail: `${count(worker.reported_farmer_reach)} farmers assigned · ${count(worker.open_work)} open tasks`, href: `/farmers?worker=${encodeURIComponent(worker.id)}` })),
-      ...state.canonicalFarmers.map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: farmer.name, detail: `${count(farmer.assignment_count)} farms`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
-    ];
-    const seen = new Set<string>();
-    return all.filter((result) => {
-      const key = `${result.kind}:${result.id}`;
-      if (seen.has(key) || ![result.name, result.detail].join(" ").toLowerCase().includes(needle)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 12);
-  }, [needle, state.canonicalFarmers, state.trackwick]);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-  useEffect(() => { setActiveIndex(0); }, [query]);
-  function move(result: SearchResult) { window.location.assign(result.href); }
-  return <div className="global-search-backdrop" role="presentation" onMouseDown={close}>
-    <section className="global-search" role="dialog" aria-modal="true" aria-label="Search operating records" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="global-search-input"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(); } if (event.key === "ArrowDown" && results.length) { event.preventDefault(); setActiveIndex((current) => Math.min(current + 1, results.length - 1)); } if (event.key === "ArrowUp" && results.length) { event.preventDefault(); setActiveIndex((current) => Math.max(current - 1, 0)); } if (event.key === "Enter" && results[activeIndex]) { event.preventDefault(); move(results[activeIndex]); } }} placeholder="Search farms, farmers, workers…" /></div>
-      {needle ? <div className="global-search-results">{results.length ? results.map((result, index) => <button type="button" className={index === activeIndex ? "active" : ""} key={`${result.kind}:${result.id}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => move(result)}><span className="global-search-kind">{result.kind === "field_worker" ? "Worker" : result.kind}</span><strong>{result.name}</strong><small>{result.detail}</small></button>) : <p className="empty-copy">No cached record matches that search.</p>}</div> : <div className="global-search-empty"><span>⌘F</span><p>Search stays quick because it uses the operating record already on this device.</p></div>}
-      <footer><button type="button" onClick={refresh}>Refresh data</button><span>↑↓ move · Enter open · Esc close</span></footer>
-    </section>
-  </div>;
-}
-
-function toggleFilterValue<T extends string>(values: T[], next: T): T[] {
-  if (next === "all") return [next];
-  const selected = new Set(values.filter((value) => value !== "all"));
-  if (selected.has(next)) selected.delete(next); else selected.add(next);
-  return selected.size ? [...selected] : ["all" as T];
-}
-
-function MultiFilter<T extends string>({ label, values, options, onChange }: {
-  label: string;
-  values: T[];
-  options: ReadonlyArray<readonly [T, string]>;
-  onChange: (values: T[]) => void;
-}) {
-  const all = values.includes("all" as T);
-  const selectedLabel = all ? options[0]?.[1] || "All" : `${values.length} selected`;
-  return <details className="filter-menu"><summary><span>{label}</span><strong>{selectedLabel}</strong></summary><div className="filter-menu-options">{options.map(([value, title]) => <label key={value}><input type="checkbox" checked={value === "all" ? all : values.includes(value)} onChange={() => onChange(toggleFilterValue(values, value))} /><span>{title}</span></label>)}</div></details>;
-}
-
-function SortMenu<T extends string>({ value, options, onChange }: {
-  value: T;
-  options: ReadonlyArray<readonly [T, string]>;
-  onChange: (value: T) => void;
-}) {
-  const selectedLabel = options.find(([option]) => option === value)?.[1] || "Sort";
-  return <details className="filter-menu sort-menu"><summary><span>Sort</span><strong>{selectedLabel}</strong></summary><div className="filter-menu-options">{options.map(([option, title]) => <button type="button" className={option === value ? "active" : ""} key={option} onClick={(event) => { onChange(option); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{title}{option === value ? <span aria-hidden="true">✓</span> : null}</button>)}</div></details>;
+function commandSearchItems(state: State): CommandSearchItem[] {
+  const all: CommandSearchItem[] = [
+    ...(state.trackwick?.farms || []).map((farm) => ({ id: farm.id, kind: "farm" as const, name: farm.place, detail: farm.farmer_name, href: `/farms?reported_farm=${encodeURIComponent(farm.id)}` })),
+    ...(state.trackwick?.farmers || []).map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: personName(farmer.name), detail: `${count(farmer.farm_candidates)} farms · ${count(farmer.open_work)} open tasks`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
+    ...(state.trackwick?.field_workers || []).map((worker) => ({ id: worker.id, kind: "field_worker" as const, name: worker.name, detail: `${count(worker.reported_farmer_reach)} farmers assigned · ${count(worker.open_work)} open tasks`, href: `/farmers?worker=${encodeURIComponent(worker.id)}` })),
+    ...state.canonicalFarmers.map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: farmer.name, detail: `${count(farmer.assignment_count)} farms`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
+  ];
+  const seen = new Set<string>();
+  return all.filter((item) => {
+    const key = `${item.kind}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function languageFarmHeading(t: Translation) {
