@@ -1108,7 +1108,9 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   canOpenProfiles: boolean;
   openProfile: (id: string, kind: "farmer", recordState: "reported", openerId: string) => Promise<void>;
 }) {
-  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{farmers.slice(0, 6).map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div></>;
+  const [visibleCount, setVisibleCount] = useState(100);
+  const visible = farmers.slice(0, visibleCount);
+  return <><p className="surface-copy">Reported farmers are not sign-ins or reviewed grower relationships.</p><div className="people-list">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < farmers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(farmers.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1230,7 +1232,9 @@ function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["c
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
-  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{items.slice(0, 8).map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol></>;
+  const [visibleCount, setVisibleCount] = useState(100);
+  const visible = items.slice(0, visibleCount);
+  return <><p className="surface-copy">These are TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list">{visible.map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < items.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(items.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
@@ -1238,10 +1242,12 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   canOpenProfiles: boolean;
   openProfile: (id: string, kind: "field_worker", recordState: "reported", openerId: string) => Promise<void>;
 }) {
+  const [visibleCount, setVisibleCount] = useState(40);
+  const visible = workers.slice(0, visibleCount);
   return <section className="reported-field-workers">
     <div className="surface-heading"><div><p className="eyebrow">Reported field workers</p><h2>Source work coverage</h2></div><span className="count-badge">{count(workers.length)}</span></div>
     <p className="surface-copy">Coverage is derived only from TrackWick source work. It is not a reviewed assignment, account, or farmer relationship.</p>
-    <div className="people-list">{workers.slice(0, 8).map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} reported farmer reach · {count(worker.open_work)} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open reported field worker profile for ${worker.name}`} text="Open reported profile" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>
+    <div className="people-list">{visible.map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} reported farmer reach · {count(worker.open_work)} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open reported field worker profile for ${worker.name}`} text="Open reported profile" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>{visible.length < workers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(workers.length - visible.length)} remaining)</button> : null}
   </section>;
 }
 
