@@ -52,6 +52,7 @@ def list_farms(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
     state: str | None = None,
     _manager_id: str = Depends(require_manager),
 ) -> list[dict]:
@@ -62,7 +63,7 @@ def list_farms(
         _invalid("state must be all, reviewed, or reported")
     _validate_date_window(date_from, date_to)
     return farm_profiles.list_entity_directory(
-        _connection(request), kind, query, crop, date_from, date_to, limit, state,
+        _connection(request), kind, query, crop, date_from, date_to, limit, state, offset,
     )
 
 

@@ -122,7 +122,7 @@ def person_context(
 def list_entity_directory(
     conn, kind: str, query: str | None = None, crop: str | None = None,
     date_from: str | None = None, date_to: str | None = None, limit: int = 50,
-    state: str | None = None,
+    state: str | None = None, offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Return a small allowlisted directory for one canonical entity kind."""
     if kind not in {"farm", "field", "farmer", "field_worker"}:
@@ -131,6 +131,8 @@ def list_entity_directory(
     crop = _directory_text(crop, "crop")
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _PROFILE_DIRECTORY_LIMIT:
         raise ValueError("limit must be between 1 and 100")
+    if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 10_000:
+        raise ValueError("offset must be between 0 and 10000")
     bounds = _record_date_bounds(date_from, date_to)
     if state == "all":
         if kind != "farm":
@@ -140,9 +142,9 @@ def list_entity_directory(
         # infer this by combining two endpoints: the server remains the one
         # authority for the distinct record states.
         reviewed = list_entity_directory(
-            conn, kind, query, crop, date_from, date_to, limit, "reviewed",
+            conn, kind, query, crop, date_from, date_to, limit + offset, "reviewed",
         )
-        reported = _reported_farm_directory(conn, query, crop, bounds, limit)
+        reported = _reported_farm_directory(conn, query, crop, bounds, limit + offset)
         return sorted(
             [*reviewed, *reported],
             key=lambda item: (
@@ -152,11 +154,11 @@ def list_entity_directory(
                 item["id"],
             ),
             reverse=True,
-        )[:limit]
+        )[offset:offset + limit]
 
     if state not in {None, "reviewed"}:
         if state == "reported" and kind == "farm":
-            return _reported_farm_directory(conn, query, crop, bounds, limit)
+            return _reported_farm_directory(conn, query, crop, bounds, limit, offset)
         if state == "reported":
             return []
         raise ValueError("state must be reviewed or reported")
@@ -179,10 +181,10 @@ def list_entity_directory(
                    )"""
             )
             params.append("%" + crop.lower() + "%")
-        params.append(limit)
+        params.extend((limit, offset))
         rows = conn.execute(
             """SELECT farm.id, farm.name FROM farms AS farm
-               WHERE """ + " AND ".join(predicates) + " ORDER BY farm.name, farm.id LIMIT ?",
+               WHERE """ + " AND ".join(predicates) + " ORDER BY farm.name, farm.id LIMIT ? OFFSET ?",
             tuple(params),
         ).fetchall()
         items = [_farm_directory_item(conn, row, bounds) for row in rows]
@@ -202,13 +204,13 @@ def list_entity_directory(
                    )"""
             )
             params.append("%" + crop.lower() + "%")
-        params.append(limit)
+        params.extend((limit, offset))
         rows = conn.execute(
             """SELECT block.id, block.name
                FROM operational_blocks AS block
                JOIN farm_fields ON farm_fields.operational_block_id = block.id
                JOIN farms ON farms.id = farm_fields.farm_id
-               WHERE """ + " AND ".join(predicates) + " ORDER BY block.name, block.id LIMIT ?",
+               WHERE """ + " AND ".join(predicates) + " ORDER BY block.name, block.id LIMIT ? OFFSET ?",
             tuple(params),
         ).fetchall()
         items = [_field_directory_item(conn, row, bounds) for row in rows]
@@ -232,7 +234,7 @@ def list_entity_directory(
                    )"""
             )
             params.append("%" + crop.lower() + "%")
-        params.append(limit)
+        params.extend((limit, offset))
         rows = conn.execute(
             """SELECT DISTINCT people.id, people.name
                FROM people
@@ -247,7 +249,7 @@ def list_entity_directory(
                JOIN farm_fields
                  ON farm_fields.operational_block_id = block.id AND farm_fields.status = 'active'
                JOIN farms ON farms.id = farm_fields.farm_id AND farms.status = 'active'
-               WHERE """ + " AND ".join(predicates) + " ORDER BY people.name, people.id LIMIT ?",
+               WHERE """ + " AND ".join(predicates) + " ORDER BY people.name, people.id LIMIT ? OFFSET ?",
             tuple(params),
         ).fetchall()
         items = [
@@ -659,7 +661,7 @@ def _farm_directory_item(
 
 def _reported_farm_directory(
     conn, query: str | None, crop: str | None,
-    bounds: tuple[date | None, date | None], limit: int,
+    bounds: tuple[date | None, date | None], limit: int, offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Adapt source registrations into a distinct, non-canonical directory."""
     if crop is not None:
@@ -667,6 +669,7 @@ def _reported_farm_directory(
         return []
     rows = command_centre_board_for_source(conn)["farms"]
     items: list[dict[str, Any]] = []
+    skipped = 0
     for row in rows:
         haystack = " ".join((str(row.get("farmer_name") or ""), str(row.get("place") or ""))).lower()
         if query is not None and query.lower() not in haystack:
@@ -675,6 +678,9 @@ def _reported_farm_directory(
         if occurred_at is not None and not _update_within_bounds(occurred_at, bounds):
             continue
         if occurred_at is None and any(bounds):
+            continue
+        if skipped < offset:
+            skipped += 1
             continue
         items.append({
             "state": "reported",

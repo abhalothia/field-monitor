@@ -666,6 +666,7 @@ const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
   dateTo: "",
 };
 const MANAGER_ACCESS_BOUNDARY_ID = "farm-manager-access-boundary";
+const FARM_DIRECTORY_PAGE_SIZE = 100;
 
 function filtersFromLocation() {
   const params = new URLSearchParams(window.location.search);
@@ -697,6 +698,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
   const [draftFilters, setDraftFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [directoryPage, setDirectoryPage] = useState(0);
   const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null }>({
     items: [], loading: false, error: null,
   });
@@ -727,11 +729,17 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       return;
     }
     const request = ++directoryRequest.current;
-    const params = directoryParams(filters).toString();
+    const params = directoryParams(filters);
+    params.set("limit", String(FARM_DIRECTORY_PAGE_SIZE));
+    params.set("offset", String(directoryPage * FARM_DIRECTORY_PAGE_SIZE));
     setDirectory((current) => ({ ...current, loading: true, error: null }));
     void readJson<FarmDirectory>("/api/v1/farms?" + params)
       .then(({ value }) => {
-        if (request === directoryRequest.current) setDirectory({ items: value, loading: false, error: null });
+        if (request === directoryRequest.current) setDirectory((current) => ({
+          items: directoryPage ? [...current.items, ...value] : value,
+          loading: false,
+          error: null,
+        }));
       })
       .catch((error: unknown) => {
         if (request !== directoryRequest.current) return;
@@ -739,7 +747,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
         if (message === "Manager access expired.") expireManagerSession();
         setDirectory({ items: [], loading: false, error: message });
       });
-  }, [canOpenProfiles, expireManagerSession, filters, filtersReady]);
+  }, [canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
 
   useEffect(() => {
     const expired = managerAccessWasEnabled.current && !canOpenProfiles;
@@ -764,12 +772,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     params.delete("kind");
     const query = params.toString();
     window.history.pushState({}, "", query ? `/fields?${query}` : "/fields");
+    setDirectoryPage(0);
     setFilters(next);
   }
 
   function clearFilters() {
     window.history.pushState({}, "", "/fields?state=reported");
     setDraftFilters(EMPTY_DIRECTORY_FILTERS);
+    setDirectoryPage(0);
     setFilters(EMPTY_DIRECTORY_FILTERS);
   }
 
@@ -892,8 +902,10 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     />;
   }
 
+  const reportedTotal = filters.state === "reported" || filters.state === "all" ? state.trackwick?.counts.farm_candidates : undefined;
+  const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
   return <section className="single-surface fields-stage farm-directory">
-    <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Farms</h2></div><span className="count-badge">{count(directory.items.length)}</span></div>
+    <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Farms</h2></div><span className="count-badge">{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div>
     <form className="directory-filters" onSubmit={applyFilters}>
       <label>State<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All states</option><option value="reviewed">Reviewed</option><option value="reported">Reported</option></select></label>
       <label>Search<input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Farm name" /></label>
@@ -908,9 +920,9 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
           : directory.items.length
-            ? <div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
+            ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
               ? <article className="farm-directory-card reported-candidate-card" key={farm.id}><div><span className="status-chip reported">reported candidate</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name} · source context awaiting review</p></div><dl><div><dt>Reported plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open source work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`reported-farm-directory-${farm.id}`} label={`Open reported candidate profile for ${farm.name}`} text="Review reported profile" open={(openerId) => void openReportedFarm(farm.destination.id, openerId)} /></article>
-              : <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>
+              : <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
             : <EmptyState title="No Farms match these filters." detail={t.noData + " Reported source candidates do not become Farms until they are reviewed."} />}
   </section>;
 }
