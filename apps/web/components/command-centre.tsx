@@ -450,7 +450,7 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", map: "Map", fields: "Fields", farmers: "Farmers", actions: "Agents", settings: "Settings",
+    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
@@ -462,7 +462,7 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", map: "नक्शा", fields: "खेत", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
+    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
@@ -478,7 +478,7 @@ const WORDS: Record<Language, Translation> = {
 const NAV: Array<{ view: View; href: string }> = [
   { view: "home", href: "/home" },
   { view: "map", href: "/map" },
-  { view: "fields", href: "/fields" },
+  { view: "fields", href: "/farms" },
   { view: "farmers", href: "/farmers" },
   { view: "actions", href: "/actions" },
   { view: "settings", href: "/settings" },
@@ -921,7 +921,7 @@ function MapView({ state }: { state: State }) {
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
-      <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Fields"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
+      <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Farms"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
       <MapTabs label="When" value={days} onChange={setDays} options={[["all", "All time"], ["7", "This week"], ["30", "This month"]]} />
     </div>
     <div className="map-content"><div className="map-canvas"><OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} /></div></div>
@@ -943,17 +943,17 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
   const facts = subject.kind === "reported_farm"
     ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(farm?.open_work ?? subject.open_work)], ["Field Activity", count(matchingActivity.length)]]
     : subject.kind === "farmer"
-      ? [["Fields", count(farmer?.farm_candidates)], ["Open Tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(farmer?.crop_photo_references)], ["Field Activity", count(matchingActivity.length)]]
+      ? [["Farms", count(farmer?.farm_candidates)], ["Open Tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(farmer?.crop_photo_references)], ["Field Activity", count(matchingActivity.length)]]
       : subject.kind === "field_worker"
         ? [["Farmers Assigned", count(worker?.reported_farmer_reach)], ["Open Tasks", count(worker?.open_work ?? subject.open_work)], ["Completed Work", count(worker?.completed_work)], ["Field Activity", count(matchingActivity.length)]]
         : [["Place", subject.place || "—"], ["Open Tasks", count(subject.open_work)], ["Field Activity", count(matchingActivity.length)], ["Last Activity", dateTime(point.observed_at)]];
   return <aside className="map-inspector" aria-label="Selected map record">
     <div className="map-inspector-record">
       <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
-      <p className="eyebrow">{subject.kind === "reported_farm" ? "Field" : subject.kind.replaceAll("_", " ")}</p>
+      <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
       <h2>{subject.name}</h2>
       <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}</p>
-      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Field" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span></div>
+      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span></div>
       <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
       {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
@@ -1022,7 +1022,7 @@ function MapGlance({ point, close }: { point: MapPoint; close: () => void }) {
 
 function mapProfileHref(subject: MapPoint["subject"]) {
   if (!subject.id) return null;
-  if (subject.kind === "reported_farm") return `/fields?reported_farm=${encodeURIComponent(subject.id)}`;
+  if (subject.kind === "reported_farm") return `/farms?reported_farm=${encodeURIComponent(subject.id)}`;
   if (subject.kind === "farmer") return `/farmers?person=${encodeURIComponent(subject.id)}`;
   if (subject.kind === "field_worker") return `/farmers?worker=${encodeURIComponent(subject.id)}`;
   return null;
@@ -1100,7 +1100,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       const next = { ...filters, query: draftFilters.query.trim() };
       const params = directoryParams(next);
       params.delete("kind");
-      window.history.replaceState({}, "", `/fields?${params.toString()}`);
+      window.history.replaceState({}, "", `/farms?${params.toString()}`);
       setDirectoryPage(0);
       setFilters(next);
     }, 220);
@@ -1162,7 +1162,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     const params = directoryParams(next);
     params.delete("kind");
     const query = params.toString();
-    window.history.pushState({}, "", query ? `/fields?${query}` : "/fields");
+    window.history.pushState({}, "", query ? `/farms?${query}` : "/farms");
     setDraftFilters((current) => ({ ...current, state }));
     setDirectoryPage(0);
     setFilters(next);
@@ -1312,7 +1312,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   return <section className="directory-workspace farm-directory">
     <div className="directory-toolbar"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><div className="directory-view-tabs" aria-label="Farm view"><button type="button" className={filters.state === "reported" ? "active" : ""} onClick={() => setDirectoryView("reported")}>To review</button><button type="button" className={filters.state === "reviewed" ? "active" : ""} onClick={() => setDirectoryView("reviewed")}>Active</button><button type="button" className={filters.state === "all" ? "active" : ""} onClick={() => setDirectoryView("all")}>All</button></div><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
     {!canOpenProfiles
-      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/fields", label: "Sign in" }} />
+      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/farms", label: "Sign in" }} />
       : directory.loading && !directory.items.length
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
         : directory.items.length
@@ -1638,7 +1638,7 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
   return <div className="profile-groups">
     <section className="profile-relationships">
       <h3>Canonical Farms</h3>
-      <ul>{farms.map((farm) => <li key={farm.id}><strong>{farm.name}</strong><Link className="text-link" href={`/fields?farm=${encodeURIComponent(farm.id)}`}>Open Farm <span aria-hidden="true">→</span></Link></li>)}</ul>
+      <ul>{farms.map((farm) => <li key={farm.id}><strong>{farm.name}</strong><Link className="text-link" href={`/farms?farm=${encodeURIComponent(farm.id)}`}>Open Farm <span aria-hidden="true">→</span></Link></li>)}</ul>
     </section>
     <section className="profile-relationships">
       <h3>Reviewed assignments</h3>
@@ -1677,7 +1677,7 @@ function AgentsView({ agents, reload }: {
       {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>
         <strong className="agent-count">{count(agent.count)}</strong>
         <div><h3>{agent.name}</h3><p>{agent.summary}</p></div>
-        <Link href={agent.id === "disease-watch" ? "/fields?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
+        <Link href={agent.id === "disease-watch" ? "/farms?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
       </article>)}
       {!agents ? <p className="empty-copy">Loading agents…</p> : null}
     </div>
@@ -1783,7 +1783,7 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
 
 function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
   if (!items.length) return <p className="empty-copy">{empty}</p>;
-  return <ol className="action-list">{items.map((item) => <li key={`${item.entity.type}-${item.entity.id}`}><span className={`severity ${item.severity}`}>{item.severity}</span><div><h3>{item.title}</h3><p>{actionLine(item)}</p></div><Link className="text-link" href={item.allocation_id ? `/fields?field=${encodeURIComponent(item.allocation_id)}` : "/actions"}>Open <span aria-hidden="true">→</span></Link></li>)}</ol>;
+  return <ol className="action-list">{items.map((item) => <li key={`${item.entity.type}-${item.entity.id}`}><span className={`severity ${item.severity}`}>{item.severity}</span><div><h3>{item.title}</h3><p>{actionLine(item)}</p></div><Link className="text-link" href={item.allocation_id ? `/farms?field=${encodeURIComponent(item.allocation_id)}` : "/actions"}>Open <span aria-hidden="true">→</span></Link></li>)}</ol>;
 }
 
 function SettingsView({ t, state, managerBusy, logout }: {
