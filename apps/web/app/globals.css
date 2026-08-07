@@ -212,6 +212,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .candidate-review-form label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
 .candidate-review-form input { width: 100%; min-height: 42px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .8rem; padding: 8px 10px; text-transform: none; }
 .candidate-review-form .primary-action { width: fit-content; border: 0; cursor: pointer; }
+.candidate-review-form p { max-width: 52ch; color: var(--muted); font-size: .75rem; line-height: 1.5; margin: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .profile-message { max-width: 50ch; color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 0; }
 .profile-error { color: #8b402c; }
 .reported-field-workers { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }

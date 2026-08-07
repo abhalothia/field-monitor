@@ -983,6 +983,7 @@ function ReportedFarmPanel({ record, operatingUnit }: {
   }, [record.id, record.name]);
   async function acceptCandidate() {
     if (!candidate || !operatingUnit || !farmName.trim()) return;
+    if (!window.confirm(`Create “${farmName.trim()}” and link ${candidate.farmer_name} as its reviewed Grower? No Field, boundary, crop, or land right will be created.`)) return;
     setReviewState("saving");
     try {
       const { value } = await readJson<{ status: string; farm_id?: string }>(`/api/v1/farm-candidates/cases/${candidate.id}/accept`, {
@@ -1021,14 +1022,12 @@ function ReportedFarmPanel({ record, operatingUnit }: {
       <section>
         <h3>Review state</h3>
         <p className="profile-context">This source footprint can establish a reviewed Farm + Grower relationship. It cannot establish a Field, boundary, crop allocation, acreage, owner relationship, or operating right.</p>
-        {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
         {reviewState === "loading" ? <p className="empty-copy" role="status">Preparing safe review…</p> : null}
-        {reviewState === "ready" && candidate ? <div className="candidate-review-form"><label>Reviewed Farm name<input value={farmName} maxLength={160} onChange={(event) => setFarmName(event.target.value)} /></label><p className="context-limitation">Creates one Farm in {operatingUnit?.name || "the selected operating unit"} and links {candidate.farmer_name} as Grower.</p><button className="primary-action" type="button" onClick={() => void acceptCandidate()} disabled={!operatingUnit || !farmName.trim()}>Accept Farm + Grower <span aria-hidden="true">→</span></button></div> : null}
+        {reviewState === "ready" && candidate ? <div className="candidate-review-form"><label>Farm name<input value={farmName} maxLength={160} onChange={(event) => setFarmName(event.target.value)} /></label><p>Creates one reviewed Farm in {operatingUnit?.name || "your operating unit"} and links {candidate.farmer_name} as Grower.</p><button className="primary-action" type="button" onClick={() => void acceptCandidate()} disabled={!operatingUnit || !farmName.trim()}>Create Farm + Grower <span aria-hidden="true">→</span></button></div> : null}
         {reviewState === "saving" ? <p className="empty-copy" role="status">Saving reviewed relationship…</p> : null}
         {reviewState === "done" || reviewState === "error" ? <p className={reviewState === "error" ? "profile-message profile-error" : "profile-message"}>{reviewMessage}</p> : null}
-        <p className="context-limitation">Open review workspace is now this profile: review the smallest truthful relationship first, then add Field evidence separately.</p>
         <p className="context-limitation">There is no boundary, crop allocation, owner relationship, or operational action in this reported record.</p>
-        <div className="profile-action"><a className="text-link" href="/manager?review=farm-truth">Open review workspace for Field evidence</a></div>
+        <div className="profile-action"><a className="text-link" href="/manager?review=farm-truth">Open review workspace for Field evidence</a><span className="sr-only">Open review workspace</span></div>
       </section>
     </div>
   </div>;
@@ -1145,7 +1144,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">{farmers.length ? "Reviewed grower relationships" : sourceFarmers.length ? "Reported farmers" : "Reviewed grower relationships"}</p><h2>{farmers.length ? "Farmers on this operating record" : sourceFarmers.length ? "Farmers reported by TrackWick" : "Farmers on this operating record"}</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
+    {!canOpenProfiles ? <EmptyState title="Sign in to see people" detail="Farmer and field-worker records are private operating data." action={{ href: "/login?next=/farmers", label: "Sign in" }} /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
   </section>;
 }
 
@@ -1260,6 +1259,7 @@ function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, open
   const workers = trackwick?.field_workers || [];
   const signals = trackwick?.signals || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
+  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Decision queue</p><h2>Actions</h2></div></div><EmptyState title="Sign in to see actions" detail="Source work and operating actions are private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
   return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : <ActionRows items={actions} empty={t.noActions} />}{sourceWork.length ? <section className="reported-source-work"><div className="surface-heading"><div><p className="eyebrow">Cached TrackWick work</p><h2>Source work awaiting review</h2></div><span className="count-badge">{count(sourceWork.length)}</span></div><SourceWorkRows items={sourceWork} /></section> : null}{trackwick ? <TrackwickSourceCoverage counts={trackwick.counts} /> : null}{signals.length ? <ReportedSignalQueue signals={signals} total={trackwick?.counts.reported_signals || signals.length} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
 }
 
