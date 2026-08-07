@@ -261,6 +261,21 @@ def list_entity_directory(
         ]
         items = [item for item in items if item["assignment_count"]]
 
+    if kind == "farmer":
+        direct_rows = conn.execute(
+            """SELECT DISTINCT people.id, people.name
+               FROM farm_grower_relationships AS relationship
+               JOIN people ON people.id = relationship.person_id
+               JOIN farms ON farms.id = relationship.farm_id
+               WHERE relationship.status = 'active' AND farms.status = 'active'
+               ORDER BY people.name, people.id"""
+        ).fetchall()
+        seen = {item["id"] for item in items}
+        items.extend({
+            "state": "reviewed", "kind": "farmer", "id": row["id"], "name": row["name"],
+            "assignment_count": 1,
+        } for row in direct_rows if row["id"] not in seen)
+
     return items
 
 
@@ -369,7 +384,21 @@ def _farm_people(conn, farm_id: str) -> list[dict[str, Any]]:
                     relationship.id, block.id""",
         (farm_id,),
     ).fetchall()
-    return _deduplicated_people(rows)
+    people = _deduplicated_people(rows)
+    direct = conn.execute(
+        """SELECT person.id, person.name, relationship.starts_on
+           FROM farm_grower_relationships AS relationship
+           JOIN people AS person ON person.id = relationship.person_id
+           WHERE relationship.farm_id = ? AND relationship.status = 'active'
+           ORDER BY person.name, relationship.starts_on, relationship.id""",
+        (farm_id,),
+    ).fetchall()
+    existing = {person["id"] for person in people}
+    people.extend({
+        "id": row["id"], "name": row["name"], "kind": "farmer", "role": "grower",
+        "starts_on": row["starts_on"], "field_id": "", "field_name": "Farm relationship · Field not yet established",
+    } for row in direct if row["id"] not in existing)
+    return people
 
 
 def _field_people(conn, block_id: str) -> list[dict[str, Any]]:
@@ -470,6 +499,23 @@ def _person_assignments(conn, person_id: str, role: str) -> list[dict[str, str]]
             "field_id": row["field_id"], "field_name": row["field_name"],
             "role": row["role"], "starts_on": row["starts_on"],
         })
+    if role == "grower":
+        direct = conn.execute(
+            """SELECT farm.id AS farm_id, farm.name AS farm_name, relationship.starts_on
+               FROM farm_grower_relationships AS relationship
+               JOIN farms AS farm ON farm.id = relationship.farm_id
+               WHERE relationship.person_id = ? AND relationship.status = 'active'
+                 AND farm.status = 'active'
+               ORDER BY farm.name, relationship.starts_on, relationship.id""",
+            (person_id,),
+        ).fetchall()
+        for row in direct:
+            key = (row["farm_id"], "", "grower")
+            assignments.setdefault(key, {
+                "farm_id": row["farm_id"], "farm_name": row["farm_name"],
+                "field_id": "", "field_name": "Field not yet established",
+                "role": "grower", "starts_on": row["starts_on"],
+            })
     return list(assignments.values())
 
 

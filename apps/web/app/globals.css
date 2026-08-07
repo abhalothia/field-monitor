@@ -159,11 +159,11 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .single-stage > p:not(.eyebrow) { max-width: 53ch; color: var(--ink-soft); font-size: .9rem; line-height: 1.6; }
 .single-stage .primary-action { margin-top: auto; }
 .single-stage footer { margin-top: 24px; color: #70806c; font-family: "DM Mono", monospace; font-size: .62rem; letter-spacing: .04em; text-transform: uppercase; }
-.single-surface { min-height: min(510px, calc(100vh - 214px)); background: rgba(250, 247, 236, .8); padding: clamp(22px, 3vw, 38px); }
+.single-surface { min-height: 0; background: rgba(250, 247, 236, .8); padding: clamp(22px, 3vw, 38px); }
 .fields-stage, .people-stage, .actions-surface, .settings-stage { max-width: 1060px; }
 .fields-stage .geometry-list { margin-top: 18px; }
-.people-stage { max-width: 720px; }
-.people-stage .people-list { max-width: 580px; }
+.people-stage { width: min(100%, 1060px); max-width: 1060px; }
+.people-stage .people-list { max-width: none; }
 .actions-surface { max-width: 960px; }
 .settings-stage { max-width: 760px; }
 .settings-rows { display: grid; margin: 24px 0; }
@@ -208,6 +208,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .profile-relationships span, .profile-relationships p { color: var(--muted); font-size: .68rem; line-height: 1.45; margin: 0; text-transform: capitalize; }
 .profile-action { margin-top: 26px; }
 .profile-action .primary-action { margin-top: 0; }
+.candidate-review-form { display: grid; gap: 12px; margin-top: 16px; }
+.candidate-review-form label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
+.candidate-review-form input { width: 100%; min-height: 42px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .8rem; padding: 8px 10px; text-transform: none; }
+.candidate-review-form .primary-action { width: fit-content; border: 0; cursor: pointer; }
 .profile-message { max-width: 50ch; color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 0; }
 .profile-error { color: #8b402c; }
 .reported-field-workers { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }

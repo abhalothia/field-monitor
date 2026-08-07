@@ -82,6 +82,7 @@ FARM_TRUTH_MISSING_EVIDENCE_KINDS = {
     "plot_area", "crop_season", "right_to_operate", "farmer_identity",
     "field_worker_assignment",
 }
+FARM_CANDIDATE_CASE_STATUSES = {"open", "accepting", "held", "accepted", "rejected"}
 
 
 class FarmTruthConflict(ValueError):
@@ -135,6 +136,26 @@ class FarmTruthReviewCase:
     accepted_crop_allocation_id: Optional[str]
     accepted_grower_person_id: Optional[str]
     accepted_field_worker_person_id: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class FarmCandidateReviewCase:
+    """Private manager review state for a registration-level Farm candidate."""
+
+    id: str
+    source_id: str
+    registration_id: str
+    candidate_fingerprint: str
+    status: str
+    evidence_summary: Mapping[str, Any]
+    review_reason: Optional[str]
+    owner_person_id: Optional[str]
+    reviewed_by_person_id: Optional[str]
+    reviewed_at: Optional[str]
+    accepted_farm_id: Optional[str]
+    accepted_grower_person_id: Optional[str]
     created_at: str
     updated_at: str
 
@@ -377,6 +398,16 @@ def _farm_truth_review_case(row: sqlite3.Row) -> FarmTruthReviewCase:
         row["reviewed_by_person_id"], row["reviewed_at"], row["accepted_land_parcel_id"],
         row["accepted_operational_block_id"], row["accepted_crop_allocation_id"],
         row["accepted_grower_person_id"], row["accepted_field_worker_person_id"],
+        row["created_at"], row["updated_at"],
+    )
+
+
+def _farm_candidate_review_case(row: sqlite3.Row) -> FarmCandidateReviewCase:
+    return FarmCandidateReviewCase(
+        row["id"], row["source_id"], row["registration_id"],
+        row["candidate_fingerprint"], row["status"], json.loads(row["evidence_summary_json"]),
+        row["review_reason"], row["owner_person_id"], row["reviewed_by_person_id"],
+        row["reviewed_at"], row["accepted_farm_id"], row["accepted_grower_person_id"],
         row["created_at"], row["updated_at"],
     )
 
@@ -3392,6 +3423,209 @@ def _active_farm_for_reviewed_registration(conn, registration_id: str) -> Option
         (registration_id,),
     ).fetchone()
     return None if row is None else str(row["id"])
+
+
+def get_farm_candidate_review_case(
+    conn: sqlite3.Connection, case_id: str,
+) -> Optional[FarmCandidateReviewCase]:
+    row = conn.execute(
+        "SELECT * FROM farm_candidate_review_cases WHERE id = ?", (case_id,)
+    ).fetchone()
+    return _farm_candidate_review_case(row) if row is not None else None
+
+
+def get_farm_candidate_review_case_by_registration(
+    conn: sqlite3.Connection, registration_id: str, candidate_fingerprint: str,
+) -> Optional[FarmCandidateReviewCase]:
+    row = conn.execute(
+        """SELECT * FROM farm_candidate_review_cases
+           WHERE registration_id = ? AND candidate_fingerprint = ?""",
+        (registration_id, candidate_fingerprint),
+    ).fetchone()
+    return _farm_candidate_review_case(row) if row is not None else None
+
+
+def create_or_refresh_farm_candidate_review_case(
+    conn: sqlite3.Connection, source_id: str, registration_id: str,
+    candidate_fingerprint: str, evidence_summary: Mapping[str, Any],
+) -> FarmCandidateReviewCase:
+    """Persist a safe receipt for one TrackWick registration-level candidate."""
+    source_id = _required_text(source_id, "source_id", 128)
+    registration_id = _required_text(registration_id, "registration_id", 128)
+    if not isinstance(candidate_fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", candidate_fingerprint) is None:
+        raise ValueError("candidate_fingerprint must be a lowercase SHA-256 hex digest")
+    if not isinstance(evidence_summary, Mapping):
+        raise ValueError("evidence_summary must be an object")
+    source = conn.execute(
+        """SELECT 1 FROM trackwick_registrations
+           WHERE id = ? AND source_id = ? AND registration_status = 'completed'
+             AND data_quality_status = 'valid'""",
+        (registration_id, source_id),
+    ).fetchone()
+    if source is None:
+        raise ValueError("farm candidate must be a completed valid registration")
+    identifier, now = _new_identity()
+    conn.execute(
+        """INSERT INTO farm_candidate_review_cases (
+               id, source_id, registration_id, candidate_fingerprint, status,
+               evidence_summary_json, review_reason, owner_person_id, reviewed_by_person_id,
+               reviewed_at, accepted_farm_id, accepted_grower_person_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, 'open', ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+           ON CONFLICT (registration_id, candidate_fingerprint) DO UPDATE SET
+               evidence_summary_json = excluded.evidence_summary_json,
+               updated_at = excluded.updated_at
+           WHERE farm_candidate_review_cases.status = 'open'""",
+        (identifier, source_id, registration_id, candidate_fingerprint,
+         _json_value(dict(evidence_summary)), now, now),
+    )
+    conn.commit()
+    established = get_farm_candidate_review_case_by_registration(
+        conn, registration_id, candidate_fingerprint,
+    )
+    if established is None:  # pragma: no cover - guarded by upsert
+        raise RuntimeError("farm candidate review case could not be resolved")
+    return established
+
+
+def list_farm_candidate_review_cases(
+    conn: sqlite3.Connection, status: str = "open", limit: int = 100,
+) -> List[FarmCandidateReviewCase]:
+    if status not in FARM_CANDIDATE_CASE_STATUSES:
+        raise ValueError("invalid farm candidate review case status")
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    rows = conn.execute(
+        """SELECT * FROM farm_candidate_review_cases WHERE status = ?
+           ORDER BY updated_at DESC, id LIMIT ?""", (status, limit),
+    ).fetchall()
+    return [_farm_candidate_review_case(row) for row in rows]
+
+
+def resolve_farm_candidate_review_case(
+    conn: sqlite3.Connection, case_id: str, reviewer_id: str,
+    decision: str, reason: str, expected_updated_at: Optional[str] = None,
+) -> FarmCandidateReviewCase:
+    """Hold or reject an open candidate without mutating the source receipt."""
+    if decision not in {"held", "rejected"}:
+        raise ValueError("decision must be held or rejected")
+    reviewer_id = _required_text(reviewer_id, "reviewer_id", 128)
+    reason = _required_text(reason, "reason", 500)
+    if get_person(conn, reviewer_id) is None:
+        raise ValueError("reviewer does not exist")
+    with conn:
+        case = get_farm_candidate_review_case(conn, case_id)
+        if case is None or case.status != "open":
+            raise FarmTruthConflict("farm candidate review case is stale or resolved")
+        if expected_updated_at is not None and case.updated_at != expected_updated_at:
+            raise FarmTruthConflict("farm candidate review case is stale")
+        _, reviewed_at = _new_identity()
+        owner = reviewer_id if decision == "held" else None
+        updated = conn.execute(
+            """UPDATE farm_candidate_review_cases
+               SET status = ?, review_reason = ?, owner_person_id = ?, reviewed_by_person_id = ?,
+                   reviewed_at = ?, updated_at = ?
+               WHERE id = ? AND status = 'open' AND updated_at = ?""",
+            (decision, reason, owner, reviewer_id, reviewed_at, reviewed_at, case_id, case.updated_at),
+        )
+        if updated.rowcount != 1:
+            raise FarmTruthConflict("farm candidate review case is stale or resolved")
+    return get_farm_candidate_review_case(conn, case_id)  # type: ignore[return-value]
+
+
+def accept_farm_candidate_review_case(
+    conn: sqlite3.Connection, case_id: str, reviewer_id: str, operating_unit_id: str,
+    farm_name: str, grower_effective_on: str, expected_updated_at: Optional[str] = None,
+) -> FarmCandidateReviewCase:
+    """Create only Farm + Grower truth; Field-level entities stay untouched."""
+    reviewer_id = _required_text(reviewer_id, "reviewer_id", 128)
+    operating_unit_id = _required_text(operating_unit_id, "operating_unit_id", 128)
+    farm_name = _required_text(farm_name, "farm_name", 160)
+    grower_effective_on = _require_iso_date(grower_effective_on, "grower_effective_on")
+    with conn:
+        case = get_farm_candidate_review_case(conn, case_id)
+        if case is None:
+            raise ValueError("farm candidate review case does not exist")
+        if case.status == "accepted":
+            return case
+        if case.status != "open" or (expected_updated_at is not None and case.updated_at != expected_updated_at):
+            raise FarmTruthConflict("farm candidate review case is stale or resolved")
+        if get_person(conn, reviewer_id) is None:
+            raise ValueError("reviewer does not exist")
+        if get_operating_unit(conn, operating_unit_id) is None:
+            raise ValueError("operating unit does not exist")
+        registration = conn.execute(
+            """SELECT registration.farmer_party_id, farmer.display_name
+               FROM trackwick_registrations AS registration
+               JOIN trackwick_parties AS farmer ON farmer.id = registration.farmer_party_id
+               WHERE registration.id = ? AND registration.source_id = ?
+                 AND registration.registration_status = 'completed'
+                 AND registration.data_quality_status = 'valid'
+                 AND farmer.party_kind = 'farmer' AND farmer.data_quality_status = 'valid'""",
+            (case.registration_id, case.source_id),
+        ).fetchone()
+        if registration is None:
+            raise FarmTruthConflict("source registration is no longer eligible")
+        claimed = conn.execute(
+            """UPDATE farm_candidate_review_cases SET status = 'accepting'
+               WHERE id = ? AND status = 'open' AND updated_at = ?""",
+            (case_id, case.updated_at),
+        )
+        if claimed.rowcount != 1:
+            raise FarmTruthConflict("farm candidate review case is stale or resolved")
+        farm_id, farm_created_at = _new_identity()
+        conn.execute(
+            """INSERT INTO farms (id, operating_unit_id, name, status, reviewed_by_person_id, created_at)
+               VALUES (?, ?, ?, 'active', ?, ?)""",
+            (farm_id, operating_unit_id, farm_name, reviewer_id, farm_created_at),
+        )
+        existing_person = conn.execute(
+            """SELECT people.id FROM trackwick_party_person_links AS link
+               JOIN people ON people.id = link.person_id
+               WHERE link.party_id = ? AND link.link_status = 'reviewed'
+               ORDER BY link.created_at, link.id LIMIT 1""",
+            (registration["farmer_party_id"],),
+        ).fetchone()
+        if existing_person is None:
+            grower_person_id, grower_created_at = _new_identity()
+            conn.execute("INSERT INTO people VALUES (?, ?, 'grower', ?)", (
+                grower_person_id, registration["display_name"], grower_created_at,
+            ))
+            link_id, link_created_at = _new_identity()
+            conn.execute(
+                """INSERT INTO trackwick_party_person_links
+                   VALUES (?, ?, ?, 'reviewed', ?, ?, ?)""",
+                (link_id, registration["farmer_party_id"], grower_person_id,
+                 reviewer_id, link_created_at, link_created_at),
+            )
+        else:
+            grower_person_id = str(existing_person["id"])
+        relationship_id, relationship_created_at = _new_identity()
+        conn.execute(
+            """INSERT INTO farm_grower_relationships
+               (id, farm_id, person_id, starts_on, ends_on, status, provenance,
+                reviewed_by_person_id, created_at)
+               VALUES (?, ?, ?, ?, NULL, 'active', ?, ?, ?)""",
+            (relationship_id, farm_id, grower_person_id, grower_effective_on,
+             "manager-confirmed TrackWick registration", reviewer_id, relationship_created_at),
+        )
+        audit_id, reviewed_at = _new_identity()
+        conn.execute(
+            "INSERT INTO audit_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (audit_id, "farm_candidate_review_case", case_id, "open", "accepted", reviewer_id,
+             _json_value({"action": "farm_candidate_accepted", "farm_id": farm_id}), reviewed_at),
+        )
+        updated = conn.execute(
+            """UPDATE farm_candidate_review_cases
+               SET status = 'accepted', review_reason = ?, owner_person_id = NULL,
+                   reviewed_by_person_id = ?, reviewed_at = ?, accepted_farm_id = ?,
+                   accepted_grower_person_id = ?, updated_at = ?
+               WHERE id = ? AND status = 'accepting'""",
+            ("Accepted as reviewed Farm and Grower relationship", reviewer_id, reviewed_at,
+             farm_id, grower_person_id, reviewed_at, case_id),
+        )
+        if updated.rowcount != 1:  # pragma: no cover - guarded by claim
+            raise RuntimeError("claimed farm candidate review case could not be accepted")
+    return get_farm_candidate_review_case(conn, case_id)  # type: ignore[return-value]
 
 
 def get_trackolap_record(conn: sqlite3.Connection, record_id: str) -> Optional[TrackolapStoredRecord]:

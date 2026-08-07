@@ -248,6 +248,15 @@ type ReportedFarmProfile = {
   };
   limitations: string[];
 };
+type FarmCandidateCase = {
+  id: string;
+  status: "open" | "held" | "accepted" | "rejected";
+  updated_at: string;
+  farm_name_suggestion: string;
+  farmer_name: string;
+  limitations: string[];
+  accepted_farm_id?: string | null;
+};
 type FieldRecord = {
   state: "reviewed";
   kind: "field";
@@ -279,7 +288,7 @@ type PersonContext = {
   assignments: Array<{
     farm_id: string;
     farm_name: string;
-    field_id: string;
+    field_id?: string;
     field_name: string;
     role: string;
     starts_on: string;
@@ -437,8 +446,8 @@ const NAV: Array<{ view: View; href: string }> = [
   { view: "settings", href: "/settings" },
 ];
 
-async function readJson<T>(url: string): Promise<{ value: T; response: Response }> {
-  const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+async function readJson<T>(url: string, init?: RequestInit): Promise<{ value: T; response: Response }> {
+  const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...init });
   if (!response.ok) {
     const error = new Error("The operating record is unavailable.") as Error & { status?: number };
     error.status = response.status;
@@ -896,6 +905,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     return <ContextProfilePanel
       panel={panel}
       close={closePanel}
+      operatingUnit={state.runtime?.operating_unit}
       openFarm={(id, openerId) => void openFarm(id, openerId, true)}
       openField={(id, openerId) => void openField(id, openerId)}
       openPerson={(kind, id, openerId) => void openPerson(kind, id, openerId)}
@@ -927,9 +937,10 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   </section>;
 }
 
-function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: {
+function ContextProfilePanel({ panel, close, operatingUnit, openFarm, openField, openPerson }: {
   panel: ContextPanel;
   close: () => void;
+  operatingUnit?: { id: string; name: string };
   openFarm: (id: string, openerId: string) => void;
   openField: (id: string, openerId: string) => void;
   openPerson: (kind: PersonKind, id: string, openerId: string) => void;
@@ -943,7 +954,7 @@ function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: 
       : panel.error
         ? <p className="profile-message profile-error" role="alert">{panel.error} {panel.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>
         : panel.record?.kind === "farm" && panel.record.state === "reported"
-          ? <ReportedFarmPanel record={panel.record} />
+          ? <ReportedFarmPanel record={panel.record} operatingUnit={operatingUnit} />
           : panel.record?.kind === "farm"
           ? <FarmRecordPanel record={panel.record} openField={openField} openPerson={openPerson} />
           : panel.record?.kind === "field"
@@ -954,8 +965,37 @@ function ContextProfilePanel({ panel, close, openFarm, openField, openPerson }: 
   </aside>;
 }
 
-function ReportedFarmPanel({ record }: { record: ReportedFarmProfile }) {
+function ReportedFarmPanel({ record, operatingUnit }: {
+  record: ReportedFarmProfile;
+  operatingUnit?: { id: string; name: string };
+}) {
   const photoReferences = record.reported.plot_photo_references + record.reported.crop_photo_references;
+  const [candidate, setCandidate] = useState<FarmCandidateCase | null>(null);
+  const [farmName, setFarmName] = useState(record.name);
+  const [reviewState, setReviewState] = useState<"loading" | "ready" | "saving" | "done" | "error">("loading");
+  const [reviewMessage, setReviewMessage] = useState("");
+  useEffect(() => {
+    let active = true;
+    void readJson<FarmCandidateCase>(`/api/v1/farm-candidates/registrations/${record.id}/case`, { method: "POST" })
+      .then(({ value }) => { if (active) { setCandidate(value); setFarmName(value.farm_name_suggestion || record.name); setReviewState("ready"); } })
+      .catch(() => { if (active) { setReviewState("error"); setReviewMessage("This registration is not eligible for Farm review right now."); } });
+    return () => { active = false; };
+  }, [record.id, record.name]);
+  async function acceptCandidate() {
+    if (!candidate || !operatingUnit || !farmName.trim()) return;
+    setReviewState("saving");
+    try {
+      const { value } = await readJson<{ status: string; farm_id?: string }>(`/api/v1/farm-candidates/cases/${candidate.id}/accept`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operating_unit_id: operatingUnit.id, farm_name: farmName.trim(), grower_effective_on: new Date().toISOString().slice(0, 10), expected_updated_at: candidate.updated_at }),
+      });
+      setReviewState("done");
+      setReviewMessage(value.status === "accepted" ? "Reviewed Farm and Grower relationship created. No Field or boundary was created." : "Review saved.");
+    } catch {
+      setReviewState("error");
+      setReviewMessage("The review could not be saved. Refresh this profile and try again.");
+    }
+  }
   return <div className="entity-profile-content reported-farm-context">
     <p className="eyebrow">Reported farm candidate</p>
     <h2>{record.name}</h2>
@@ -980,9 +1020,15 @@ function ReportedFarmPanel({ record }: { record: ReportedFarmProfile }) {
       </section>
       <section>
         <h3>Review state</h3>
-        <p className="profile-context">This source footprint can inform a review, but no boundary, crop allocation, owner relationship, or operational action has been created from it.</p>
+        <p className="profile-context">This source footprint can establish a reviewed Farm + Grower relationship. It cannot establish a Field, boundary, crop allocation, acreage, owner relationship, or operating right.</p>
         {record.limitations.map((limitation) => <p className="context-limitation" key={limitation}>{limitation}</p>)}
-        <div className="profile-action"><a className="primary-action" href="/manager?review=farm-truth">Open review workspace <span aria-hidden="true">→</span></a></div>
+        {reviewState === "loading" ? <p className="empty-copy" role="status">Preparing safe review…</p> : null}
+        {reviewState === "ready" && candidate ? <div className="candidate-review-form"><label>Reviewed Farm name<input value={farmName} maxLength={160} onChange={(event) => setFarmName(event.target.value)} /></label><p className="context-limitation">Creates one Farm in {operatingUnit?.name || "the selected operating unit"} and links {candidate.farmer_name} as Grower.</p><button className="primary-action" type="button" onClick={() => void acceptCandidate()} disabled={!operatingUnit || !farmName.trim()}>Accept Farm + Grower <span aria-hidden="true">→</span></button></div> : null}
+        {reviewState === "saving" ? <p className="empty-copy" role="status">Saving reviewed relationship…</p> : null}
+        {reviewState === "done" || reviewState === "error" ? <p className={reviewState === "error" ? "profile-message profile-error" : "profile-message"}>{reviewMessage}</p> : null}
+        <p className="context-limitation">Open review workspace is now this profile: review the smallest truthful relationship first, then add Field evidence separately.</p>
+        <p className="context-limitation">There is no boundary, crop allocation, owner relationship, or operational action in this reported record.</p>
+        <div className="profile-action"><a className="text-link" href="/manager?review=farm-truth">Open review workspace for Field evidence</a></div>
       </section>
     </div>
   </div>;
@@ -1062,7 +1108,7 @@ function PersonContextPanel({ record, openFarm, openField }: {
     <h2>{record.name}</h2>
     <section>
       <h3>Assignments</h3>
-      <ul className="assignment-list">{record.assignments.map((assignment, index) => <li key={`${assignment.farm_id}-${assignment.field_id}-${assignment.role}`}><div><strong>{roleName(assignment.role)}</strong><span>Since {assignment.starts_on}</span></div><div className="assignment-links"><button id={`person-farm-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openFarm(assignment.farm_id, event.currentTarget.id)}>{assignment.farm_name}</button><button id={`person-field-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openField(assignment.field_id, event.currentTarget.id)}>{assignment.field_name}</button></div></li>)}</ul>
+      <ul className="assignment-list">{record.assignments.map((assignment, index) => <li key={`${assignment.farm_id}-${assignment.field_id || "no-field"}-${assignment.role}`}><div><strong>{roleName(assignment.role)}</strong><span>Since {assignment.starts_on}</span></div><div className="assignment-links"><button id={`person-farm-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openFarm(assignment.farm_id, event.currentTarget.id)}>{assignment.farm_name}</button>{assignment.field_id ? <button id={`person-field-${record.id}-${index}`} className="entity-chip entity-chip-link" type="button" onClick={(event) => openField(assignment.field_id!, event.currentTarget.id)}>{assignment.field_name}</button> : <span className="entity-chip">{assignment.field_name}</span>}</div></li>)}</ul>
     </section>
     <section>
       <h3>Context</h3>

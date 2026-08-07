@@ -1085,6 +1085,76 @@ def create_schema(conn: sqlite3.Connection) -> None:
             UNIQUE (task_id, crop_allocation_id)
         );
 
+        -- A reviewed Farm + Grower relationship can be established from a
+        -- completed source registration before a precise Field/boundary exists.
+        -- It never implies area, crop, land ownership, or right-to-operate.
+        CREATE TABLE IF NOT EXISTS farm_grower_relationships (
+            id TEXT PRIMARY KEY,
+            farm_id TEXT NOT NULL REFERENCES farms(id),
+            person_id TEXT NOT NULL REFERENCES people(id),
+            starts_on TEXT NOT NULL,
+            ends_on TEXT,
+            status TEXT NOT NULL CHECK (status IN ('active', 'ended')),
+            provenance TEXT NOT NULL,
+            reviewed_by_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            CHECK ((status = 'active' AND ends_on IS NULL) OR (status = 'ended' AND ends_on IS NOT NULL))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_farm_growers_one_active
+            ON farm_grower_relationships (farm_id, person_id) WHERE status = 'active';
+
+        CREATE TABLE IF NOT EXISTS farm_candidate_review_cases (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            registration_id TEXT NOT NULL REFERENCES trackwick_registrations(id),
+            candidate_fingerprint TEXT NOT NULL CHECK (
+                length(candidate_fingerprint) = 64
+                AND candidate_fingerprint = lower(candidate_fingerprint)
+                AND candidate_fingerprint NOT GLOB '*[^0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('open', 'accepting', 'held', 'accepted', 'rejected')),
+            evidence_summary_json TEXT NOT NULL CHECK (
+                json_valid(evidence_summary_json) AND json_type(evidence_summary_json) = 'object'
+            ),
+            review_reason TEXT,
+            owner_person_id TEXT REFERENCES people(id),
+            reviewed_by_person_id TEXT REFERENCES people(id),
+            reviewed_at TEXT,
+            accepted_farm_id TEXT REFERENCES farms(id),
+            accepted_grower_person_id TEXT REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (registration_id, candidate_fingerprint),
+            CHECK (
+                (status IN ('open', 'accepting') AND review_reason IS NULL AND owner_person_id IS NULL
+                    AND reviewed_by_person_id IS NULL AND reviewed_at IS NULL
+                    AND accepted_farm_id IS NULL AND accepted_grower_person_id IS NULL)
+                OR (status = 'held' AND review_reason IS NOT NULL AND owner_person_id IS NOT NULL
+                    AND reviewed_by_person_id IS NOT NULL AND reviewed_at IS NOT NULL
+                    AND accepted_farm_id IS NULL AND accepted_grower_person_id IS NULL)
+                OR (status = 'rejected' AND review_reason IS NOT NULL AND owner_person_id IS NULL
+                    AND reviewed_by_person_id IS NOT NULL AND reviewed_at IS NOT NULL
+                    AND accepted_farm_id IS NULL AND accepted_grower_person_id IS NULL)
+                OR (status = 'accepted' AND review_reason IS NOT NULL AND owner_person_id IS NULL
+                    AND reviewed_by_person_id IS NOT NULL AND reviewed_at IS NOT NULL
+                    AND accepted_farm_id IS NOT NULL AND accepted_grower_person_id IS NOT NULL)
+            )
+        );
+        CREATE TRIGGER IF NOT EXISTS farm_candidate_review_cases_valid_transition
+        BEFORE UPDATE ON farm_candidate_review_cases
+        WHEN NOT (
+            (OLD.status = 'open' AND NEW.status IN ('open', 'accepting', 'held', 'rejected'))
+            OR (OLD.status = 'accepting' AND NEW.status = 'accepted')
+        )
+        BEGIN SELECT RAISE(ABORT, 'invalid farm candidate review case transition'); END;
+        CREATE TRIGGER IF NOT EXISTS farm_candidate_review_cases_source_immutable
+        BEFORE UPDATE OF id, source_id, registration_id, candidate_fingerprint, created_at
+        ON farm_candidate_review_cases
+        BEGIN SELECT RAISE(ABORT, 'farm candidate review case source is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS farm_candidate_review_cases_no_delete
+        BEFORE DELETE ON farm_candidate_review_cases
+        BEGIN SELECT RAISE(ABORT, 'farm candidate review cases are append-only'); END;
+
         -- Private manager review state.  This relation records only a safe,
         -- server-generated evidence summary and durable source/canonical IDs;
         -- raw TrackWick contacts, locations, media, and provider identifiers
