@@ -19,6 +19,7 @@ from ffl.services.trackwick_ingest import SOURCE_KEY
 
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
 _MAP_POINT_LIMIT = 4_000
+_SIGNAL_LIMIT = 3_000
 _SAFE_SOURCE_WORK_LABEL = "TrackWick source work"
 
 
@@ -436,8 +437,8 @@ def _reported_signal_rows(
              AND finding.data_quality_status = 'valid'
              AND task.data_quality_status = 'valid'
            ORDER BY finding.observed_at DESC, finding.id DESC
-           LIMIT 100""",
-        (source_id,),
+           LIMIT ?""",
+        (source_id, _SIGNAL_LIMIT),
     ).fetchall()
     return [{
         "id": row["id"],

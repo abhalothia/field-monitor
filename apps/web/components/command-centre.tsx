@@ -1237,6 +1237,7 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
   const [severity, setSeverity] = useState<"all" | TrackwickSignal["declared_severity"]>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [visibleCount, setVisibleCount] = useState(100);
   const filtered = signals.filter((signal) => {
     const observedOn = signal.observed_at.slice(0, 10);
     return (kind === "all" || signal.finding_kind === kind)
@@ -1244,6 +1245,7 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
       && (!from || observedOn >= from)
       && (!to || observedOn <= to);
   });
+  const visible = filtered.slice(0, visibleCount);
   return <section className="reported-signal-queue">
     <div className="surface-heading"><div><p className="eyebrow">Reported field signals</p><h2>Disease &amp; pest reports</h2></div><span className="count-badge">{count(filtered.length)} of {count(total)}</span></div>
     <p className="surface-copy">Declared TrackWick observations only. A report is not a diagnosis, verified field attribution, or AGRO CEO action.</p>
@@ -1253,7 +1255,7 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
       <label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
       <label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
     </div>
-    {filtered.length ? <ol className="action-list reported-signal-list">{filtered.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol> : <p className="empty-copy">No reported signals match these filters.</p>}
+    {filtered.length ? <><ol className="action-list reported-signal-list">{visible.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < filtered.length ? <button type="button" className="quiet-button" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(filtered.length - visible.length)} remaining)</button> : null}</> : <p className="empty-copy">No reported signals match these filters.</p>}
   </section>;
 }
 
