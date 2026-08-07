@@ -83,6 +83,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
            ORDER BY observed_on DESC, id DESC""",
         source.id,
     )
+    coverage = _source_coverage(conn, source.id)
 
     party_by_id = {row["id"]: row for row in parties}
     tasks = _source_work_rows(conn, source.id, parties)
@@ -134,6 +135,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         "source_points": len(locations),
         "crop_photo_references": sum(kind_counts["crop_photo"] for kind_counts in media_counts.values()),
         "plot_photo_references": sum(kind_counts["plot_photo"] for kind_counts in media_counts.values()),
+        **coverage,
     }
     return {
         "source": {"state": source_state, "last_synced_at": last_synced_at},
@@ -168,6 +170,10 @@ def _empty_board(state: str) -> dict[str, Any]:
             "source_points": 0,
             "crop_photo_references": 0,
             "plot_photo_references": 0,
+            "reported_visits": 0,
+            "reported_input_events": 0,
+            "reported_signals": 0,
+            "geotagged_evidence": 0,
         },
         "farms": [],
         "farmers": [],
@@ -193,7 +199,11 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
     board = manager_board_for_source(conn, source_key=source_key)
     return {
         "source": {"state": board["source"]["state"], "last_synced_at": board["source"]["last_synced_at"]},
-        "counts": {key: board["counts"][key] for key in ("farmers", "farm_candidates", "field_workers", "open_work", "crop_photo_references", "plot_photo_references")},
+        "counts": {key: board["counts"][key] for key in (
+            "farmers", "farm_candidates", "field_workers", "open_work",
+            "crop_photo_references", "plot_photo_references", "reported_visits",
+            "reported_input_events", "reported_signals", "geotagged_evidence",
+        )},
         "farms": [{key: row.get(key) for key in ("id", "farmer_name", "place", "reported_area_acres", "reported_plot_count", "open_work", "latest_activity_at", "plot_photo_references", "crop_photo_references")} for row in board["farms"]],
         "farmers": [{key: row.get(key) for key in ("id", "name", "farm_candidates", "reported_area_acres", "open_work", "latest_activity_at", "crop_photo_references")} for row in board["farmers"]],
         "field_workers": [{key: row.get(key) for key in ("id", "name", "reported_farmer_reach", "open_work", "completed_work", "latest_activity_at", "latest_attendance_on")} for row in board["field_workers"]],
@@ -236,6 +246,116 @@ def source_relation_exists(conn, table_name: str) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table_name,)
     ).fetchone()
     return row is not None
+
+
+def reported_source_activity(conn, party_id: str, party_kind: str) -> dict[str, Any]:
+    """Safe, whole-history source activity for one reported person.
+
+    This intentionally returns counts and the latest declared crop context,
+    never products, provider fields, raw form answers, coordinates or media.
+    It is activity across the reported person's source work—not a reviewed
+    assignment or field attribution.
+    """
+    if party_kind not in {"farmer", "field_worker"}:
+        raise ValueError("party_kind must be farmer or field_worker")
+    source = repository.get_source_registry_by_key(conn, SOURCE_KEY)
+    empty = {
+        "source_work": 0, "completed_source_work": 0, "reported_visits": 0,
+        "reported_disease": 0, "reported_pest": 0, "reported_input_events": 0,
+        "geotagged_evidence": 0, "latest_crop_context": None,
+    }
+    if source is None or not source_relation_exists(conn, "trackwick_tasks"):
+        return empty
+    key = "farmer_party_id" if party_kind == "farmer" else "field_worker_party_id"
+    work = conn.execute(
+        """SELECT count(*) AS source_work,
+                  sum(CASE WHEN task_status = 'completed' THEN 1 ELSE 0 END) AS completed_source_work
+           FROM trackwick_tasks
+           WHERE source_id = ? AND data_quality_status = 'valid' AND {key} = ?""".format(key=key),
+        (source.id, party_id),
+    ).fetchone()
+    visits = conn.execute(
+        """SELECT count(*) AS reported_visits
+           FROM trackwick_visits AS visit
+           JOIN trackwick_tasks AS task ON task.id = visit.task_id
+           WHERE visit.source_id = ? AND visit.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid' AND task.{key} = ?""".format(key=key),
+        (source.id, party_id),
+    ).fetchone()
+    findings = conn.execute(
+        """SELECT finding.finding_kind, count(*) AS total
+           FROM trackwick_visit_findings AS finding
+           JOIN trackwick_tasks AS task ON task.id = finding.visit_task_id
+           WHERE finding.source_id = ? AND finding.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid' AND task.{key} = ?
+           GROUP BY finding.finding_kind""".format(key=key),
+        (source.id, party_id),
+    ).fetchall()
+    inputs = conn.execute(
+        """SELECT count(*) AS total
+           FROM trackwick_crop_inputs AS input
+           JOIN trackwick_tasks AS task ON task.id = input.visit_task_id
+           WHERE input.source_id = ? AND input.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid' AND task.{key} = ?""".format(key=key),
+        (source.id, party_id),
+    ).fetchone()
+    locations = conn.execute(
+        """SELECT count(*) AS total
+           FROM trackwick_location_observations AS location
+           LEFT JOIN trackwick_tasks AS task ON task.id = location.task_id
+           WHERE location.source_id = ? AND location.data_quality_status = 'valid'
+             AND (location.party_id = ? OR (task.data_quality_status = 'valid' AND task.{key} = ?))""".format(key=key),
+        (source.id, party_id, party_id),
+    ).fetchone()
+    latest = conn.execute(
+        """SELECT visit.observed_at, visit.crop_stage, visit.water_condition, visit.crop_condition_score
+           FROM trackwick_visits AS visit
+           JOIN trackwick_tasks AS task ON task.id = visit.task_id
+           WHERE visit.source_id = ? AND visit.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid' AND task.{key} = ?
+           ORDER BY visit.observed_at DESC, visit.task_id DESC LIMIT 1""".format(key=key),
+        (source.id, party_id),
+    ).fetchone()
+    kinds = {str(row["finding_kind"]): int(row["total"]) for row in findings}
+    return {
+        "source_work": int(work["source_work"] or 0),
+        "completed_source_work": int(work["completed_source_work"] or 0),
+        "reported_visits": int(visits["reported_visits"] or 0),
+        "reported_disease": kinds.get("disease", 0),
+        "reported_pest": kinds.get("pest", 0),
+        "reported_input_events": int(inputs["total"] or 0),
+        "geotagged_evidence": int(locations["total"] or 0),
+        "latest_crop_context": (
+            None if latest is None else {
+                "observed_at": latest["observed_at"],
+                "crop_stage": latest["crop_stage"],
+                "water_condition": latest["water_condition"],
+                "crop_condition_score": _number(latest["crop_condition_score"]),
+            }
+        ),
+    }
+
+
+def _source_coverage(conn, source_id: str) -> dict[str, int]:
+    """Whole-source safe counters for the operating view.
+
+    These retain the distinction between a source footprint and reviewed truth.
+    They also stay useful while a historical cache repair is underway.
+    """
+    def count(table: str) -> int:
+        if not source_relation_exists(conn, table):
+            return 0
+        row = conn.execute(
+            "SELECT count(*) AS total FROM {table} WHERE source_id = ? AND data_quality_status = 'valid'".format(table=table),
+            (source_id,),
+        ).fetchone()
+        return int(row["total"] or 0)
+    return {
+        "reported_visits": count("trackwick_visits"),
+        "reported_input_events": count("trackwick_crop_inputs"),
+        "reported_signals": count("trackwick_visit_findings"),
+        "geotagged_evidence": count("trackwick_location_observations"),
+    }
 
 
 def _source_work_rows(

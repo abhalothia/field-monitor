@@ -11,7 +11,11 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from ffl.services.trackwick_board import command_centre_board_for_source, source_relation_exists
+from ffl.services.trackwick_board import (
+    command_centre_board_for_source,
+    reported_source_activity,
+    source_relation_exists,
+)
 
 
 _FIELD_RECORD_LIMITATION = "Latest activity reflects canonical non-draft field signals only."
@@ -764,12 +768,14 @@ def reported_farmer_profile(conn, party_id: str) -> dict[str, Any] | None:
     )
     if row is None:
         return None
+    reported = _reported_farmer_summary(row)
+    reported["source_activity"] = reported_source_activity(conn, party_id, "farmer")
     return {
         "state": "reported",
         "kind": "farmer",
         "id": row["id"],
         "name": row["name"],
-        "reported": _reported_farmer_summary(row),
+        "reported": reported,
         "account": {"state": "not_created"},
         "limitations": [
             "Reported source context is not a reviewed Fortune relationship or sign-in."
@@ -785,12 +791,14 @@ def reported_field_worker_profile(conn, party_id: str) -> dict[str, Any] | None:
     )
     if row is None:
         return None
+    reported = _reported_field_worker_summary(row)
+    reported["source_activity"] = reported_source_activity(conn, party_id, "field_worker")
     return {
         "state": "reported",
         "kind": "field_worker",
         "id": row["id"],
         "name": row["name"],
-        "reported": _reported_field_worker_summary(row),
+        "reported": reported,
         "account": {"state": "not_created"},
         "limitations": [
             "Reported source work is not a reviewed field-worker assignment or sign-in."

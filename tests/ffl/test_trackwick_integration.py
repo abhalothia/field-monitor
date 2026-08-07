@@ -572,6 +572,31 @@ def test_trackwick_refresh_uses_a_delta_window_after_the_first_baseline(ffl_db, 
     assert delta_transport.requests[0].url.params["createDateEnd"] == "1785781800000"
 
 
+def test_trackwick_refresh_repairs_an_orphaned_private_history_before_using_delta(ffl_db, owner):
+    as_of = datetime.fromisoformat("2026-08-03T10:00:00+05:30")
+    refresh_live_trackwick(
+        ffl_db, owner.id, config=CONFIG, credential_resolver=lambda _: "runtime-key",
+        transport=RecordingTransport(), as_of=as_of,
+    )
+    # Mirror a cache written before its typed parent table existed.  The source
+    # evidence remains, but a delta request cannot repair an old missing task.
+    ffl_db.commit()
+    ffl_db.execute("PRAGMA foreign_keys = OFF")
+    ffl_db.execute("DELETE FROM trackwick_tasks")
+    ffl_db.commit()
+    ffl_db.execute("PRAGMA foreign_keys = ON")
+
+    repair_transport = RecordingTransport()
+    result = refresh_live_trackwick(
+        ffl_db, owner.id, config=CONFIG, credential_resolver=lambda _: "runtime-key",
+        transport=repair_transport, as_of=as_of,
+    )
+
+    assert result.state == "succeeded"
+    assert "createDateBegin" not in repair_transport.requests[0].url.params
+    assert ffl_db.execute("SELECT count(*) AS n FROM trackwick_tasks").fetchone()["n"] == 1
+
+
 def test_trackwick_refresh_without_configuration_never_calls_provider(ffl_db, owner):
     result = refresh_live_trackwick(ffl_db, owner.id, config=None, credential_resolver=lambda _: "unused")
 

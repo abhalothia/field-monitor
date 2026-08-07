@@ -275,6 +275,14 @@ def _sync_window(
         (source.id,),
     ).fetchone()
     if baseline is not None:
+        # The original historical import can predate the typed private task
+        # table.  In that state its child evidence (visits, locations and
+        # registrations) is present but cannot be joined safely to people or
+        # Farm Truth.  Repair it with one complete, read-only provider pull;
+        # do not manufacture parent tasks from the child rows.  Once the
+        # provider-backed graph is complete, normal small delta pulls resume.
+        if _private_graph_requires_repair(conn, source.id):
+            return "integrity_repair_backfill", None, None
         from zoneinfo import ZoneInfo
 
         current = (as_of or datetime.now(timezone.utc)).astimezone(
@@ -285,6 +293,32 @@ def _sync_window(
         end = datetime.combine(current.date() + timedelta(days=1), time.min, tzinfo=current.tzinfo)
         return "delta", start, end
     return "historical_backfill", None, None
+
+
+def _private_graph_requires_repair(conn, source_id: str) -> bool:
+    """Whether retained TrackWick child evidence is missing its typed task.
+
+    This is deliberately a bounded integrity check, not a freshness heuristic.
+    A missing parent means a source registration or visit cannot be combined
+    with its reported farmer, worker, or review workflow without guessing.
+    """
+    for child_table, child_key in (
+        ("trackwick_visits", "task_id"),
+        ("trackwick_registrations", "task_id"),
+    ):
+        row = conn.execute(
+            """SELECT 1
+               FROM {child} AS child
+               LEFT JOIN trackwick_tasks AS task ON task.id = child.{key}
+               WHERE child.source_id = ?
+                 AND child.data_quality_status = 'valid'
+                 AND task.id IS NULL
+               LIMIT 1""".format(child=child_table, key=child_key),
+            (source_id,),
+        ).fetchone()
+        if row is not None:
+            return True
+    return False
 
 
 def _as_of_date(value: Optional[datetime], timezone_name: str) -> str:

@@ -127,6 +127,10 @@ type TrackwickBoard = {
     open_work: number;
     crop_photo_references: number;
     plot_photo_references: number;
+    reported_visits: number;
+    reported_input_events: number;
+    reported_signals: number;
+    geotagged_evidence: number;
   };
   farms: TrackwickFarm[];
   farmers: TrackwickFarmer[];
@@ -311,6 +315,7 @@ type ReportedFarmerProfile = {
     open_work?: number;
     latest_activity_at?: string | null;
     crop_photo_references?: number;
+    source_activity?: ReportedSourceActivity;
   };
   account?: { state: "not_created" };
   limitations?: string[];
@@ -326,9 +331,25 @@ type ReportedFieldWorkerProfile = {
     completed_work?: number;
     latest_activity_at?: string | null;
     latest_attendance_on?: string | null;
+    source_activity?: ReportedSourceActivity;
   };
   account?: { state: "not_created" };
   limitations?: string[];
+};
+type ReportedSourceActivity = {
+  source_work: number;
+  completed_source_work: number;
+  reported_visits: number;
+  reported_disease: number;
+  reported_pest: number;
+  reported_input_events: number;
+  geotagged_evidence: number;
+  latest_crop_context?: {
+    observed_at: string;
+    crop_stage?: string | null;
+    water_condition?: string | null;
+    crop_condition_score?: number | null;
+  } | null;
 };
 type PersonProfile = PersonContext | ReportedFarmerProfile | ReportedFieldWorkerProfile;
 
@@ -1118,6 +1139,8 @@ function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () =>
 
 function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
   if (profile.state === "reported") {
+    const activity = profile.reported?.source_activity;
+    const latest = activity?.latest_crop_context;
     if (profile.kind === "field_worker") {
       return <dl className="profile-facts">
         <div><dt>Reported farmer reach</dt><dd>{count(profile.reported?.reported_farmer_reach)} linked through source work</dd></div>
@@ -1125,6 +1148,11 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
         <div><dt>Completed source work</dt><dd>{count(profile.reported?.completed_work)}</dd></div>
         <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
         <div><dt>Latest attendance</dt><dd>{profile.reported?.latest_attendance_on ? `Reported ${profile.reported.latest_attendance_on}` : "Not reported"}</dd></div>
+        <div><dt>Reported visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
+        <div><dt>Reported crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
+        <div><dt>Disease / pest reports</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
+        <div><dt>Latest crop context</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || `Reported ${dateTime(latest.observed_at)}` : "Not reported"}</dd></div>
+        <div><dt>Geotagged evidence</dt><dd>{count(activity?.geotagged_evidence)} source points; coordinates remain private</dd></div>
         <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
       </dl>;
     }
@@ -1134,6 +1162,11 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
       <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
       <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
       <div><dt>Photo references</dt><dd>{count(profile.reported?.crop_photo_references)}</dd></div>
+      <div><dt>Reported visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
+      <div><dt>Reported crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
+      <div><dt>Disease / pest reports</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
+      <div><dt>Latest crop context</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || `Reported ${dateTime(latest.observed_at)}` : "Not reported"}</dd></div>
+      <div><dt>Geotagged evidence</dt><dd>{count(activity?.geotagged_evidence)} source points; coordinates remain private</dd></div>
       <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
     </dl>;
   }
@@ -1166,7 +1199,21 @@ function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, open
   const workers = trackwick?.field_workers || [];
   const signals = trackwick?.signals || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}{signals.length ? <ReportedSignalQueue signals={signals} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : sourceWork.length ? <SourceWorkRows items={sourceWork} /> : <ActionRows items={actions} empty={t.noActions} />}{trackwick ? <TrackwickSourceCoverage counts={trackwick.counts} /> : null}{signals.length ? <ReportedSignalQueue signals={signals} total={trackwick?.counts.reported_signals || signals.length} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
+}
+
+function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["counts"] }) {
+  return <section className="reported-source-coverage">
+    <div className="surface-heading"><div><p className="eyebrow">TrackWick source coverage</p><h2>Historical field footprint</h2></div></div>
+    <p className="surface-copy">Reported source context only. It becomes a Farm, Field, assignment, or action only through manager review.</p>
+    <dl className="profile-facts">
+      <div><dt>Reported visits</dt><dd>{count(source.reported_visits)}</dd></div>
+      <div><dt>Disease / pest reports</dt><dd>{count(source.reported_signals)}</dd></div>
+      <div><dt>Crop-input events</dt><dd>{count(source.reported_input_events)}</dd></div>
+      <div><dt>Geotagged evidence</dt><dd>{count(source.geotagged_evidence)} source points; coordinates remain private</dd></div>
+      <div><dt>Crop-photo references</dt><dd>{count(source.crop_photo_references)}; media remains private</dd></div>
+    </dl>
+  </section>;
 }
 
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
@@ -1185,7 +1232,7 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   </section>;
 }
 
-function ReportedSignalQueue({ signals }: { signals: TrackwickSignal[] }) {
+function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; total: number }) {
   const [kind, setKind] = useState<"all" | TrackwickSignal["finding_kind"]>("all");
   const [severity, setSeverity] = useState<"all" | TrackwickSignal["declared_severity"]>("all");
   const [from, setFrom] = useState("");
@@ -1198,7 +1245,7 @@ function ReportedSignalQueue({ signals }: { signals: TrackwickSignal[] }) {
       && (!to || observedOn <= to);
   });
   return <section className="reported-signal-queue">
-    <div className="surface-heading"><div><p className="eyebrow">Reported field signals</p><h2>Disease &amp; pest reports</h2></div><span className="count-badge">{count(filtered.length)}</span></div>
+    <div className="surface-heading"><div><p className="eyebrow">Reported field signals</p><h2>Disease &amp; pest reports</h2></div><span className="count-badge">{count(filtered.length)} of {count(total)}</span></div>
     <p className="surface-copy">Declared TrackWick observations only. A report is not a diagnosis, verified field attribution, or AGRO CEO action.</p>
     <div className="signal-filters" aria-label="Filter reported field signals">
       <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">All reports</option><option value="disease">Disease</option><option value="pest">Pest</option></select></label>

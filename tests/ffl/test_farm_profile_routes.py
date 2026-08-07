@@ -487,9 +487,19 @@ def test_reported_field_worker_profile_is_safe_context_not_an_assignment(
         "reported": {
             "reported_farmer_reach": 1,
             "open_work": 1,
-            "completed_work": 0,
-            "latest_activity_at": "2026-08-04T10:00:00+05:30",
-            "latest_attendance_on": "2026-08-04",
+                "completed_work": 0,
+                "latest_activity_at": "2026-08-04T10:00:00+05:30",
+                "latest_attendance_on": "2026-08-04",
+                "source_activity": {
+                    "source_work": 1,
+                    "completed_source_work": 0,
+                    "reported_visits": 0,
+                    "reported_disease": 0,
+                    "reported_pest": 0,
+                    "reported_input_events": 0,
+                    "geotagged_evidence": 0,
+                    "latest_crop_context": None,
+                },
         },
         "account": {"state": "not_created"},
         "limitations": [

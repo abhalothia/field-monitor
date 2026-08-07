@@ -165,6 +165,10 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "source_points": 3,
         "crop_photo_references": 0,
         "plot_photo_references": 0,
+        "reported_visits": 1,
+        "reported_input_events": 0,
+        "reported_signals": 1,
+        "geotagged_evidence": 3,
     }
     assert board["farms"] == [{
         "id": board["farms"][0]["id"],
@@ -220,6 +224,18 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "latest_activity_at": "2026-08-03T15:30:00+05:30",
         "latest_attendance_on": "2026-08-03",
     }]
+    assert safe_board["counts"] == {
+        "farmers": 1,
+        "farm_candidates": 1,
+        "field_workers": 1,
+        "open_work": 1,
+        "crop_photo_references": 0,
+        "plot_photo_references": 0,
+        "reported_visits": 1,
+        "reported_input_events": 0,
+        "reported_signals": 1,
+        "geotagged_evidence": 3,
+    }
     assert safe_board["signals"] == [{
         "id": "finding-1",
         "finding_kind": "disease",
