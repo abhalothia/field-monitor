@@ -122,7 +122,8 @@ def person_context(
 def list_entity_directory(
     conn, kind: str, query: str | None = None, crop: str | None = None,
     date_from: str | None = None, date_to: str | None = None, limit: int = 50,
-    state: str | None = None, offset: int = 0,
+    state: str | None = None, offset: int = 0, activity: str | None = None,
+    order: str = "open_tasks",
 ) -> list[dict[str, Any]]:
     """Return a small allowlisted directory for one canonical entity kind."""
     if kind not in {"farm", "field", "farmer", "field_worker"}:
@@ -134,34 +135,33 @@ def list_entity_directory(
     if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 10_000:
         raise ValueError("offset must be between 0 and 10000")
     bounds = _record_date_bounds(date_from, date_to)
-    if state == "all":
-        if kind != "farm":
-            return []
-        # A manager's Farm directory needs both explicitly reviewed Farms and
-        # separately-labelled TrackWick candidates.  Do not make the browser
-        # infer this by combining two endpoints: the server remains the one
-        # authority for the distinct record states.
-        reviewed = list_entity_directory(
-            conn, kind, query, crop, date_from, date_to, limit + offset, "reviewed",
-        )
-        reported = _reported_farm_directory(conn, query, crop, bounds, limit + offset)
-        return sorted(
-            [*reviewed, *reported],
-            key=lambda item: (
-                item.get("latest_update_at") is None,
-                item.get("latest_update_at") or "",
-                item["name"],
-                item["id"],
-            ),
-            reverse=True,
-        )[offset:offset + limit]
-
-    if state not in {None, "reviewed"}:
-        if state == "reported" and kind == "farm":
-            return _reported_farm_directory(conn, query, crop, bounds, limit, offset)
-        if state == "reported":
-            return []
+    states = set((state or "reviewed").split(","))
+    if "all" in states:
+        states = {"reviewed", "reported"}
+    if not states <= {"reviewed", "reported"}:
         raise ValueError("state must be reviewed or reported")
+    activity_filters = set((activity or "all").split(","))
+    if "all" in activity_filters:
+        activity_filters = set()
+    if not activity_filters <= {"open_tasks", "updated_week", "updated_month", "no_recent_update"}:
+        raise ValueError("activity contains an unsupported filter")
+    if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
+        raise ValueError("order contains an unsupported value")
+    if kind == "farm" and (states != {"reviewed"} or activity_filters or order != "open_tasks"):
+        # These filters need a single ordering across reviewed Farms and reported
+        # candidates, so assemble the bounded safe DTOs before paging.
+        reviewed = list_entity_directory(
+            conn, kind, query, crop, date_from, date_to, _PROFILE_DIRECTORY_LIMIT, "reviewed",
+        ) if "reviewed" in states else []
+        reported = _reported_farm_directory(conn, query, crop, bounds, 10_000) if "reported" in states else []
+        items = _filter_and_order_farm_directory([*reviewed, *reported], activity_filters, order)
+        return items[offset:offset + limit]
+
+    # Farm-only controls do not broaden the remaining canonical directories.
+    if activity_filters or order != "open_tasks":
+        raise ValueError("activity and order are only supported for farms")
+    if states != {"reviewed"}:
+        return []
 
     if kind == "farm":
         predicates = ["farm.status = 'active'"]
@@ -690,6 +690,45 @@ def _update_within_bounds(
     instant_date = _timestamp_instant(occurred_at).date()
     start, end = bounds
     return (start is None or instant_date >= start) and (end is None or instant_date <= end)
+
+
+def _directory_activity_timestamp(value: str | None) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _filter_and_order_farm_directory(
+    items: Sequence[dict[str, Any]], activity_filters: set[str], order: str,
+) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc).timestamp()
+
+    def matches(item: Mapping[str, Any]) -> bool:
+        if not activity_filters:
+            return True
+        updated_at = _directory_activity_timestamp(item.get("latest_update_at"))
+        age = now - updated_at if updated_at else float("inf")
+        return (
+            "open_tasks" in activity_filters and int(item.get("open_work_count") or 0) > 0
+        ) or (
+            "updated_week" in activity_filters and age <= 7 * 86_400
+        ) or (
+            "updated_month" in activity_filters and age <= 30 * 86_400
+        ) or (
+            "no_recent_update" in activity_filters and age > 30 * 86_400
+        )
+
+    filtered = [item for item in items if matches(item)]
+    if order == "name":
+        return sorted(filtered, key=lambda item: (str(item["name"]).lower(), item["id"]))
+    if order == "recently_updated":
+        return sorted(filtered, key=lambda item: (-_directory_activity_timestamp(item.get("latest_update_at")), item["name"], item["id"]))
+    if order == "least_updated":
+        return sorted(filtered, key=lambda item: (_directory_activity_timestamp(item.get("latest_update_at")), item["name"], item["id"]))
+    return sorted(filtered, key=lambda item: (-int(item.get("open_work_count") or 0), -_directory_activity_timestamp(item.get("latest_update_at")), item["name"], item["id"]))
 
 
 def _farm_directory_item(

@@ -54,16 +54,22 @@ def list_farms(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=10_000),
     state: str | None = None,
+    activity: str | None = None,
+    order: str = "open_tasks",
     _manager_id: str = Depends(require_operating_read),
 ) -> list[dict]:
     """List a bounded, canonical entity directory; candidates stay elsewhere."""
     if kind not in {"farm", "field", "farmer", "field_worker"}:
         _invalid("kind must be farm, field, farmer, or field_worker")
-    if state not in {None, "all", "reviewed", "reported"}:
-        _invalid("state must be all, reviewed, or reported")
+    if state is not None and (not set(state.split(",")) <= {"all", "reviewed", "reported"}):
+        _invalid("state must contain only all, reviewed, or reported")
+    if activity is not None and (not set(activity.split(",")) <= {"all", "open_tasks", "updated_week", "updated_month", "no_recent_update"}):
+        _invalid("activity contains an unsupported filter")
+    if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
+        _invalid("order contains an unsupported value")
     _validate_date_window(date_from, date_to)
     return farm_profiles.list_entity_directory(
-        _connection(request), kind, query, crop, date_from, date_to, limit, state, offset,
+        _connection(request), kind, query, crop, date_from, date_to, limit, state, offset, activity, order,
     )
 
 

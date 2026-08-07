@@ -859,7 +859,7 @@ def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label(
     assert 'readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100")' in source
     assert 'readJson<FarmRecord>("/api/v1/farms/" + id)' in source
     assert 'readJson<FarmerProfile>("/api/v1/farmer-profiles/" + id)' not in source
-    assert 'href={`/fields?farm=${encodeURIComponent(farm.id)}`}' in source
+    assert 'href={`/farms?farm=${encodeURIComponent(farm.id)}`}' in source
     assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
     assert 'readJson<ReportedFieldWorkerProfile>("/api/v1/reported-field-worker-profiles/" + id)' in source
     assert "to review" in source

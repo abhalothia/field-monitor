@@ -318,8 +318,13 @@ type ContextPanel = {
   history: ContextHistoryItem[];
   reauth?: boolean;
 };
+type FarmStateFilter = "all" | "reviewed" | "reported";
+type FarmActivityFilter = "all" | "open_tasks" | "updated_week" | "updated_month" | "no_recent_update";
+type FarmOrder = "open_tasks" | "recently_updated" | "least_updated" | "name";
 type DirectoryFilters = {
-  state: "all" | "reviewed" | "reported";
+  state: FarmStateFilter[];
+  activity: FarmActivityFilter[];
+  order: FarmOrder;
   query: string;
   dateFrom: string;
   dateTo: string;
@@ -402,6 +407,14 @@ type State = {
   needsLaunchLogin: boolean;
   stale: boolean;
   updatedAt: string | null;
+};
+
+type SearchResult = {
+  id: string;
+  kind: "farm" | "farmer" | "field_worker";
+  name: string;
+  detail: string;
+  href: string;
 };
 
 const EMPTY_STATE: State = {
@@ -535,6 +548,21 @@ function updatedAgo(value?: string | null) {
   return `Updated ${months} month${months === 1 ? "" : "s"} ago`;
 }
 
+function activityTimestamp(value?: string | null) {
+  const timestamp = value ? new Date(value).valueOf() : 0;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function matchesActivityFilters(value: string | null | undefined, openWork: number, filters: FarmActivityFilter[]) {
+  if (filters.includes("all")) return true;
+  const timestamp = activityTimestamp(value);
+  const age = timestamp ? Date.now() - timestamp : Number.POSITIVE_INFINITY;
+  return filters.includes("open_tasks") && openWork > 0
+    || filters.includes("updated_week") && age <= 7 * 86_400_000
+    || filters.includes("updated_month") && age <= 30 * 86_400_000
+    || filters.includes("no_recent_update") && age > 30 * 86_400_000;
+}
+
 function roleName(role: string) {
   return role.replaceAll("_", " ");
 }
@@ -548,6 +576,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [state, setState] = useState<State>(EMPTY_STATE);
   const [managerBusy, setManagerBusy] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const stateRef = useRef<State>(EMPTY_STATE);
   const profileRequest = useRef(0);
@@ -625,6 +654,16 @@ export function CommandCentre({ view }: { view: View }) {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    function openSearch(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setSearchOpen(true);
+    }
+    window.addEventListener("keydown", openSearch);
+    return () => window.removeEventListener("keydown", openSearch);
+  }, []);
+
   async function openPersonProfile(
     id: string, kind: PersonKind, recordState: "reviewed" | "reported", openerId: string,
   ) {
@@ -695,11 +734,12 @@ export function CommandCentre({ view }: { view: View }) {
         </nav>
         <div className="command-tools">
           <button type="button" className="tool-icon language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
-          <button type="button" className="tool-icon" onClick={() => void load()} disabled={state.loading} aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1.3 4.4M20 4v7h-7" /></svg></button>
+          <button type="button" className="tool-icon" onClick={() => setSearchOpen(true)} aria-label="Search farms, farmers, and workers" title="Search (⌘F)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg></button>
           <button type="button" className="tool-icon" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg></button>
           <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
         </div>
       </header>
+      {searchOpen ? <GlobalSearch state={state} close={() => setSearchOpen(false)} refresh={() => void load()} /> : null}
 
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
@@ -724,6 +764,66 @@ export function CommandCentre({ view }: { view: View }) {
 
 function headingFor(view: View, t: Translation) {
   return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+}
+
+function GlobalSearch({ state, close, refresh }: { state: State; close: () => void; refresh: () => void }) {
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const needle = query.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!needle) return [];
+    const all: SearchResult[] = [
+      ...(state.trackwick?.farms || []).map((farm) => ({ id: farm.id, kind: "farm" as const, name: farm.place, detail: farm.farmer_name, href: `/farms?reported_farm=${encodeURIComponent(farm.id)}` })),
+      ...(state.trackwick?.farmers || []).map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: personName(farmer.name), detail: `${count(farmer.farm_candidates)} farms · ${count(farmer.open_work)} open tasks`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
+      ...(state.trackwick?.field_workers || []).map((worker) => ({ id: worker.id, kind: "field_worker" as const, name: worker.name, detail: `${count(worker.reported_farmer_reach)} farmers assigned · ${count(worker.open_work)} open tasks`, href: `/farmers?worker=${encodeURIComponent(worker.id)}` })),
+      ...state.canonicalFarmers.map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: farmer.name, detail: `${count(farmer.assignment_count)} farms`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
+    ];
+    const seen = new Set<string>();
+    return all.filter((result) => {
+      const key = `${result.kind}:${result.id}`;
+      if (seen.has(key) || ![result.name, result.detail].join(" ").toLowerCase().includes(needle)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 12);
+  }, [needle, state.canonicalFarmers, state.trackwick]);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { setActiveIndex(0); }, [query]);
+  function move(result: SearchResult) { window.location.assign(result.href); }
+  return <div className="global-search-backdrop" role="presentation" onMouseDown={close}>
+    <section className="global-search" role="dialog" aria-modal="true" aria-label="Search operating records" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="global-search-input"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(); } if (event.key === "ArrowDown" && results.length) { event.preventDefault(); setActiveIndex((current) => Math.min(current + 1, results.length - 1)); } if (event.key === "ArrowUp" && results.length) { event.preventDefault(); setActiveIndex((current) => Math.max(current - 1, 0)); } if (event.key === "Enter" && results[activeIndex]) { event.preventDefault(); move(results[activeIndex]); } }} placeholder="Search farms, farmers, workers…" /></div>
+      {needle ? <div className="global-search-results">{results.length ? results.map((result, index) => <button type="button" className={index === activeIndex ? "active" : ""} key={`${result.kind}:${result.id}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => move(result)}><span className="global-search-kind">{result.kind === "field_worker" ? "Worker" : result.kind}</span><strong>{result.name}</strong><small>{result.detail}</small></button>) : <p className="empty-copy">No cached record matches that search.</p>}</div> : <div className="global-search-empty"><span>⌘F</span><p>Search stays quick because it uses the operating record already on this device.</p></div>}
+      <footer><button type="button" onClick={refresh}>Refresh data</button><span>↑↓ move · Enter open · Esc close</span></footer>
+    </section>
+  </div>;
+}
+
+function toggleFilterValue<T extends string>(values: T[], next: T): T[] {
+  if (next === "all") return [next];
+  const selected = new Set(values.filter((value) => value !== "all"));
+  if (selected.has(next)) selected.delete(next); else selected.add(next);
+  return selected.size ? [...selected] : ["all" as T];
+}
+
+function MultiFilter<T extends string>({ label, values, options, onChange }: {
+  label: string;
+  values: T[];
+  options: ReadonlyArray<readonly [T, string]>;
+  onChange: (values: T[]) => void;
+}) {
+  const all = values.includes("all" as T);
+  const selectedLabel = all ? options[0]?.[1] || "All" : `${values.length} selected`;
+  return <details className="filter-menu"><summary><span>{label}</span><strong>{selectedLabel}</strong></summary><div className="filter-menu-options">{options.map(([value, title]) => <label key={value}><input type="checkbox" checked={value === "all" ? all : values.includes(value)} onChange={() => onChange(toggleFilterValue(values, value))} /><span>{title}</span></label>)}</div></details>;
+}
+
+function SortMenu<T extends string>({ value, options, onChange }: {
+  value: T;
+  options: ReadonlyArray<readonly [T, string]>;
+  onChange: (value: T) => void;
+}) {
+  const selectedLabel = options.find(([option]) => option === value)?.[1] || "Sort";
+  return <details className="filter-menu sort-menu"><summary><span>Sort</span><strong>{selectedLabel}</strong></summary><div className="filter-menu-options">{options.map(([option, title]) => <button type="button" className={option === value ? "active" : ""} key={option} onClick={(event) => { onChange(option); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{title}{option === value ? <span aria-hidden="true">✓</span> : null}</button>)}</div></details>;
 }
 
 function languageFarmHeading(t: Translation) {
@@ -1045,7 +1145,9 @@ function mapProfileHref(subject: MapPoint["subject"]) {
 }
 
 const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
-  state: "reported",
+  state: ["all"],
+  activity: ["all"],
+  order: "open_tasks",
   query: "",
   dateFrom: "",
   dateTo: "",
@@ -1055,19 +1157,31 @@ const FARM_DIRECTORY_PAGE_SIZE = 100;
 
 function filtersFromLocation() {
   const params = new URLSearchParams(window.location.search);
-  const state = params.get("state");
+  const state = parseFilterValues<FarmStateFilter>(params.get("state"), ["all", "reviewed", "reported"]);
+  const activity = parseFilterValues<FarmActivityFilter>(params.get("activity"), ["all", "open_tasks", "updated_week", "updated_month", "no_recent_update"]);
+  const order = params.get("order");
   return {
-    state: state === "all" || state === "reviewed" || state === "reported" ? state : "reported",
+    state,
+    activity,
+    order: order === "recently_updated" || order === "least_updated" || order === "name" || order === "open_tasks" ? order : "open_tasks",
     query: params.get("query") || "",
     dateFrom: params.get("date_from") || "",
     dateTo: params.get("date_to") || "",
   } satisfies DirectoryFilters;
 }
 
+function parseFilterValues<T extends string>(value: string | null, allowed: readonly T[]): T[] {
+  const values = (value || "all").split(",").filter((entry): entry is T => (allowed as readonly string[]).includes(entry));
+  if (!values.length || values.includes("all" as T)) return ["all" as T];
+  return [...new Set(values)];
+}
+
 function directoryParams(filters: DirectoryFilters) {
   const params = new URLSearchParams();
   params.set("kind", "farm");
-  params.set("state", filters.state);
+  params.set("state", filters.state.join(","));
+  params.set("activity", filters.activity.join(","));
+  params.set("order", filters.order);
   if (filters.query.trim()) params.set("query", filters.query.trim());
   if (filters.dateFrom) params.set("date_from", filters.dateFrom);
   if (filters.dateTo) params.set("date_to", filters.dateTo);
@@ -1173,13 +1287,13 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     restoreFocusAfterManagerExpiry();
   }, [canOpenProfiles, panel]);
 
-  function setDirectoryView(state: DirectoryFilters["state"]) {
-    const next = { ...filters, state };
+  function updateDirectoryFilters(patch: Partial<Pick<DirectoryFilters, "state" | "activity" | "order">>) {
+    const next = { ...filters, ...patch };
     const params = directoryParams(next);
     params.delete("kind");
     const query = params.toString();
     window.history.pushState({}, "", query ? `/farms?${query}` : "/farms");
-    setDraftFilters((current) => ({ ...current, state }));
+    setDraftFilters((current) => ({ ...current, ...patch }));
     setDirectoryPage(0);
     setFilters(next);
   }
@@ -1323,10 +1437,10 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     />;
   }
 
-  const reportedTotal = filters.state === "reported" || filters.state === "all" ? state.trackwick?.counts.farm_candidates : undefined;
+  const reportedTotal = filters.state.includes("all") || filters.state.includes("reported") ? state.trackwick?.counts.farm_candidates : undefined;
   const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
   return <section className="directory-workspace farm-directory">
-    <div className="directory-toolbar"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><div className="directory-view-tabs" aria-label="Farm view"><button type="button" className={filters.state === "reported" ? "active" : ""} onClick={() => setDirectoryView("reported")}>To review</button><button type="button" className={filters.state === "reviewed" ? "active" : ""} onClick={() => setDirectoryView("reviewed")}>Active</button><button type="button" className={filters.state === "all" ? "active" : ""} onClick={() => setDirectoryView("all")}>All</button></div><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
+    <div className="directory-toolbar directory-toolbar-controls"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><MultiFilter label="Status" values={filters.state} options={[["all", "All farms"], ["reported", "To review"], ["reviewed", "Active"]]} onChange={(state) => updateDirectoryFilters({ state })} /><MultiFilter label="Activity" values={filters.activity} options={[["all", "All activity"], ["open_tasks", "Open tasks"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(activity) => updateDirectoryFilters({ activity })} /><SortMenu value={filters.order} onChange={(order) => updateDirectoryFilters({ order })} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} /><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
     {!canOpenProfiles
       ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/farms", label: "Sign in" }} />
       : directory.loading && !directory.items.length
@@ -1567,17 +1681,21 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
 }) {
   const [visibleCount, setVisibleCount] = useState(100);
   const [query, setQuery] = useState("");
-  const [order, setOrder] = useState<"activity" | "farms" | "name">("activity");
-  const [view, setView] = useState<"all" | "attention" | "recent">("all");
+  const [work, setWork] = useState<Array<"all" | "open_tasks" | "no_open_tasks">>(["all"]);
+  const [activity, setActivity] = useState<FarmActivityFilter[]>(["all"]);
+  const [order, setOrder] = useState<"open_tasks" | "recently_updated" | "least_updated" | "name">("open_tasks");
   const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase())
-    && (view === "all" || view === "attention" && person.open_work > 0 || view === "recent" && hasRecentActivity(person.latest_activity_at)));
+    && (work.includes("all") || work.includes("open_tasks") && person.open_work > 0 || work.includes("no_open_tasks") && person.open_work === 0)
+    && matchesActivityFilters(person.latest_activity_at, person.open_work, activity));
   const ordered = [...matched].sort((left, right) => order === "name"
     ? personName(left.name).localeCompare(personName(right.name))
-    : order === "farms"
-      ? right.farm_candidates - left.farm_candidates || right.open_work - left.open_work || personName(left.name).localeCompare(personName(right.name))
-      : right.open_work - left.open_work || right.farm_candidates - left.farm_candidates || personName(left.name).localeCompare(personName(right.name)));
+    : order === "recently_updated"
+      ? activityTimestamp(right.latest_activity_at) - activityTimestamp(left.latest_activity_at) || personName(left.name).localeCompare(personName(right.name))
+      : order === "least_updated"
+        ? activityTimestamp(left.latest_activity_at) - activityTimestamp(right.latest_activity_at) || personName(left.name).localeCompare(personName(right.name))
+        : right.open_work - left.open_work || activityTimestamp(right.latest_activity_at) - activityTimestamp(left.latest_activity_at) || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-secondary-toolbar"><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label><div className="directory-view-tabs" aria-label="Farmer view"><button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setVisibleCount(100); }}>All</button><button type="button" className={view === "attention" ? "active" : ""} onClick={() => { setView("attention"); setVisibleCount(100); }}>Open tasks</button><button type="button" className={view === "recent" ? "active" : ""} onClick={() => { setView("recent"); setVisibleCount(100); }}>Active</button></div><label className="directory-order"><span className="sr-only">Order farmers</span><select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Order: open tasks</option><option value="farms">Order: farm count</option><option value="name">Order: name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
