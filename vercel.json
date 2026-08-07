@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/v1/trackwick/cron-refresh",
-      "schedule": "32 2 * * *"
+      "schedule": "15 2 * * *"
     }
   ]
 }
