@@ -1,7 +1,10 @@
 from typing import Any, Dict, Optional
 
 from ffl.communications.loopmessage import LoopMessageProvider
-from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderAmbiguousError, ProviderRejectedError, SendResult
+from ffl.communications.ports import (
+    AttachmentContent, MessageStatus, NormalizedInboundEvent, ProviderAmbiguousError,
+    ProviderRejectedError, SendResult,
+)
 
 
 class FakeLoopMessageProvider(LoopMessageProvider):
@@ -17,7 +20,7 @@ class FakeLoopMessageProvider(LoopMessageProvider):
             whatsapp_capability_proof="sandbox-verified" if whatsapp_capability_enabled else None,
             whatsapp_capability_proof_ref="fake-sandbox-proof" if whatsapp_capability_enabled else None,
         )
-        self.sent: list[Dict[str, str]] = []
+        self.sent: list[Dict[str, Any]] = []
         self.statuses: Dict[str, Optional[MessageStatus]] = {}
         self.attachments: Dict[str, AttachmentContent] = {}
         self.crash_after_accept = False
@@ -36,6 +39,24 @@ class FakeLoopMessageProvider(LoopMessageProvider):
             raise ProviderAmbiguousError("injected ambiguous outcome after provider acceptance")
         return SendResult(provider_message_id=message_id, status="accepted")
 
+    def send_template(
+        self, contact: str, sender: str, template_id: str, locale: str,
+        parameters: Dict[str, str], passthrough: str,
+    ) -> SendResult:
+        if self.synchronous_error_code is not None:
+            raise ProviderRejectedError(self.synchronous_error_code)
+        message_id = "fake-message-{}".format(len(self.sent) + 1)
+        self.sent.append({
+            "contact": contact, "sender": sender, "template_id": template_id,
+            "locale": locale, "parameters": dict(parameters), "passthrough": passthrough,
+        })
+        self.statuses[message_id] = MessageStatus(message_id, "processing")
+        if self.crash_after_accept:
+            raise KeyboardInterrupt("injected process crash after provider acceptance")
+        if self.ambiguous_after_accept:
+            raise ProviderAmbiguousError("injected ambiguous outcome after provider acceptance")
+        return SendResult(provider_message_id=message_id, status="accepted")
+
     def get_message_status(self, provider_message_id: str) -> Optional[MessageStatus]:
         return self.statuses.get(provider_message_id)
 
@@ -44,6 +65,10 @@ class FakeLoopMessageProvider(LoopMessageProvider):
             raise RuntimeError("injected attachment download failure")
         return self.attachments[url]
 
-    def normalize_webhook(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_webhook(self, payload: Dict[str, Any]) -> NormalizedInboundEvent:
         normalized = super().normalize_webhook(payload)
+        reply_to_message_id = payload.get("reply_to_message_id")
+        if reply_to_message_id is not None and not isinstance(reply_to_message_id, str):
+            raise ValueError("fake reply_to_message_id must be a string")
+        normalized["reply_to_message_id"] = reply_to_message_id
         return normalized

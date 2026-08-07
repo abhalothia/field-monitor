@@ -10,7 +10,10 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ffl.communications.ports import AttachmentContent, MessageStatus, ProviderAmbiguousError, ProviderRejectedError, SendResult
+from ffl.communications.ports import (
+    AttachmentContent, ConstrainedIntent, MessageStatus, NormalizedInboundEvent,
+    ProviderAmbiguousError, ProviderRejectedError, SendResult,
+)
 
 
 MAX_INBOUND_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -88,6 +91,13 @@ class LoopMessageProvider:
             raise RuntimeError("LoopMessage did not accept the send request")
         return SendResult(provider_message_id=str(body["message_id"]), status="accepted")
 
+    def send_template(
+        self, contact: str, sender: str, template_id: str, locale: str,
+        parameters: Dict[str, str], passthrough: str,
+    ) -> SendResult:
+        """Refuse live template traffic until the exact sandbox wire contract is proven."""
+        raise RuntimeError("LoopMessage WhatsApp template contract is not sandbox-proven")
+
     def get_message_status(self, provider_message_id: str) -> Optional[MessageStatus]:
         """Use LoopMessage's documented status endpoint for an accepted message."""
         if not self.organization_api_key:
@@ -145,7 +155,7 @@ class LoopMessageProvider:
             payload["sender"] = selected_sender
         return payload
 
-    def normalize_webhook(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_webhook(self, payload: Dict[str, Any]) -> NormalizedInboundEvent:
         webhook_id = payload.get("webhook_id")
         event = payload.get("event")
         contact = payload.get("contact")
@@ -171,11 +181,16 @@ class LoopMessageProvider:
             "text": str(payload.get("text", "")),
             "message_type": str(payload.get("message_type", "text")),
             "attachments": attachments,
+            "attachment_references": [_attachment_reference(webhook_id, item) for item in attachments],
             "channel": channel,
             # The private receipt retains the provider payload for recovery,
             # but ordinary event storage gets only this non-reversible marker.
             "sender_fingerprint": _sender_fingerprint(sender) if isinstance(sender, str) else None,
             "passthrough": payload.get("passthrough") if isinstance(payload.get("passthrough"), str) else None,
+            # The provider correlation field is intentionally unmapped until
+            # a non-production sandbox proves its exact wire location.
+            "reply_to_message_id": None,
+            "intent": _constrained_intent(str(payload.get("text", ""))),
             "raw": payload,
         }
 
@@ -199,6 +214,17 @@ def _error_code(body: Dict[str, Any]) -> Optional[int]:
 
 def _sender_fingerprint(sender: str) -> str:
     return hashlib.sha256(("loopmessage:sender:" + sender).encode("utf-8")).hexdigest()
+
+
+def _attachment_reference(event_id: str, source: str) -> str:
+    digest = hashlib.sha256(("loopmessage:attachment:" + event_id + ":" + source).encode("utf-8")).hexdigest()
+    return "loopmessage-attachment:" + digest
+
+
+def _constrained_intent(text: str) -> Optional[ConstrainedIntent]:
+    # Only the provider-neutral STOP behavior required by the frozen boundary
+    # is recognized here. Localized opt-outs belong to a reviewed policy list.
+    return "opt_out" if text.strip().upper() == "STOP" else None
 
 
 def _require_public_host(hostname: str) -> None:
