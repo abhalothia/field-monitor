@@ -400,6 +400,8 @@ type State = {
   loading: boolean;
   error: string | null;
   needsLaunchLogin: boolean;
+  stale: boolean;
+  updatedAt: string | null;
 };
 
 const EMPTY_STATE: State = {
@@ -416,6 +418,8 @@ const EMPTY_STATE: State = {
   loading: true,
   error: null,
   needsLaunchLogin: false,
+  stale: false,
+  updatedAt: null,
 };
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
@@ -523,6 +527,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [managerBusy, setManagerBusy] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
+  const stateRef = useRef<State>(EMPTY_STATE);
   const profileRequest = useRef(0);
   const profileOpener = useRef<string | null>(null);
   const t = WORDS[language];
@@ -535,6 +540,8 @@ export function CommandCentre({ view }: { view: View }) {
       setState((current) => ({ ...current, ...value, loading: false, error: null }));
     } catch { /* a bad local cache should never block the operating record */ }
   }, []);
+
+  useEffect(() => { stateRef.current = state; }, [state]);
 
   useEffect(() => {
     if (!state.profile || !state.trackwick) return;
@@ -560,33 +567,38 @@ export function CommandCentre({ view }: { view: View }) {
       result.status === "rejected" && !(index === 2 && runtimeIsAwaitingFirstFarm)
     ));
     const status = rejected?.reason?.status;
-    if (status === 401 || status === 503) {
+    if (status === 401) {
       setState((current) => ({ ...current, loading: false, needsLaunchLogin: true }));
       return;
     }
-    const session = results[4].status === "fulfilled" ? results[4].value.value : null;
-    const [trackwick, canonicalFarmers, agents] = session?.authenticated
-      ? await Promise.all([
-          readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value).catch(() => null),
-          readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100").then(({ value }) => value).catch(() => []),
-          readJson<AgentBoard>("/api/v1/agents").then(({ value }) => value).catch(() => null),
+    const previous = stateRef.current;
+    const session = results[4].status === "fulfilled" ? results[4].value.value : previous.session;
+    const privateResults = session?.authenticated
+      ? await Promise.allSettled([
+          readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board").then(({ value }) => value),
+          readJson<ReviewedFarmerCard[]>("/api/v1/people?kind=farmer&limit=100").then(({ value }) => value),
+          readJson<AgentBoard>("/api/v1/agents").then(({ value }) => value),
         ])
-      : [null, [], null];
-    setState({
-      profile: results[0].status === "fulfilled" ? results[0].value.value : null,
-      portfolio: results[1].status === "fulfilled" ? results[1].value.value : null,
-      runtime: results[2].status === "fulfilled" ? results[2].value.value : null,
-      lanes: results[3].status === "fulfilled" ? results[3].value.value : null,
+      : [];
+    const privateFailed = privateResults.some((result) => result.status === "rejected");
+    const currentRecordExists = Boolean(previous.profile || previous.trackwick);
+    setState((current) => ({
+      profile: results[0].status === "fulfilled" ? results[0].value.value : current.profile,
+      portfolio: results[1].status === "fulfilled" ? results[1].value.value : current.portfolio,
+      runtime: results[2].status === "fulfilled" ? results[2].value.value : current.runtime,
+      lanes: results[3].status === "fulfilled" ? results[3].value.value : current.lanes,
       session,
-      readiness: results[5].status === "fulfilled" ? results[5].value.value : null,
-      trackwick,
-      agents,
-      canonicalFarmers,
-      procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : null,
+      readiness: results[5].status === "fulfilled" ? results[5].value.value : current.readiness,
+      trackwick: privateResults[0]?.status === "fulfilled" ? privateResults[0].value : current.trackwick,
+      agents: privateResults[2]?.status === "fulfilled" ? privateResults[2].value : current.agents,
+      canonicalFarmers: privateResults[1]?.status === "fulfilled" ? privateResults[1].value : current.canonicalFarmers,
+      procurementHistory: results[6].status === "fulfilled" ? results[6].value.value : current.procurementHistory,
       loading: false,
-      needsLaunchLogin: false,
-      error: rejected ? "Some current operating data could not be read. Nothing has been estimated." : null,
-    });
+      needsLaunchLogin: !session?.authenticated && !currentRecordExists,
+      stale: Boolean(rejected || privateFailed),
+      updatedAt: rejected || privateFailed ? current.updatedAt : new Date().toISOString(),
+      error: rejected && !currentRecordExists ? "The live record could not be reached." : null,
+    }));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -721,6 +733,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
   const fittedDataRef = useRef<string | null>(null);
   const [active, setActive] = useState<MapPoint | null>(selectedPoint || null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapHealth, setMapHealth] = useState<"loading" | "ready" | "cached">("loading");
   const visible = useMemo(() => preview ? points.slice(0, 700) : points, [points, preview]);
   const dataKey = `${preview}:${visible.length}:${visible[0]?.id || ""}:${visible.at(-1)?.id || ""}`;
 
@@ -733,26 +746,40 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
 
   useEffect(() => {
     let cancelled = false;
-    void import("leaflet").then((L) => {
-      if (cancelled || !mapElement.current) return;
-      leafletRef.current = L;
+    setMapHealth("loading");
+    void import("leaflet").then((module) => {
+      // Leaflet is CommonJS. Browser bundlers differ on whether its API lives
+      // on the module namespace or `default`; accept both so a deployment
+      // never leaves the cached activity canvas blank.
+      const L = (typeof module.map === "function" ? module : module.default) as typeof import("leaflet");
+      if (cancelled || !mapElement.current || typeof L?.map !== "function") throw new Error("Map could not start");
       const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
         attribution: "© OpenStreetMap contributors",
       }).addTo(map);
+      leafletRef.current = L;
       mapRef.current = map;
       markerLayerRef.current = L.layerGroup().addTo(map);
       setMapReady(true);
-      map.whenReady(() => window.setTimeout(() => map.invalidateSize(), 0));
+      setMapHealth("ready");
+      const resize = () => map.invalidateSize({ pan: false });
+      map.whenReady(() => { window.requestAnimationFrame(resize); window.setTimeout(resize, 120); });
+    }).catch(() => {
+      if (!cancelled) {
+        setMapReady(false);
+        setMapHealth("cached");
+      }
     });
     return () => {
       cancelled = true;
-      mapRef.current?.remove();
-      mapRef.current = null;
-      markerLayerRef.current = null;
-      leafletRef.current = null;
-      setMapReady(false);
+      const map = mapRef.current;
+      if (map) map.remove();
+      if (mapRef.current === map) {
+        mapRef.current = null;
+        markerLayerRef.current = null;
+        leafletRef.current = null;
+      }
     };
   }, [preview]);
 
@@ -795,9 +822,37 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
 
   if (!visible.length) return <div className="operating-map map-empty"><strong>Map is preparing</strong><p>Location activity will appear here as the operating record arrives.</p></div>;
   return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
-    <div className="leaflet-map" ref={mapElement} />
-    <div className="map-key"><span /><span>Field activity</span></div>
+    <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
+    {mapHealth !== "ready" ? <CachedMapFallback points={visible} onSelect={select} /> : null}
+    <div className="map-key"><span /><span>{mapHealth === "ready" ? "Field activity" : "Cached activity"}</span></div>
     {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
+  </div>;
+}
+
+function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect: (point: MapPoint) => void }) {
+  const groups = useMemo(() => mapClusters(points.slice(0, 900), 9), [points]);
+  const extent = useMemo(() => {
+    const latitudes = points.map((point) => point.latitude);
+    const longitudes = points.map((point) => point.longitude);
+    const minLat = Math.min(...latitudes); const maxLat = Math.max(...latitudes);
+    const minLng = Math.min(...longitudes); const maxLng = Math.max(...longitudes);
+    return { minLat, maxLat, minLng, maxLng, latSpan: Math.max(.01, maxLat - minLat), lngSpan: Math.max(.01, maxLng - minLng) };
+  }, [points]);
+  return <div className="cached-map-fallback" aria-label="Cached field activity">
+    <svg viewBox="0 0 1000 650" role="img" aria-label={`${count(points.length)} cached field activities`}>
+      <path d="M80 510C230 420 295 530 430 385S690 245 910 120" className="cached-map-route" />
+      <path d="M110 150C320 270 460 130 620 255S795 455 920 535" className="cached-map-route muted" />
+      {groups.map((group, index) => {
+        const x = 60 + ((group.longitude - extent.minLng) / extent.lngSpan) * 880;
+        const y = 590 - ((group.latitude - extent.minLat) / extent.latSpan) * 530;
+        const first = group.points[0];
+        const radius = Math.min(18, 5 + Math.log2(group.points.length + 1) * 3);
+        return <g key={`${group.latitude}:${group.longitude}:${index}`} className="cached-map-point" role="button" tabIndex={0} aria-label={`${first.subject.name}, ${count(group.points.length)} activities`} onClick={() => onSelect(first)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(first); } }}>
+          <title>{`${first.subject.name} · ${count(group.points.length)} activities`}</title><circle cx={x} cy={y} r={radius} /><circle cx={x} cy={y} r="2.4" className="cached-map-point-core" />
+        </g>;
+      })}
+    </svg>
+    <p>Cached field activity</p>
   </div>;
 }
 
@@ -915,8 +970,8 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const [draftFilters, setDraftFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
   const [filtersReady, setFiltersReady] = useState(false);
   const [directoryPage, setDirectoryPage] = useState(0);
-  const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null }>({
-    items: [], loading: false, error: null,
+  const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null; stale: boolean }>({
+    items: [], loading: false, error: null, stale: false,
   });
   const [panel, setPanel] = useState<ContextPanel | null>(null);
   const directoryRequest = useRef(0);
@@ -943,7 +998,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
 
   useEffect(() => {
     if (!filtersReady || !canOpenProfiles) {
-      if (filtersReady) setDirectory({ items: [], loading: false, error: null });
+      if (filtersReady) setDirectory({ items: [], loading: false, error: null, stale: false });
       return;
     }
     const request = ++directoryRequest.current;
@@ -956,14 +1011,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       const saved = window.sessionStorage.getItem(cacheKey);
       cached = saved ? JSON.parse(saved) as FarmDirectory : null;
     } catch { /* a bad local cache is discarded by the next successful read */ }
-    setDirectory((current) => ({ items: cached || current.items, loading: true, error: null }));
+    setDirectory((current) => ({ items: cached || current.items, loading: true, error: null, stale: Boolean(current.items.length) }));
     void readJson<FarmDirectory>("/api/v1/farms?" + params)
       .then(({ value }) => {
         if (request === directoryRequest.current) {
           setDirectory((current) => {
             const items = directoryPage ? [...current.items, ...value] : value;
             try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* cache is optional */ }
-            return { items, loading: false, error: null };
+            return { items, loading: false, error: null, stale: false };
           });
         }
       })
@@ -971,7 +1026,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
         if (request !== directoryRequest.current) return;
         const message = profileReadError(error);
         if (message === "Manager access expired.") expireManagerSession();
-        setDirectory({ items: [], loading: false, error: message });
+        setDirectory((current) => ({ items: current.items, loading: false, error: current.items.length ? null : message, stale: Boolean(current.items.length) }));
       });
   }, [canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
 
@@ -1161,13 +1216,13 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
       ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/fields", label: "Sign in" }} />
       : directory.loading && !directory.items.length
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
+        : directory.items.length
+          ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
+            ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><div><span className="status-chip reported">to review</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name}</p></div><dl><div><dt>Plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open tasks</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Last activity</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>
+            : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
-          : directory.items.length
-            ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
-              ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><div><span className="status-chip reported">to review</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name}</p></div><dl><div><dt>Plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open tasks</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Last activity</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>
-              : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
-            : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
+          : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
   </section>;
 }
 

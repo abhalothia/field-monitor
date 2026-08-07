@@ -204,6 +204,18 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .home-map-metrics strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.52rem; font-weight: 400; letter-spacing: -.045em; text-transform: none; }
 .operating-map { position: relative; min-height: 360px; overflow: hidden; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(220, 231, 211, .78), rgba(246, 239, 220, .88)); }
 .leaflet-map { width: 100%; height: 100%; min-height: 360px; }
+.cached-map-fallback { position: absolute; inset: 0; display: grid; place-items: stretch; overflow: hidden; background: linear-gradient(145deg, rgba(220, 231, 211, .93), rgba(246, 239, 220, .97)); }
+.cached-map-fallback::before, .cached-map-fallback::after { position: absolute; inset: 0; content: ""; pointer-events: none; }
+.cached-map-fallback::before { background-image: linear-gradient(rgba(20, 61, 45, .055) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 61, 45, .055) 1px, transparent 1px); background-size: 48px 48px; }
+.cached-map-fallback::after { background: radial-gradient(circle at 68% 28%, rgba(255, 255, 255, .38), transparent 32%), radial-gradient(circle at 23% 72%, rgba(255, 255, 255, .25), transparent 38%); }
+.cached-map-fallback svg { z-index: 1; width: 100%; height: 100%; min-height: 360px; }
+.cached-map-fallback > p { position: absolute; z-index: 2; top: 15px; left: 17px; margin: 0; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .55rem; letter-spacing: .06em; text-transform: uppercase; }
+.cached-map-route { fill: none; stroke: rgba(20, 61, 45, .12); stroke-width: 3; stroke-linecap: round; }
+.cached-map-route.muted { stroke-width: 2; stroke-dasharray: 4 9; }
+.cached-map-point { cursor: pointer; outline: none; }
+.cached-map-point circle { fill: rgba(255, 250, 238, .94); stroke: #143d2d; stroke-width: 2; transition: r .16s ease, fill .16s ease; }
+.cached-map-point:hover circle, .cached-map-point:focus circle { fill: #d8e7c9; }
+.cached-map-point .cached-map-point-core { fill: #143d2d; stroke: none; }
 .operating-map .leaflet-tile-pane { filter: saturate(.54) sepia(.13) hue-rotate(30deg) brightness(1.07); }
 .operating-map .leaflet-control-zoom a { border-color: rgba(20, 61, 45, .24); background: rgba(255, 250, 238, .94); color: var(--ink); }
 .operating-map .leaflet-control-attribution { background: rgba(255, 250, 238, .78); color: var(--muted); font-size: 9px; }
