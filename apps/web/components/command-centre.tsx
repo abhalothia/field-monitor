@@ -850,7 +850,6 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
     {mapHealth !== "ready" ? <CachedMapFallback points={visible} onSelect={select} /> : null}
     <div className="map-area-label"><strong>{area}</strong><span className="map-gesture-copy">Drag · scroll to zoom</span><span className="map-touch-copy">Drag · pinch to zoom</span></div>
-    <div className="map-key"><span /><span>{mapHealth === "ready" ? "Field activity" : "Cached activity"}</span></div>
     {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
   </div>;
 }
@@ -962,13 +961,13 @@ function mapTooltip(point: MapPoint) {
   return `<strong>${label}</strong><br><span>${escapeMapText(detail)} · ${mapActivityStatus(point).label}</span>`;
 }
 
-type MapActivityTone = "attention" | "current" | "recent" | "earlier";
+type MapActivityTone = "attention" | "current" | "earlier";
 
 function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: string } {
   if (point.subject.open_work > 0) return { tone: "attention", label: point.subject.open_work === 1 ? "1 open task" : `${point.subject.open_work} open tasks` };
   const age = Date.now() - new Date(point.observed_at).valueOf();
   if (age <= 7 * 86_400_000) return { tone: "current", label: "Updated this week" };
-  if (age <= 30 * 86_400_000) return { tone: "recent", label: "Updated this month" };
+  if (age <= 30 * 86_400_000) return { tone: "current", label: "Updated this month" };
   return { tone: "earlier", label: "Earlier activity" };
 }
 
@@ -976,15 +975,13 @@ function mapClusterStatus(points: MapPoint[]) {
   const statuses = points.map(mapActivityStatus);
   const attention = statuses.filter((status) => status.tone === "attention").length;
   const current = statuses.filter((status) => status.tone === "current").length;
-  const recent = statuses.filter((status) => status.tone === "recent").length;
   if (attention) return { tone: "attention" as const, label: `${count(attention)} need attention` };
-  if (current) return { tone: "current" as const, label: `${count(current)} updated this week` };
-  if (recent) return { tone: "recent" as const, label: `${count(recent)} updated this month` };
+  if (current) return { tone: "current" as const, label: `${count(current)} updated recently` };
   return { tone: "earlier" as const, label: "Earlier activity" };
 }
 
 function mapMarkerColor(tone: MapActivityTone) {
-  return ({ attention: { stroke: "#9a6722", fill: "#f6dfaa" }, current: { stroke: "#143d2d", fill: "#dce7d3" }, recent: { stroke: "#4c7158", fill: "#e7eddd" }, earlier: { stroke: "#7c8977", fill: "#f5f0df" } })[tone];
+  return ({ attention: { stroke: "#a6574b", fill: "#f4d8d2" }, current: { stroke: "#497054", fill: "#dcebcf" }, earlier: { stroke: "#879783", fill: "#f3f5ed" } })[tone];
 }
 
 function escapeMapText(value: string) {
