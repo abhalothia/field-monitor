@@ -180,6 +180,46 @@ def active_person_allocation_coverage(
     )
 
 
+def active_person_allocation_coverages(
+    conn,
+    person_id: str,
+    *,
+    on_date: Optional[Union[date, str]] = None,
+) -> Tuple[AllocationRelationshipCoverage, ...]:
+    """Return every active allocation explicitly covered by ``person_id``.
+
+    This is the cardinality-safe companion to
+    :func:`active_person_allocation_coverage`.  It deliberately enumerates
+    canonical active allocations and passes each one through that same narrow
+    gate.  Callers can therefore detect zero, one, or several permitted
+    choices without duplicating or broadening relationship rules.
+    """
+    normalized_person_id = _identifier(person_id)
+    effective_on = _effective_date(on_date)
+    if normalized_person_id is None or effective_on is None:
+        return ()
+    try:
+        allocation_ids = tuple(
+            row["id"]
+            for row in conn.execute(
+                "SELECT id FROM crop_allocations WHERE status = 'active' ORDER BY id"
+            ).fetchall()
+        )
+    except Exception:
+        return ()
+
+    return tuple(
+        coverage
+        for allocation_id in allocation_ids
+        for coverage in (
+            active_person_allocation_coverage(
+                conn, normalized_person_id, allocation_id, on_date=effective_on
+            ),
+        )
+        if coverage.eligible
+    )
+
+
 def _identifier(value: object) -> Optional[str]:
     if not isinstance(value, str):
         return None
