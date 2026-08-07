@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import os
 import re
@@ -32,6 +33,7 @@ CUSTOMER_LIST_PATH = "/cust/1/api/customer/list"
 PRODUCTIVITY_PATH = "/cust/1/api/asset/productivity"
 DEFAULT_FORM_TITLE = "Farmer Visit"
 DEFAULT_TIMEZONE = "Asia/Kolkata"
+_PAGE_FETCH_CONCURRENCY = 12
 MAPPING_VERSION = "trackwick-task-v3"
 PRIVATE_EVIDENCE_MAPPING_VERSION = "trackwick-private-v1"
 
@@ -237,34 +239,16 @@ class TrackwickApiAdapter:
         headers = _headers(config.customer_id, api_key)
         tasks: list[Mapping[str, Any]] = []
         with httpx.Client(transport=transport, follow_redirects=False, timeout=30.0) as client:
-            for page in range(config.max_pages):
-                response = _get(
-                    client,
-                    TASK_LIST_PATH,
-                    headers,
-                    {**params, "pn": page},
-                )
-                rows, has_more = _rows(response, "task_list_response_invalid")
-                tasks.extend(rows)
-                if not has_more:
-                    break
-            else:
-                raise TrackwickSourceFailure("task_page_limit_reached")
-
-            customers: list[Mapping[str, Any]] = []
-            for customer_page in range(config.max_pages):
-                response = _get(
-                    client,
-                    CUSTOMER_LIST_PATH,
-                    headers,
-                    {"pt": config.page_size, "pn": customer_page},
-                )
-                rows, has_more = _rows(response, "customer_list_response_invalid")
-                customers.extend(rows)
-                if not has_more:
-                    break
-            else:
-                raise TrackwickSourceFailure("customer_page_limit_reached")
+            tasks, task_pages = _fetch_paginated(
+                client, TASK_LIST_PATH, headers, params, config.max_pages,
+                "task_list_response_invalid", "task_page_limit_reached",
+                concurrent=transport is None,
+            )
+            customers, customer_pages = _fetch_paginated(
+                client, CUSTOMER_LIST_PATH, headers, {"pt": config.page_size}, config.max_pages,
+                "customer_list_response_invalid", "customer_page_limit_reached",
+                concurrent=transport is None,
+            )
 
             attendance_response = _get(
                 client,
@@ -277,8 +261,8 @@ class TrackwickApiAdapter:
             tasks=tuple(tasks),
             customers=tuple(customers),
             attendance=tuple(attendance),
-            task_pages=page + 1,
-            customer_pages=customer_page + 1,
+            task_pages=task_pages,
+            customer_pages=customer_pages,
         )
 
 
@@ -918,6 +902,43 @@ def _get(client: httpx.Client, path: str, headers: Mapping[str, str], params: Ma
     if response.status_code < 200 or response.status_code >= 300:
         raise TrackwickSourceFailure("http_status")
     return response
+
+
+def _fetch_paginated(
+    client: httpx.Client,
+    path: str,
+    headers: Mapping[str, str],
+    params: Mapping[str, Any],
+    max_pages: int,
+    invalid_error: str,
+    limit_error: str,
+    *,
+    concurrent: bool,
+) -> tuple[list[Mapping[str, Any]], int]:
+    """Read bounded provider pages without making a serverless backfill serial.
+
+    The provider's ``hm`` flag remains the sole terminal authority.  Production
+    fetches a small speculative batch in parallel, preserving page order and
+    discarding any pages after the first terminal response.  Deterministic test
+    transports stay serial, so the HTTP contract tests remain exact.
+    """
+    rows: list[Mapping[str, Any]] = []
+    width = _PAGE_FETCH_CONCURRENCY if concurrent else 1
+    for start in range(0, max_pages, width):
+        pages = range(start, min(start + width, max_pages))
+        def fetch_page(page: int) -> httpx.Response:
+            return _get(client, path, headers, {**params, "pn": page})
+        if concurrent:
+            with ThreadPoolExecutor(max_workers=width) as executor:
+                responses = list(executor.map(fetch_page, pages))
+        else:
+            responses = [fetch_page(page) for page in pages]
+        for offset, response in enumerate(responses):
+            page_rows, has_more = _rows(response, invalid_error)
+            rows.extend(page_rows)
+            if not has_more:
+                return rows, start + offset + 1
+    raise TrackwickSourceFailure(limit_error)
 
 
 def _rows(response: httpx.Response, error_code: str) -> tuple[list[Mapping[str, Any]], bool]:
