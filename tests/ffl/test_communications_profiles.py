@@ -102,11 +102,11 @@ def test_verified_endpoint_is_tenant_scoped_and_consent_is_scope_specific(ffl_db
         ffl_db, "loopmessage", "+919876543210", seeded_portal.other_portal_id,
     ) is None
     assert has_scoped_consent(
-        ffl_db, endpoint["id"], "weekly_farmer_checkin",
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
         "crop_allocation", seeded_portal.allocation_id,
     )
     assert not has_scoped_consent(
-        ffl_db, endpoint["id"], "weekly_farmer_checkin",
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
         "crop_allocation", "allocation-2",
     )
 
@@ -193,7 +193,7 @@ def test_scoped_consent_revocation_appends_event_and_retains_capture_evidence(ff
         {"status": "revoked", "evidence": "farmer opted out"},
     ]
     assert not has_scoped_consent(
-        ffl_db, endpoint["id"], "weekly_farmer_checkin",
+        ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
         "crop_allocation", seeded_portal.allocation_id,
     )
     with pytest.raises(Exception, match="append-only"):
@@ -201,3 +201,92 @@ def test_scoped_consent_revocation_appends_event_and_retains_capture_evidence(ff
             "DELETE FROM communication_scoped_consent_events WHERE consent_id = ?",
             (granted["id"],),
         )
+
+
+def test_scoped_consent_requires_its_active_tenant_verification_and_scope_chain(ffl_db, seeded_portal):
+    first_profile = create_communication_profile(
+        ffl_db, seeded_portal.id, seeded_portal.farmer_id, "hi-IN", "Asia/Kolkata",
+    )
+    endpoint = verify_endpoint(
+        ffl_db, first_profile["id"], "loopmessage", "+919876543210",
+        "portal_invitation", seeded_portal.admin_id,
+    )
+    set_scoped_consent(
+        ffl_db, first_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id, True,
+        "signed consent", seeded_portal.admin_id,
+    )
+    second_profile = create_communication_profile(
+        ffl_db, seeded_portal.other_portal_id, seeded_portal.farmer_id,
+        "hi-IN", "Asia/Kolkata",
+    )
+    verify_endpoint(
+        ffl_db, second_profile["id"], "loopmessage", "+919876543210",
+        "portal_invitation", seeded_portal.admin_id,
+    )
+
+    assert not has_scoped_consent(
+        ffl_db, second_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id,
+    )
+
+    ffl_db.execute(
+        "UPDATE communication_profiles SET status = 'revoked' WHERE id = ?",
+        (first_profile["id"],),
+    )
+    assert not has_scoped_consent(
+        ffl_db, first_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id,
+    )
+
+    ffl_db.execute(
+        "UPDATE communication_profiles SET status = 'active' WHERE id = ?",
+        (first_profile["id"],),
+    )
+    ffl_db.execute(
+        """UPDATE communication_endpoint_verifications
+           SET status = 'revoked', revoked_at = ?
+           WHERE profile_id = ? AND endpoint_id = ? AND status = 'active'""",
+        ("2026-08-07T13:00:00+00:00", first_profile["id"], endpoint["id"]),
+    )
+    assert not has_scoped_consent(
+        ffl_db, first_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id,
+    )
+
+    ffl_db.execute(
+        """UPDATE communication_endpoint_verifications
+           SET status = 'active', revoked_at = NULL
+           WHERE profile_id = ? AND endpoint_id = ?""",
+        (first_profile["id"], endpoint["id"]),
+    )
+    ffl_db.execute(
+        """UPDATE communication_endpoint_scopes
+           SET status = 'revoked', ends_on = '2026-08-07'
+           WHERE profile_id = ? AND scope_type = ? AND scope_id = ?""",
+        (first_profile["id"], "crop_allocation", seeded_portal.allocation_id),
+    )
+    assert not has_scoped_consent(
+        ffl_db, first_profile["id"], endpoint["id"], "weekly_farmer_checkin",
+        "crop_allocation", seeded_portal.allocation_id,
+    )
+
+
+def test_scoped_consent_rejects_revocation_without_a_prior_grant(ffl_db, seeded_portal):
+    profile = create_communication_profile(
+        ffl_db, seeded_portal.id, seeded_portal.farmer_id, "hi-IN", "Asia/Kolkata",
+    )
+    endpoint = verify_endpoint(
+        ffl_db, profile["id"], "loopmessage", "+919876543210",
+        "portal_invitation", seeded_portal.admin_id,
+    )
+
+    with pytest.raises(ValueError, match="before grant"):
+        set_scoped_consent(
+            ffl_db, profile["id"], endpoint["id"], "weekly_farmer_checkin",
+            "crop_allocation", seeded_portal.allocation_id, False,
+            "unverified opt-out", seeded_portal.admin_id,
+        )
+
+    assert ffl_db.execute("SELECT count(*) FROM communication_scoped_consents").fetchone()[0] == 0
+    assert ffl_db.execute("SELECT count(*) FROM communication_scoped_consent_events").fetchone()[0] == 0

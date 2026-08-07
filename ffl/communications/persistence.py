@@ -659,6 +659,8 @@ def set_scoped_consent(
             (endpoint_id, purpose, scope_type, scope_id, channel),
         ).fetchone()
         if consent is None:
+            if not active:
+                raise ValueError("cannot revoke scoped consent before grant")
             consent_id, granted_at = _identity()
             conn.execute(
                 """INSERT INTO communication_scoped_consents
@@ -701,18 +703,51 @@ def set_scoped_consent(
 
 
 def has_scoped_consent(
-    conn: sqlite3.Connection, endpoint_id: str, purpose: str,
+    conn: sqlite3.Connection, profile_id: str, endpoint_id: str, purpose: str,
     scope_type: str, scope_id: str, channel: str = "whatsapp",
 ) -> bool:
+    """Return consent only through its active tenant authority chain."""
     if purpose not in COMMUNICATION_PURPOSES or scope_type not in COMMUNICATION_SCOPES:
         return False
     if channel not in COMMUNICATION_CHANNELS:
         return False
+    _relation, relationship_column = _SCOPE_RELATIONS[scope_type]
     return conn.execute(
-        """SELECT 1 FROM communication_scoped_consents
-           WHERE endpoint_id = ? AND purpose = ? AND scope_type = ? AND scope_id = ?
-             AND channel = ? AND status = 'active'""",
-        (endpoint_id, purpose, scope_type, scope_id, channel),
+        """SELECT 1
+           FROM communication_scoped_consents consent
+           JOIN communication_profiles profile
+             ON profile.id = consent.profile_id AND profile.status = 'active'
+           JOIN customer_portals portal
+             ON portal.id = profile.portal_id AND portal.status = 'active'
+           JOIN portal_memberships membership
+             ON membership.portal_id = profile.portal_id
+            AND membership.person_id = profile.person_id
+            AND membership.membership_status <> 'suspended'
+           JOIN communication_endpoints endpoint
+             ON endpoint.id = consent.endpoint_id
+            AND endpoint.person_id = profile.person_id
+            AND endpoint.status = 'active'
+           JOIN communication_endpoint_verifications verification
+             ON verification.profile_id = profile.id
+            AND verification.endpoint_id = endpoint.id
+            AND verification.status = 'active'
+           JOIN communication_endpoint_scopes scope
+             ON scope.profile_id = profile.id
+            AND scope.scope_type = consent.scope_type
+            AND scope.scope_id = consent.scope_id
+            AND scope.status = 'active'
+           JOIN person_operating_relationships relationship
+             ON relationship.id = scope.relationship_id
+            AND relationship.person_id = profile.person_id
+            AND relationship.scope_type = scope.scope_type
+            AND relationship.{0} = scope.scope_id
+            AND relationship.status = 'active'
+           WHERE consent.profile_id = ? AND consent.endpoint_id = ?
+             AND consent.purpose = ? AND consent.scope_type = ? AND consent.scope_id = ?
+             AND consent.channel = ? AND consent.status = 'active'""".format(
+            relationship_column
+        ),
+        (profile_id, endpoint_id, purpose, scope_type, scope_id, channel),
     ).fetchone() is not None
 
 
