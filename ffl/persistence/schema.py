@@ -803,6 +803,135 @@ def create_schema(conn: sqlite3.Connection) -> None:
             )
         );
 
+        -- Private communications authority is anchored to an explicit portal
+        -- membership and canonical person. Provider addresses never establish
+        -- person, role, tenant, or operating scope authority.
+        CREATE TABLE IF NOT EXISTS communication_profiles (
+            id TEXT PRIMARY KEY,
+            portal_id TEXT NOT NULL REFERENCES customer_portals(id),
+            person_id TEXT NOT NULL REFERENCES people(id),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            locale TEXT NOT NULL,
+            time_zone TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (portal_id, person_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS communication_endpoint_verifications (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            verification_method TEXT NOT NULL,
+            verified_by_person_id TEXT NOT NULL REFERENCES people(id),
+            verified_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            revoked_at TEXT,
+            CHECK ((status = 'active' AND revoked_at IS NULL) OR status IN ('revoked', 'disabled'))
+        );
+
+        CREATE TABLE IF NOT EXISTS communication_endpoint_scopes (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            relationship_id TEXT NOT NULL REFERENCES person_operating_relationships(id),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            starts_on TEXT NOT NULL,
+            ends_on TEXT,
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            CHECK ((status = 'active' AND ends_on IS NULL) OR status IN ('revoked', 'disabled')),
+            UNIQUE (profile_id, relationship_id, scope_type, scope_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS communication_scoped_consents (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'work_prompt', 'weekly_farmer_checkin', 'field_evidence_request',
+                'local_weather_observation', 'problem_report', 'callback_coordination',
+                'safety_escalation', 'operational_campaign'
+            )),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            channel TEXT NOT NULL CHECK (channel IN ('whatsapp')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            evidence TEXT NOT NULL,
+            granted_at TEXT NOT NULL,
+            revoked_at TEXT,
+            CHECK ((status = 'active' AND revoked_at IS NULL)
+                OR (status = 'revoked' AND revoked_at IS NOT NULL)
+                OR status = 'disabled'),
+            UNIQUE (endpoint_id, purpose, scope_type, scope_id, channel)
+        );
+
+        CREATE TABLE IF NOT EXISTS communication_scoped_consent_events (
+            id TEXT PRIMARY KEY,
+            consent_id TEXT NOT NULL REFERENCES communication_scoped_consents(id),
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'work_prompt', 'weekly_farmer_checkin', 'field_evidence_request',
+                'local_weather_observation', 'problem_report', 'callback_coordination',
+                'safety_escalation', 'operational_campaign'
+            )),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            channel TEXT NOT NULL CHECK (channel IN ('whatsapp')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+            evidence TEXT NOT NULL,
+            actor_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_active
+            ON communication_endpoint_verifications(endpoint_id, profile_id)
+            WHERE status = 'active';
+        CREATE INDEX IF NOT EXISTS idx_communication_profiles_person
+            ON communication_profiles(person_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_profile
+            ON communication_endpoint_verifications(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_endpoint
+            ON communication_endpoint_verifications(endpoint_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_verifier
+            ON communication_endpoint_verifications(verified_by_person_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_scopes_profile
+            ON communication_endpoint_scopes(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_scopes_relationship
+            ON communication_endpoint_scopes(relationship_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consents_profile
+            ON communication_scoped_consents(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_consent
+            ON communication_scoped_consent_events(consent_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_profile
+            ON communication_scoped_consent_events(profile_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_endpoint
+            ON communication_scoped_consent_events(endpoint_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_actor
+            ON communication_scoped_consent_events(actor_person_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consents_capture_immutable
+        BEFORE UPDATE OF profile_id, endpoint_id, purpose, scope_type, scope_id,
+                         channel, evidence, granted_at
+        ON communication_scoped_consents
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent capture is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consent_events_no_update
+        BEFORE UPDATE ON communication_scoped_consent_events
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consent_events_no_delete
+        BEFORE DELETE ON communication_scoped_consent_events
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent events are append-only');
+        END;
+
         -- Private TrackWick CRM and spatial evidence.  This is a typed source
         -- lane, not a shortcut into Fortune's canonical farm graph.  SQLite
         -- mirrors the PostgreSQL shape for tests; production additionally

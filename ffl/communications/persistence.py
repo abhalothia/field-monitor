@@ -5,6 +5,29 @@ import uuid
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+COMMUNICATION_PURPOSES = frozenset({
+    "work_prompt",
+    "weekly_farmer_checkin",
+    "field_evidence_request",
+    "local_weather_observation",
+    "problem_report",
+    "callback_coordination",
+    "safety_escalation",
+    "operational_campaign",
+})
+COMMUNICATION_CHANNELS = frozenset({"whatsapp"})
+COMMUNICATION_SCOPES = frozenset({
+    "operating_unit", "land_parcel", "operational_block", "crop_allocation",
+})
+_SCOPE_RELATIONS = {
+    "operating_unit": ("operating_units", "operating_unit_id"),
+    "land_parcel": ("land_parcels", "land_parcel_id"),
+    "operational_block": ("operational_blocks", "operational_block_id"),
+    "crop_allocation": ("crop_allocations", "crop_allocation_id"),
+}
 
 
 def _identity() -> Tuple[str, str]:
@@ -29,6 +52,126 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             UNIQUE(provider, address)
         );
+        CREATE TABLE IF NOT EXISTS communication_profiles (
+            id TEXT PRIMARY KEY,
+            portal_id TEXT NOT NULL REFERENCES customer_portals(id),
+            person_id TEXT NOT NULL REFERENCES people(id),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            locale TEXT NOT NULL,
+            time_zone TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (portal_id, person_id)
+        );
+        CREATE TABLE IF NOT EXISTS communication_endpoint_verifications (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            verification_method TEXT NOT NULL,
+            verified_by_person_id TEXT NOT NULL REFERENCES people(id),
+            verified_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            revoked_at TEXT,
+            CHECK ((status = 'active' AND revoked_at IS NULL) OR status IN ('revoked', 'disabled'))
+        );
+        CREATE TABLE IF NOT EXISTS communication_endpoint_scopes (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            relationship_id TEXT NOT NULL REFERENCES person_operating_relationships(id),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            starts_on TEXT NOT NULL,
+            ends_on TEXT,
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            CHECK ((status = 'active' AND ends_on IS NULL) OR status IN ('revoked', 'disabled')),
+            UNIQUE (profile_id, relationship_id, scope_type, scope_id)
+        );
+        CREATE TABLE IF NOT EXISTS communication_scoped_consents (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'work_prompt', 'weekly_farmer_checkin', 'field_evidence_request',
+                'local_weather_observation', 'problem_report', 'callback_coordination',
+                'safety_escalation', 'operational_campaign'
+            )),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            channel TEXT NOT NULL CHECK (channel IN ('whatsapp')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'disabled')),
+            evidence TEXT NOT NULL,
+            granted_at TEXT NOT NULL,
+            revoked_at TEXT,
+            CHECK ((status = 'active' AND revoked_at IS NULL)
+                OR (status = 'revoked' AND revoked_at IS NOT NULL)
+                OR status = 'disabled'),
+            UNIQUE (endpoint_id, purpose, scope_type, scope_id, channel)
+        );
+        CREATE TABLE IF NOT EXISTS communication_scoped_consent_events (
+            id TEXT PRIMARY KEY,
+            consent_id TEXT NOT NULL REFERENCES communication_scoped_consents(id),
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'work_prompt', 'weekly_farmer_checkin', 'field_evidence_request',
+                'local_weather_observation', 'problem_report', 'callback_coordination',
+                'safety_escalation', 'operational_campaign'
+            )),
+            scope_type TEXT NOT NULL CHECK (scope_type IN (
+                'operating_unit', 'land_parcel', 'operational_block', 'crop_allocation'
+            )),
+            scope_id TEXT NOT NULL,
+            channel TEXT NOT NULL CHECK (channel IN ('whatsapp')),
+            status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+            evidence TEXT NOT NULL,
+            actor_person_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_active
+            ON communication_endpoint_verifications(endpoint_id, profile_id)
+            WHERE status = 'active';
+        CREATE INDEX IF NOT EXISTS idx_communication_profiles_person
+            ON communication_profiles(person_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_profile
+            ON communication_endpoint_verifications(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_endpoint
+            ON communication_endpoint_verifications(endpoint_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_verifications_verifier
+            ON communication_endpoint_verifications(verified_by_person_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_scopes_profile
+            ON communication_endpoint_scopes(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_endpoint_scopes_relationship
+            ON communication_endpoint_scopes(relationship_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consents_profile
+            ON communication_scoped_consents(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_consent
+            ON communication_scoped_consent_events(consent_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_profile
+            ON communication_scoped_consent_events(profile_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_endpoint
+            ON communication_scoped_consent_events(endpoint_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_communication_scoped_consent_events_actor
+            ON communication_scoped_consent_events(actor_person_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consents_capture_immutable
+        BEFORE UPDATE OF profile_id, endpoint_id, purpose, scope_type, scope_id,
+                         channel, evidence, granted_at
+        ON communication_scoped_consents
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent capture is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consent_events_no_update
+        BEFORE UPDATE ON communication_scoped_consent_events
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent events are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_scoped_consent_events_no_delete
+        BEFORE DELETE ON communication_scoped_consent_events
+        BEGIN
+            SELECT RAISE(ABORT, 'communication scoped consent events are append-only');
+        END;
         CREATE TABLE IF NOT EXISTS communication_consents (
             id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
@@ -324,6 +467,271 @@ def create_endpoint(conn: sqlite3.Connection, person_id: str, provider: str, add
     conn.execute("INSERT INTO communication_endpoints VALUES (?, ?, ?, ?, ?, 'active', ?)", (identifier, person_id, provider, address, locale, created_at))
     conn.commit()
     return dict(conn.execute("SELECT * FROM communication_endpoints WHERE id = ?", (identifier,)).fetchone())
+
+
+def create_communication_profile(
+    conn: sqlite3.Connection, portal_id: str, person_id: str, locale: str, time_zone: str,
+) -> Dict[str, Any]:
+    """Create an explicit portal/person communications identity.
+
+    The caller supplies both canonical identifiers. Contact data is never used
+    to infer the person or their portal role.
+    """
+    membership = conn.execute(
+        """SELECT portal.status AS portal_status, membership.membership_status
+           FROM customer_portals portal
+           JOIN portal_memberships membership ON membership.portal_id = portal.id
+           WHERE portal.id = ? AND membership.person_id = ?""",
+        (portal_id, person_id),
+    ).fetchone()
+    if membership is None:
+        raise ValueError("communication profile requires an explicit portal membership")
+    if membership["portal_status"] != "active" or membership["membership_status"] == "suspended":
+        raise ValueError("communication profile portal membership is not active")
+    if not locale or len(locale) > 35:
+        raise ValueError("communication profile locale is invalid")
+    try:
+        ZoneInfo(time_zone)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        raise ValueError("communication profile time zone is invalid") from None
+
+    existing = conn.execute(
+        "SELECT * FROM communication_profiles WHERE portal_id = ? AND person_id = ?",
+        (portal_id, person_id),
+    ).fetchone()
+    if existing is not None:
+        return dict(existing)
+    identifier, created_at = _identity()
+    conn.execute(
+        """INSERT INTO communication_profiles
+           (id, portal_id, person_id, status, locale, time_zone, created_at)
+           VALUES (?, ?, ?, 'active', ?, ?, ?)""",
+        (identifier, portal_id, person_id, locale, time_zone, created_at),
+    )
+    conn.commit()
+    return dict(conn.execute(
+        "SELECT * FROM communication_profiles WHERE id = ?", (identifier,),
+    ).fetchone())
+
+
+def verify_endpoint(
+    conn: sqlite3.Connection, profile_id: str, provider: str, address: str,
+    verification_method: str, verified_by_person_id: str,
+) -> Dict[str, Any]:
+    """Bind a provider endpoint to one explicit profile person."""
+    profile = conn.execute(
+        "SELECT * FROM communication_profiles WHERE id = ? AND status = 'active'",
+        (profile_id,),
+    ).fetchone()
+    if profile is None:
+        raise ValueError("active communication profile does not exist")
+    if conn.execute(
+        "SELECT 1 FROM people WHERE id = ?", (verified_by_person_id,),
+    ).fetchone() is None:
+        raise ValueError("endpoint verifier does not exist")
+    if not verification_method or len(verification_method) > 80:
+        raise ValueError("endpoint verification method is invalid")
+
+    normalized_address = _normalize_e164(address)
+    endpoint = conn.execute(
+        "SELECT * FROM communication_endpoints WHERE provider = ? AND address = ?",
+        (provider, normalized_address),
+    ).fetchone()
+    if endpoint is None:
+        endpoint = create_endpoint(
+            conn, profile["person_id"], provider, normalized_address, profile["locale"],
+        )
+    else:
+        endpoint = dict(endpoint)
+        if endpoint["person_id"] != profile["person_id"]:
+            raise ValueError("endpoint person does not match communication profile person")
+        if endpoint["status"] != "active":
+            raise ValueError("communication endpoint is not active")
+
+    existing = conn.execute(
+        """SELECT 1 FROM communication_endpoint_verifications
+           WHERE profile_id = ? AND endpoint_id = ? AND status = 'active'""",
+        (profile_id, endpoint["id"]),
+    ).fetchone()
+    if existing is None:
+        identifier, verified_at = _identity()
+        conn.execute(
+            """INSERT INTO communication_endpoint_verifications
+               (id, profile_id, endpoint_id, verification_method, verified_by_person_id,
+                verified_at, status, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'active', NULL)""",
+            (
+                identifier, profile_id, endpoint["id"], verification_method,
+                verified_by_person_id, verified_at,
+            ),
+        )
+        conn.commit()
+    return endpoint
+
+
+def _active_profile_scope(
+    conn: sqlite3.Connection, profile: sqlite3.Row, scope_type: str, scope_id: str,
+) -> sqlite3.Row:
+    relation, relationship_column = _SCOPE_RELATIONS[scope_type]
+    if conn.execute(
+        "SELECT 1 FROM {0} WHERE id = ?".format(relation), (scope_id,),
+    ).fetchone() is None:
+        raise ValueError("communication scope record does not exist")
+    relationship = conn.execute(
+        """SELECT * FROM person_operating_relationships
+           WHERE person_id = ? AND scope_type = ? AND {0} = ? AND status = 'active'""".format(
+            relationship_column
+        ),
+        (profile["person_id"], scope_type, scope_id),
+    ).fetchone()
+    if relationship is None:
+        raise ValueError("communication profile has no active relationship for scope")
+    return relationship
+
+
+def set_scoped_consent(
+    conn: sqlite3.Connection, profile_id: str, endpoint_id: str, purpose: str,
+    scope_type: str, scope_id: str, active: bool, evidence: str,
+    actor_person_id: str, channel: str = "whatsapp",
+) -> Dict[str, Any]:
+    """Append a scoped consent transition while retaining capture evidence."""
+    if purpose not in COMMUNICATION_PURPOSES:
+        raise ValueError("unknown communication purpose")
+    if scope_type not in COMMUNICATION_SCOPES:
+        raise ValueError("unknown communication scope")
+    if channel not in COMMUNICATION_CHANNELS:
+        raise ValueError("unknown communication channel")
+    if not scope_id:
+        raise ValueError("communication scope id is required")
+    if not evidence or not evidence.strip():
+        raise ValueError("communication consent evidence is required")
+    if conn.execute(
+        "SELECT 1 FROM people WHERE id = ?", (actor_person_id,),
+    ).fetchone() is None:
+        raise ValueError("communication consent actor does not exist")
+
+    profile = conn.execute(
+        "SELECT * FROM communication_profiles WHERE id = ? AND status = 'active'",
+        (profile_id,),
+    ).fetchone()
+    if profile is None:
+        raise ValueError("active communication profile does not exist")
+    endpoint = conn.execute(
+        "SELECT * FROM communication_endpoints WHERE id = ? AND status = 'active'",
+        (endpoint_id,),
+    ).fetchone()
+    if endpoint is None:
+        raise ValueError("active communication endpoint does not exist")
+    if endpoint["person_id"] != profile["person_id"]:
+        raise ValueError("endpoint person does not match communication profile person")
+    if conn.execute(
+        """SELECT 1 FROM communication_endpoint_verifications
+           WHERE profile_id = ? AND endpoint_id = ? AND status = 'active'""",
+        (profile_id, endpoint_id),
+    ).fetchone() is None:
+        raise ValueError("communication endpoint is not verified for profile")
+    relationship = _active_profile_scope(conn, profile, scope_type, scope_id)
+
+    now = datetime.now(timezone.utc).isoformat()
+    status = "active" if active else "revoked"
+    try:
+        scope = conn.execute(
+            """SELECT * FROM communication_endpoint_scopes
+               WHERE profile_id = ? AND relationship_id = ? AND scope_type = ? AND scope_id = ?""",
+            (profile_id, relationship["id"], scope_type, scope_id),
+        ).fetchone()
+        if scope is None:
+            scope_identifier, _ = _identity()
+            conn.execute(
+                """INSERT INTO communication_endpoint_scopes
+                   (id, profile_id, relationship_id, scope_type, scope_id, starts_on, ends_on, status)
+                   VALUES (?, ?, ?, ?, ?, ?, NULL, 'active')""",
+                (
+                    scope_identifier, profile_id, relationship["id"], scope_type,
+                    scope_id, relationship["starts_on"],
+                ),
+            )
+
+        consent = conn.execute(
+            """SELECT * FROM communication_scoped_consents
+               WHERE endpoint_id = ? AND purpose = ? AND scope_type = ?
+                 AND scope_id = ? AND channel = ?""",
+            (endpoint_id, purpose, scope_type, scope_id, channel),
+        ).fetchone()
+        if consent is None:
+            consent_id, granted_at = _identity()
+            conn.execute(
+                """INSERT INTO communication_scoped_consents
+                   (id, profile_id, endpoint_id, purpose, scope_type, scope_id, channel,
+                    status, evidence, granted_at, revoked_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    consent_id, profile_id, endpoint_id, purpose, scope_type, scope_id,
+                    channel, status, evidence, granted_at, None if active else now,
+                ),
+            )
+        else:
+            if consent["profile_id"] != profile_id:
+                raise ValueError("scoped consent belongs to another communication profile")
+            consent_id = consent["id"]
+            conn.execute(
+                """UPDATE communication_scoped_consents
+                   SET status = ?, revoked_at = ? WHERE id = ?""",
+                (status, None if active else now, consent_id),
+            )
+
+        event_id, created_at = _identity()
+        conn.execute(
+            """INSERT INTO communication_scoped_consent_events
+               (id, consent_id, profile_id, endpoint_id, purpose, scope_type, scope_id,
+                channel, status, evidence, actor_person_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id, consent_id, profile_id, endpoint_id, purpose, scope_type,
+                scope_id, channel, status, evidence, actor_person_id, created_at,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return dict(conn.execute(
+        "SELECT * FROM communication_scoped_consents WHERE id = ?", (consent_id,),
+    ).fetchone())
+
+
+def has_scoped_consent(
+    conn: sqlite3.Connection, endpoint_id: str, purpose: str,
+    scope_type: str, scope_id: str, channel: str = "whatsapp",
+) -> bool:
+    if purpose not in COMMUNICATION_PURPOSES or scope_type not in COMMUNICATION_SCOPES:
+        return False
+    if channel not in COMMUNICATION_CHANNELS:
+        return False
+    return conn.execute(
+        """SELECT 1 FROM communication_scoped_consents
+           WHERE endpoint_id = ? AND purpose = ? AND scope_type = ? AND scope_id = ?
+             AND channel = ? AND status = 'active'""",
+        (endpoint_id, purpose, scope_type, scope_id, channel),
+    ).fetchone() is not None
+
+
+def profile_for_endpoint(
+    conn: sqlite3.Connection, provider: str, address: str, portal_id: str,
+) -> Optional[Dict[str, Any]]:
+    normalized_address = _normalize_e164(address)
+    row = conn.execute(
+        """SELECT profile.*
+           FROM communication_profiles profile
+           JOIN communication_endpoint_verifications verification
+             ON verification.profile_id = profile.id AND verification.status = 'active'
+           JOIN communication_endpoints endpoint
+             ON endpoint.id = verification.endpoint_id AND endpoint.status = 'active'
+           WHERE endpoint.provider = ? AND endpoint.address = ?
+             AND profile.portal_id = ? AND profile.status = 'active'""",
+        (provider, normalized_address, portal_id),
+    ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def set_consent(conn: sqlite3.Connection, endpoint_id: str, purpose: str, active: bool, evidence: str, actor_id: Optional[str] = None) -> Dict[str, Any]:

@@ -35,3 +35,10 @@ or Auth subject and cannot authenticate merely because their name is present.
 `0011_agro_trackwick_media_origin_check.sql` repairs the original TrackWick
 media-host constraint to accept the one explicitly approved S3 prefix. Apply
 it after `0009`; it does not broaden the origin allow-list or copy any image.
+
+`0021_agro_communications_control_plane.sql` adds the private, portal/person-
+scoped communications profile, endpoint verification, operating-scope, and
+append-only scoped-consent foundation. It does not enable WhatsApp traffic,
+infer authority from a phone number, expose `agro` through the Data API, or
+grant browser/runtime privileges. Apply it only after the customer portal and
+person operating relationship migrations are present.
