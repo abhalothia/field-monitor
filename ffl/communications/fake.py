@@ -71,4 +71,5 @@ class FakeLoopMessageProvider(LoopMessageProvider):
         if reply_to_message_id is not None and not isinstance(reply_to_message_id, str):
             raise ValueError("fake reply_to_message_id must be a string")
         normalized["reply_to_message_id"] = reply_to_message_id
+        normalized["intent"] = "opt_out" if normalized["text"].strip().upper() == "STOP" else None
         return normalized

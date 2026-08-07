@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 import httpx
 
 from ffl.communications.ports import (
-    AttachmentContent, ConstrainedIntent, MessageStatus, NormalizedInboundEvent,
-    ProviderAmbiguousError, ProviderRejectedError, SendResult,
+    AttachmentContent, MessageStatus, NormalizedInboundEvent, ProviderAmbiguousError,
+    ProviderRejectedError, SendResult,
 )
 
 
@@ -190,7 +190,7 @@ class LoopMessageProvider:
             # The provider correlation field is intentionally unmapped until
             # a non-production sandbox proves its exact wire location.
             "reply_to_message_id": None,
-            "intent": _constrained_intent(str(payload.get("text", ""))),
+            "intent": None,
             "raw": payload,
         }
 
@@ -219,12 +219,6 @@ def _sender_fingerprint(sender: str) -> str:
 def _attachment_reference(event_id: str, source: str) -> str:
     digest = hashlib.sha256(("loopmessage:attachment:" + event_id + ":" + source).encode("utf-8")).hexdigest()
     return "loopmessage-attachment:" + digest
-
-
-def _constrained_intent(text: str) -> Optional[ConstrainedIntent]:
-    # Only the provider-neutral STOP behavior required by the frozen boundary
-    # is recognized here. Localized opt-outs belong to a reviewed policy list.
-    return "opt_out" if text.strip().upper() == "STOP" else None
 
 
 def _require_public_host(hostname: str) -> None:

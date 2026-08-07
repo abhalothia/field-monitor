@@ -32,8 +32,9 @@ It does not claim that the similarly named fields are LoopMessage JSON keys.
   the constrained FFL intents (or no intent), and opaque attachment references.
 - The deterministic fake recognizes exact `STOP` text as `opt_out` and accepts
   the fake-only top-level `reply_to_message_id` used by contract tests.
-- The real adapter deliberately returns no reply correlation mapping and refuses
-  template sends because those production wire locations remain unverified.
+- The real adapter deliberately returns no reply correlation or inferred intent
+  mapping and refuses template sends because the provider behaviors and
+  production wire locations remain unverified.
 - Raw payloads, contact addresses, and remote media URLs remain available only
   during sealed-receipt processing; routine event storage receives redacted
   metadata and opaque references.

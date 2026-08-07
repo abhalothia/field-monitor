@@ -26,6 +26,22 @@ def test_normalized_reply_exposes_reply_to_and_opt_out_without_raw_address():
     assert event["intent"] == "opt_out"
 
 
+def test_real_provider_does_not_infer_opt_out_before_sandbox_proof():
+    provider = LoopMessageProvider(
+        "organization-key", "webhook-token", "sender-1",
+        whatsapp_channel_enabled=True,
+        whatsapp_capability_proof="sandbox-verified",
+        whatsapp_capability_proof_ref="test-sandbox-proof",
+    )
+
+    event = provider.normalize_webhook({
+        "event": "message_inbound", "webhook_id": "evt-stop-1", "message_id": "msg-stop-1",
+        "contact": "+15550000001", "sender": "sender-1", "text": "STOP",
+    })
+
+    assert event["intent"] is None
+
+
 def test_real_template_send_stays_disabled_without_a_proven_wire_mapping():
     provider = LoopMessageProvider(
         "organization-key", "webhook-token", "sender-1",
