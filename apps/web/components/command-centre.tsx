@@ -408,6 +408,7 @@ const EMPTY_STATE: State = {
 };
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
+const DIRECTORY_CACHE_PREFIX = "agro-ceo-farm-directory-v1:";
 
 type Translation = {
   home: string; fields: string; farmers: string; actions: string; settings: string;
@@ -632,8 +633,8 @@ export function CommandCentre({ view }: { view: View }) {
         </nav>
         <div className="command-tools">
           <button type="button" className="tool-icon language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
-          <button type="button" className="tool-icon" onClick={() => void load()} disabled={state.loading} aria-label="Refresh">↻</button>
-          <button type="button" className="tool-icon" aria-label="Notifications">♢</button>
+          <button type="button" className="tool-icon" onClick={() => void load()} disabled={state.loading} aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0 1.3 4.4M20 4v7h-7" /></svg></button>
+          <button type="button" className="tool-icon" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg></button>
           <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
         </div>
       </header>
@@ -643,7 +644,6 @@ export function CommandCentre({ view }: { view: View }) {
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           <h1>{headingFor(view, t)}</h1>
         </div>
-        <p>{state.portfolio?.as_of ? `${t.updated} ${dateTime(state.portfolio.as_of)} IST` : ""}</p>
       </section>
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
@@ -777,14 +777,22 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     const params = directoryParams(filters);
     params.set("limit", String(FARM_DIRECTORY_PAGE_SIZE));
     params.set("offset", String(directoryPage * FARM_DIRECTORY_PAGE_SIZE));
-    setDirectory((current) => ({ ...current, loading: true, error: null }));
+    const cacheKey = DIRECTORY_CACHE_PREFIX + params.toString();
+    let cached: FarmDirectory | null = null;
+    try {
+      const saved = window.sessionStorage.getItem(cacheKey);
+      cached = saved ? JSON.parse(saved) as FarmDirectory : null;
+    } catch { /* a bad local cache is discarded by the next successful read */ }
+    setDirectory((current) => ({ items: cached || current.items, loading: true, error: null }));
     void readJson<FarmDirectory>("/api/v1/farms?" + params)
       .then(({ value }) => {
-        if (request === directoryRequest.current) setDirectory((current) => ({
-          items: directoryPage ? [...current.items, ...value] : value,
-          loading: false,
-          error: null,
-        }));
+        if (request === directoryRequest.current) {
+          setDirectory((current) => {
+            const items = directoryPage ? [...current.items, ...value] : value;
+            try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* cache is optional */ }
+            return { items, loading: false, error: null };
+          });
+        }
       })
       .catch((error: unknown) => {
         if (request !== directoryRequest.current) return;
@@ -951,7 +959,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const reportedTotal = filters.state === "reported" || filters.state === "all" ? state.trackwick?.counts.farm_candidates : undefined;
   const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
   return <section className="single-surface fields-stage farm-directory">
-    <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Farms</h2></div><span className="count-badge">{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div>
+    <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Find a farm</h2></div><span className="count-badge">{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div>
     <form className="directory-filters" onSubmit={applyFilters}>
       <label>View<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All farms</option><option value="reviewed">Active farms</option><option value="reported">To review</option></select></label>
       <label>Search<input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Farm name" /></label>
@@ -959,7 +967,7 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     </form>
     {!canOpenProfiles
       ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/fields", label: "Sign in" }} />
-      : directory.loading
+      : directory.loading && !directory.items.length
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
@@ -1175,7 +1183,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   const sourceFarmers = trackwick?.farmers || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
-    <div className="surface-heading"><div><p className="eyebrow">Farm network</p><h2>Farmers</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
+    <div className="surface-heading"><div><p className="eyebrow">Farm network</p><h2>Find a farmer</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
     {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
@@ -1306,7 +1314,7 @@ function AgentsView({ agents, reload }: {
   }
 
   return <section className="single-surface actions-surface agents-stage">
-    <div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>Agents</h2></div><span className="count-badge">{count(agents?.agents.length)}</span></div>
+    <div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>What needs attention</h2></div><span className="count-badge">{count(agents?.agents.length)}</span></div>
     <p className="surface-copy">Four simple checks keep the field moving.</p>
     <div className="agent-list">
       {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>

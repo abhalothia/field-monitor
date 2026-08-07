@@ -60,6 +60,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .language-toggle, .quiet-button, .tool-icon { border: 1px solid rgba(20, 61, 45, .28); border-radius: 999px; background: rgba(255, 251, 239, .48); color: var(--ink-soft); cursor: pointer; font-size: .69rem; font-weight: 800; padding: 8px 11px; }
 .tool-icon { display: grid; width: 38px; height: 38px; place-items: center; padding: 0; font-size: 1rem; }
 .tool-icon.language-toggle { font-size: .7rem; }
+.tool-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .profile-menu { position: relative; }
 .profile-avatar { display: grid; width: 38px; height: 38px; place-items: center; overflow: hidden; border: 1px solid rgba(20, 61, 45, .28); border-radius: 50%; background: #fffaf0; cursor: pointer; padding: 8px; }
 .profile-avatar img { width: 100%; height: 100%; object-fit: contain; }
@@ -68,9 +69,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .profile-dropdown a { margin-top: 9px; color: var(--ink-soft); font-size: .7rem; font-weight: 800; }
 .quiet-button:hover:not(:disabled), .language-toggle:hover { background: var(--paddy); color: var(--ink); }
 .quiet-button:disabled { cursor: wait; opacity: .6; }
-.command-intro { display: flex; align-items: end; justify-content: space-between; gap: 26px; padding: 36px 0 20px; }
+.command-intro { display: flex; align-items: end; justify-content: space-between; gap: 26px; padding: 28px 0 18px; }
 .command-intro .eyebrow { margin-bottom: 9px; }
-.command-intro h1 { margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.9rem, 6vw, 5.4rem); font-weight: 400; letter-spacing: -.065em; line-height: .9; }
+.command-intro h1 { margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.6rem, 4.6vw, 4.3rem); font-weight: 400; letter-spacing: -.065em; line-height: .9; }
 .command-intro > p { margin: 0 0 4px; color: var(--muted); font-size: .67rem; }
 .honest-notice { border-left: 3px solid var(--gold); background: rgba(242, 226, 180, .48); color: #70561d; font-size: .76rem; line-height: 1.45; margin: 0 0 18px; padding: 10px 12px; }
 
@@ -192,6 +193,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .single-stage footer { margin-top: 24px; color: #70806c; font-family: "DM Mono", monospace; font-size: .62rem; letter-spacing: .04em; text-transform: uppercase; }
 .single-surface { min-height: 0; background: rgba(250, 247, 236, .8); padding: clamp(22px, 3vw, 38px); }
 .home-map-stage { display: grid; grid-template-columns: minmax(300px, .68fr) minmax(460px, 1.32fr); min-height: min(650px, 68vh); gap: clamp(26px, 4vw, 68px); align-items: stretch; background: linear-gradient(135deg, rgba(249, 247, 236, .94), rgba(225, 234, 209, .68)); }
+.home-map-stage { width: 100%; max-width: none; }
 .home-map-copy { display: flex; flex-direction: column; align-items: flex-start; padding: clamp(8px, 2vw, 22px) 0; }
 .home-map-copy h2 { max-width: 10ch; margin: 13px 0 16px; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.7rem, 5vw, 5.35rem); font-weight: 400; letter-spacing: -.065em; line-height: .89; }
 .home-map-copy > p:not(.eyebrow) { max-width: 40ch; color: var(--ink-soft); font-size: .84rem; line-height: 1.58; }
