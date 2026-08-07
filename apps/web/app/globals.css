@@ -96,6 +96,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .command-intro-compact h1 { font-family: Manrope, Arial, sans-serif; font-size: 1.35rem; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
 .mobile-nav { display: none; }
 .honest-notice { border-left: 3px solid var(--gold); background: rgba(242, 226, 180, .48); color: #70561d; font-size: .76rem; line-height: 1.45; margin: 0 0 18px; padding: 10px 12px; }
+.honest-notice-stale { border-left-color: #6f876c; background: rgba(220, 231, 211, .52); color: #4c694f; }
 
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 14px; }
 .today-card, .programme-card, .surface, .metric-card, .field-card { border: 1px solid var(--line); background: rgba(250, 247, 236, .78); box-shadow: 0 8px 30px rgba(59, 68, 43, .045); }
@@ -139,6 +140,13 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-locked, .map-empty { display: grid; min-height: 144px; place-items: center; align-content: center; background: linear-gradient(135deg, rgba(220, 231, 211, .72), rgba(238, 231, 205, .6)); color: var(--muted); padding: 28px; text-align: center; }
 .map-locked p, .map-empty p { max-width: 47ch; font-size: .76rem; line-height: 1.5; }
 .map-empty strong { color: var(--ink-soft); font-size: .85rem; }
+.map-loading { position: relative; display: grid; min-height: inherit; place-items: center; align-content: center; gap: 10px; overflow: hidden; background: linear-gradient(145deg, rgba(220, 231, 211, .72), rgba(238, 231, 205, .6)); color: var(--muted); }
+.map-loading::before { position: absolute; inset: 0; background-image: linear-gradient(rgba(20, 61, 45, .05) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 61, 45, .05) 1px, transparent 1px); background-size: 46px 46px; content: ""; }
+.map-loading p, .map-loading i, .map-loading .directory-loading-dot { z-index: 1; }
+.map-loading p { color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .045em; margin: 0; text-transform: uppercase; }
+.map-loading i { display: block; width: clamp(140px, 20%, 240px); height: 1px; background: rgba(20, 61, 45, .14); }
+.map-loading i:nth-of-type(2) { width: clamp(92px, 14%, 160px); }
+.map-loading i:nth-of-type(3) { width: clamp(180px, 26%, 320px); }
 .geometry-list { display: flex; min-height: 130px; flex-wrap: wrap; align-content: center; gap: 8px; background: rgba(220, 231, 211, .45); padding: 20px; }
 .geometry-list p { flex-basis: 100%; color: var(--muted); font-size: .76rem; margin: 0 0 5px; }
 .geometry-list span { border: 1px solid rgba(20, 61, 45, .22); background: rgba(255, 250, 235, .7); color: var(--ink-soft); font-size: .68rem; padding: 7px 9px; }
@@ -281,7 +289,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-inspector-record { position: sticky; top: 12px; display: flex; min-height: min(668px, calc(100vh - 292px)); flex-direction: column; border: 1px solid rgba(20, 61, 45, .2); background: rgba(255, 252, 242, .82); padding: 22px; }
 .map-inspector-record .eyebrow { margin: 0 30px 9px 0; }
 .map-inspector-record h2 { max-width: 11ch; margin: 0; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2rem, 2.8vw, 3.1rem); font-weight: 400; letter-spacing: -.055em; line-height: .93; }
-.map-inspector-place { min-height: 36px; color: var(--muted); font-size: .72rem; line-height: 1.5; margin: 12px 0 20px; }
+.map-inspector-place { display: grid; gap: 4px; min-height: 36px; color: var(--muted); font-size: .72rem; line-height: 1.5; margin: 12px 0 20px; }
+.map-inspector-place span { color: #71806d; font-family: "DM Mono", monospace; font-size: .56rem; letter-spacing: .035em; text-transform: uppercase; }
 .map-record-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: -7px 0 20px; }
 .map-record-tags span { border-radius: 999px; background: rgba(20, 61, 45, .09); color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .52rem; letter-spacing: .04em; padding: 5px 7px; text-transform: uppercase; }
 .map-record-tags .attention { background: #f4d8d2; color: #7d3e35; }

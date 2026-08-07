@@ -570,6 +570,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const stateRef = useRef<State>(EMPTY_STATE);
+  const loadRequest = useRef<Promise<void> | null>(null);
   const profileRequest = useRef(0);
   const profileOpener = useRef<string | null>(null);
   const t = WORDS[language];
@@ -598,7 +599,9 @@ export function CommandCentre({ view }: { view: View }) {
     } catch { /* cache is an enhancement, not a dependency */ }
   }, [state]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
+    if (loadRequest.current) return loadRequest.current;
+    const request = (async () => {
     setState((current) => ({ ...current, loading: current.profile === null, error: null }));
     const results = await Promise.allSettled([
       readJson<OperatingProfile>("/api/v1/operating-profile"),
@@ -647,9 +650,33 @@ export function CommandCentre({ view }: { view: View }) {
       updatedAt: rejected || privateFailed ? current.updatedAt : new Date().toISOString(),
       error: rejected && !currentRecordExists ? "The live record could not be reached." : null,
     }));
+    })();
+    loadRequest.current = request;
+    void request.then(
+      () => { if (loadRequest.current === request) loadRequest.current = null; },
+      () => { if (loadRequest.current === request) loadRequest.current = null; },
+    );
+    return request;
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let lastRevalidation = 0;
+    const revalidate = () => {
+      if (document.visibilityState === "hidden" || Date.now() - lastRevalidation < 30_000) return;
+      lastRevalidation = Date.now();
+      void load();
+    };
+    window.addEventListener("focus", revalidate);
+    window.addEventListener("online", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      window.removeEventListener("online", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
+    };
+  }, [load]);
 
   useEffect(() => {
     function openSearch(event: KeyboardEvent) {
@@ -745,7 +772,7 @@ export function CommandCentre({ view }: { view: View }) {
         </div>
       </section> : null}
 
-      {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
+      {state.error ? <p className="honest-notice" role="status">{state.error}</p> : state.stale ? <p className="honest-notice honest-notice-stale" role="status">Showing saved data while we reconnect.</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
@@ -797,9 +824,10 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   const detail = reportedFarmCount
     ? `${count(trackwick?.counts.reported_visits)} visits · ${count(trackwick?.counts.reported_signals)} field issues · ${count(trackwick?.counts.open_work)} open tasks.`
     : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "The operating record begins with a real field, not a guessed one.";
+  const mapIsPreparing = state.loading && !mapPoints.length;
   return <section className="single-surface home-map-stage">
     <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div><Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
-    <OperatingMap points={mapPoints} preview />
+    {mapIsPreparing ? <MapLoadingState label="Opening the field map" /> : <OperatingMap points={mapPoints} preview />}
   </section>;
 }
 
@@ -971,6 +999,7 @@ function MapView({ state }: { state: State }) {
   const [days, setDays] = useState<"all" | "7" | "30">("all");
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const allPoints = state.trackwick?.map?.points || [];
+  const mapIsPreparing = state.loading && !allPoints.length;
   const points = useMemo(() => {
     const minimum = days === "all" ? null : Date.now() - Number(days) * 86_400_000;
     const needle = query.trim().toLocaleLowerCase();
@@ -993,7 +1022,7 @@ function MapView({ state }: { state: State }) {
       <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Farms"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
       <MapTabs label="When" value={days} onChange={setDays} options={[["all", "All time"], ["7", "This week"], ["30", "This month"]]} />
     </div>
-    <div className="map-content"><div className="map-canvas"><OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} /></div></div>
+    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Opening map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} close={() => setSelected(null)} /> : null}
   </section>;
 }
@@ -1021,7 +1050,7 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
       <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
       <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
       <h2>{subject.name}</h2>
-      <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}</p>
+      <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}<span>{updatedAgo(point.observed_at)}</span></p>
       <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span></div>
       <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
@@ -1489,7 +1518,7 @@ function ReportedFarmPanel({ record, operatingUnit }: {
         <h3>Activity</h3>
         <dl className="profile-facts">
           <div><dt>Open tasks</dt><dd>{count(record.reported.open_work)}</dd></div>
-          <div><dt>Last activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
+          <div><dt>Last activity</dt><dd>{updatedAgo(record.reported.latest_activity_at)}</dd></div>
           <div><dt>Photos</dt><dd>{count(photoReferences)}</dd></div>
         </dl>
       </section>
@@ -1516,7 +1545,7 @@ function FarmRecordPanel({ record, openField, openPerson }: {
     <div className="farm-profile-sections">
       <section>
         <h3>Now</h3>
-        <div className="profile-summary-line"><span>{count(record.now.open_work_count)} open work</span><span>Latest update {dateTime(record.now.latest_update_at)}</span></div>
+        <div className="profile-summary-line"><span>{count(record.now.open_work_count)} open work</span><span>{updatedAgo(record.now.latest_update_at)}</span></div>
         <div className="entity-chip-list" aria-label="Fields">
           {record.now.fields.length ? record.now.fields.map((field) => <button id={`farm-field-${record.id}-${field.id}`} className="entity-chip entity-chip-link" type="button" key={field.id} onClick={(event) => openField(field.id, event.currentTarget.id)}>{field.name} <span aria-hidden="true">→</span></button>) : <span className="empty-copy">No reviewed Fields</span>}
         </div>
@@ -1543,10 +1572,14 @@ function FieldRecordPanel({ record, openFarm, openPerson }: {
   openFarm: (id: string, openerId: string) => void;
   openPerson: (kind: PersonKind, id: string, openerId: string) => void;
 }) {
+  const latestUpdateAt = record.updates.reduce<string | null>((latest, update) => {
+    if (!latest || activityTimestamp(update.occurred_at) > activityTimestamp(latest)) return update.occurred_at;
+    return latest;
+  }, null);
   return <div className="entity-profile-content field-context">
     <p className="eyebrow">Reviewed Field</p>
     <h2>{record.name}</h2>
-    <div className="profile-summary-line"><span>{record.area_hectares == null ? "Area not recorded" : `${record.area_hectares} hectares`}</span><span>Geometry {roleName(record.geometry.state)}</span></div>
+    <div className="profile-summary-line"><span>{record.area_hectares == null ? "Area not recorded" : `${record.area_hectares} hectares`}</span><span>Geometry {roleName(record.geometry.state)}</span><span>{updatedAgo(latestUpdateAt)}</span></div>
     {record.farm ? <button id={`field-farm-${record.id}-${record.farm.id}`} className="context-link context-parent-link" type="button" onClick={(event) => openFarm(record.farm!.id, event.currentTarget.id)}><strong>{record.farm.name}</strong><span>Open Farm <span aria-hidden="true">→</span></span></button> : <p className="empty-copy">This Field is not attached to an active reviewed Farm.</p>}
     <section className="field-crop-seasons">
       <h3>Crop seasons</h3>
@@ -1703,7 +1736,7 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
         <div><dt>Farmers</dt><dd>{count(profile.reported?.reported_farmer_reach)}</dd></div>
         <div><dt>Open tasks</dt><dd>{count(profile.reported?.open_work)}</dd></div>
         <div><dt>Completed tasks</dt><dd>{count(profile.reported?.completed_work)}</dd></div>
-        <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
+        <div><dt>Latest activity</dt><dd>{updatedAgo(profile.reported?.latest_activity_at)}</dd></div>
         <div><dt>Latest attendance</dt><dd>{profile.reported?.latest_attendance_on || "—"}</dd></div>
         <div><dt>Visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
         <div><dt>Crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
@@ -1715,7 +1748,7 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
       <div><dt>Farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
       <div><dt>Area</dt><dd>{profile.reported?.reported_area_acres == null ? "—" : `${profile.reported.reported_area_acres} acres`}</dd></div>
       <div><dt>Open tasks</dt><dd>{count(profile.reported?.open_work)}</dd></div>
-      <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
+      <div><dt>Latest activity</dt><dd>{updatedAgo(profile.reported?.latest_activity_at)}</dd></div>
       <div><dt>Photos</dt><dd>{count(profile.reported?.crop_photo_references)}</dd></div>
       <div><dt>Visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
       <div><dt>Crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
@@ -1770,7 +1803,7 @@ function AgentsView({ agents, reload }: {
         <div><h3>{agent.name}</h3><p>{agent.summary}</p></div>
         <Link href={agent.id === "disease-watch" ? "/farms?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
       </article>)}
-      {!agents ? <p className="empty-copy">Loading agents…</p> : null}
+      {!agents ? <DirectoryLoadingState label="Opening agents" /> : null}
     </div>
     <section className="agent-builder">
       <div><p className="eyebrow">Your agent</p><h3>Tell us what to watch</h3><p>Write a plain-language notification for anything in your operating data.</p></div>
@@ -2001,6 +2034,14 @@ function DirectoryLoadingState({ label }: { label: string }) {
       {Array.from({ length: 8 }, (_, index) => <i className="directory-skeleton-card" key={index} />)}
     </div>
   </section>;
+}
+
+function MapLoadingState({ label }: { label: string }) {
+  return <div className="map-loading" role="status" aria-live="polite" aria-label={label}>
+    <span className="directory-loading-dot" aria-hidden="true" />
+    <p>{label}</p>
+    <i /><i /><i />
+  </div>;
 }
 
 function actionLine(item: LedgerItem) {

@@ -923,6 +923,17 @@ def test_command_centre_uses_authenticated_cache_and_directory_skeleton_before_s
     assert '!accessResolved ? <DirectoryLoadingState label="Opening farmers" />' in source
 
 
+def test_command_centre_revalidates_saved_data_without_blank_workspace_states():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert 'window.addEventListener("focus", revalidate);' in source
+    assert 'window.addEventListener("online", revalidate);' in source
+    assert 'document.addEventListener("visibilitychange", revalidate);' in source
+    assert "Showing saved data while we reconnect." in source
+    assert 'function MapLoadingState({ label }: { label: string })' in source
+    assert '<MapLoadingState label="Opening the field map" />' in source
+
+
 def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):
     person = repository.create_person(ffl_db, "Not a grower", "operations_lead")
     repository.create_person_operating_relationship(
