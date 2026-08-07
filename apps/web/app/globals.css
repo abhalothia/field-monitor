@@ -336,18 +336,23 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .signal-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
 .signal-filters input, .signal-filters select { width: 100%; min-height: 40px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
 
-.farm-directory { max-width: none; }
+.directory-workspace { width: 100%; min-width: 0; padding: 14px 0 0; }
+.farm-directory, .people-workspace { max-width: none; }
 .directory-filters { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(250px, 1.5fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }
 .directory-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .045em; text-transform: uppercase; }
 .directory-filters input, .directory-filters select { width: 100%; min-height: 46px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .8rem; letter-spacing: 0; padding: 9px 12px; text-transform: none; }
 .directory-filter-actions { display: flex; align-items: center; gap: 9px; min-height: 42px; }
 .directory-filter-actions .text-link { border: 0; background: transparent; cursor: pointer; padding: 8px 2px; white-space: nowrap; }
-.directory-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 28px; border-bottom: 1px solid var(--line); margin-bottom: 20px; padding-bottom: 18px; }
+.directory-toolbar { display: grid; grid-template-columns: auto auto minmax(300px, 1fr); align-items: end; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; padding-bottom: 16px; }
 .directory-title { display: flex; align-items: center; gap: 10px; min-height: 46px; }
-.directory-title h2 { margin: 0; color: var(--ink); font-family: Manrope, Arial, sans-serif; font-size: 1.08rem; font-weight: 800; letter-spacing: -.035em; }
+.directory-title h1 { margin: 0; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2rem, 2.8vw, 2.7rem); font-weight: 400; letter-spacing: -.06em; line-height: .9; }
 .directory-title span { border-radius: 999px; background: var(--paddy); color: #315738; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .035em; padding: 5px 8px; white-space: nowrap; }
-.farm-directory .directory-filters { grid-template-columns: minmax(150px, .58fr) minmax(280px, 1.6fr) auto; border: 0; margin: 0; padding: 0; }
-.farm-directory .directory-filter-actions { min-height: 46px; }
+.directory-view-tabs { display: flex; min-height: 46px; align-items: stretch; overflow: hidden; border: 1px solid rgba(20, 61, 45, .22); border-radius: 999px; background: rgba(255, 251, 239, .52); }
+.directory-view-tabs button { min-width: 90px; border: 0; border-left: 1px solid rgba(20, 61, 45, .15); background: transparent; color: #637262; cursor: pointer; font-size: .76rem; font-weight: 800; padding: 0 16px; }
+.directory-view-tabs button:first-child { border-left: 0; }
+.directory-view-tabs button.active { background: var(--ink); color: #fff9ec; }
+.directory-find { display: block; min-width: 0; }
+.directory-find input { width: 100%; min-height: 46px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 999px; background: rgba(255, 253, 244, .78); color: var(--ink); font: inherit; font-size: .82rem; padding: 9px 17px; }
 .people-toolbar { grid-template-columns: 1fr; }
 .farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .farm-directory-card { display: grid; min-width: 0; min-height: 138px; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 16px; }
@@ -442,8 +447,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .single-surface { min-height: 0; }
   .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .directory-filter-actions { grid-column: 1 / -1; }
-  .directory-toolbar { grid-template-columns: 1fr; gap: 14px; }
-  .farm-directory .directory-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .directory-toolbar { grid-template-columns: 1fr; gap: 12px; }
+  .directory-view-tabs, .directory-find { width: 100%; }
   .farm-card-grid { grid-template-columns: 1fr; }
   .command-shell { padding-bottom: 96px; }
   .mobile-nav { position: fixed; z-index: 1000; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; display: grid; grid-template-columns: repeat(5, 1fr); overflow: hidden; border: 1px solid rgba(20, 61, 45, .24); border-radius: 15px; background: rgba(255, 252, 241, .94); box-shadow: 0 14px 34px rgba(45, 55, 35, .18); backdrop-filter: blur(14px); }
@@ -478,7 +483,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .account-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .account-list span:last-child { display: none; }
   .directory-filters { grid-template-columns: 1fr; }
-  .farm-directory .directory-filters { grid-template-columns: 1fr; }
+  .directory-view-tabs button { min-width: 0; flex: 1; padding: 0 9px; }
   .map-controls { grid-template-columns: 1fr; }
   .map-controls label:first-child { grid-column: auto; }
   .map-type-tabs button { font-size: .61rem; padding: 0 5px; }

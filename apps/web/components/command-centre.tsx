@@ -679,12 +679,12 @@ export function CommandCentre({ view }: { view: View }) {
         </div>
       </header>
 
-      <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
+      {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           <h1>{headingFor(view, t)}</h1>
         </div>
-      </section>
+      </section> : null}
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
@@ -1089,6 +1089,19 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   }, []);
 
   useEffect(() => {
+    if (!filtersReady || draftFilters.query.trim() === filters.query) return;
+    const timeout = window.setTimeout(() => {
+      const next = { ...filters, query: draftFilters.query.trim() };
+      const params = directoryParams(next);
+      params.delete("kind");
+      window.history.replaceState({}, "", `/fields?${params.toString()}`);
+      setDirectoryPage(0);
+      setFilters(next);
+    }, 220);
+    return () => window.clearTimeout(timeout);
+  }, [draftFilters.query, filters, filtersReady]);
+
+  useEffect(() => {
     if (!filtersReady || !canOpenProfiles) {
       if (filtersReady) setDirectory({ items: [], loading: false, error: null, stale: false });
       return;
@@ -1138,13 +1151,13 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     restoreFocusAfterManagerExpiry();
   }, [canOpenProfiles, panel]);
 
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const next = { ...draftFilters, query: draftFilters.query.trim() };
+  function setDirectoryView(state: DirectoryFilters["state"]) {
+    const next = { ...filters, state };
     const params = directoryParams(next);
     params.delete("kind");
     const query = params.toString();
     window.history.pushState({}, "", query ? `/fields?${query}` : "/fields");
+    setDraftFilters((current) => ({ ...current, state }));
     setDirectoryPage(0);
     setFilters(next);
   }
@@ -1290,12 +1303,8 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
 
   const reportedTotal = filters.state === "reported" || filters.state === "all" ? state.trackwick?.counts.farm_candidates : undefined;
   const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
-  return <section className="single-surface fields-stage farm-directory">
-    <div className="directory-toolbar"><div className="directory-title"><h2>Farms</h2><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><form className="directory-filters" onSubmit={applyFilters}>
-      <label>View<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All farms</option><option value="reviewed">Active farms</option><option value="reported">To review</option></select></label>
-      <label>Find<input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Farm name" /></label>
-      <div className="directory-filter-actions"><button className="quiet-button" type="submit" disabled={!canOpenProfiles || directory.loading}>Search</button></div>
-    </form></div>
+  return <section className="directory-workspace farm-directory">
+    <div className="directory-toolbar"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><div className="directory-view-tabs" aria-label="Farm view"><button type="button" className={filters.state === "reported" ? "active" : ""} onClick={() => setDirectoryView("reported")}>To review</button><button type="button" className={filters.state === "reviewed" ? "active" : ""} onClick={() => setDirectoryView("reviewed")}>Active</button><button type="button" className={filters.state === "all" ? "active" : ""} onClick={() => setDirectoryView("all")}>All</button></div><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
     {!canOpenProfiles
       ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/fields", label: "Sign in" }} />
       : directory.loading && !directory.items.length
@@ -1523,8 +1532,8 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
     void openProfile(farmerId || workerId!, farmerId ? "farmer" : "field_worker", "reported", "map-profile-link");
   }, [canOpenProfiles, openProfile]);
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  return <section className="single-surface people-stage">
-    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h2>Farmers</h2><span>{count(farmers.length || sourceFarmers.length)}</span></div></div>
+  return <section className="directory-workspace people-workspace">
+    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Farmers</h1><span>{count(farmers.length || sourceFarmers.length)}</span></div></div>
     {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Farms</span></div></div></button>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
