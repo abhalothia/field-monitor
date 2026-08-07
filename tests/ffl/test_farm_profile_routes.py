@@ -819,22 +819,21 @@ def test_command_centre_uses_farm_first_entity_profiles():
         assert f">{heading}<" in source
 
 
-def test_reported_farm_profile_keeps_source_evidence_private_and_reviewable():
+def test_reported_farm_profile_is_simple_and_reviewable():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
-    assert "Source footprint" in source
-    assert "Evidence &amp; activity" in source
-    assert "reported references; media remains private" in source
-    assert "Open review workspace" in source
-    assert 'href="/manager?review=farm-truth"' in source
-    assert "no boundary, crop allocation, owner relationship, or operational action" in source
+    assert "Farm details" in source
+    assert "Activity" in source
+    assert "Make it a Farm" in source
+    assert "Create Farm" in source
+    assert "TrackWick reported this candidate" not in source
 
 
 def test_command_centre_renders_safe_entity_context_and_reported_disease_event():
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
     assert "Latest activity" in source
-    assert "Photo references" in source
+    assert "Photos" in source
     assert "Canonical Farms" in source
     assert "Crop seasons" in source
     assert "Assignments" in source
@@ -844,14 +843,12 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert "reviewed_farms" in source
     assert 'session: { authenticated: false }' in source
     assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
-    assert "Reported event with ${severity} declared severity. This is not a diagnosis." in source
-    assert "Disease &amp; pest reports" in source
-    assert "Filter reported field signals" in source
-    assert "A report is not a diagnosis, verified field attribution, or AGRO CEO action." in source
+    assert "Disease &amp; pest" in source
+    assert "Filter field issues" in source
     assert "PersonContextPanel" in source
     assert "FieldRecordPanel" in source
     assert "A reviewed field boundary is required before this Field can appear on a map." in source
-    assert "TrackWick source points, village context, and reported areas never become a Field boundary." in source
+    assert "A Field boundary is added only when it is confirmed." in source
     assert 'return <Link id={controlId} className="profile-locked" href="/login">Sign in to open</Link>;' in source
 
 
@@ -865,8 +862,8 @@ def test_primary_ui_uses_canonical_farmer_and_farm_routes_and_safe_source_label(
     assert 'href={`/fields?farm=${encodeURIComponent(farm.id)}`}' in source
     assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
     assert 'readJson<ReportedFieldWorkerProfile>("/api/v1/reported-field-worker-profiles/" + id)' in source
-    assert "reported candidate" in source
-    assert "Reported field workers" in source
+    assert "to review" in source
+    assert "Field workers" in source
     assert "item.label" in source
     assert "item.task_type" not in source
     assert "runtime?.person_operating_relationships" not in source

@@ -160,9 +160,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .single-stage .primary-action { margin-top: auto; }
 .single-stage footer { margin-top: 24px; color: #70806c; font-family: "DM Mono", monospace; font-size: .62rem; letter-spacing: .04em; text-transform: uppercase; }
 .single-surface { min-height: 0; background: rgba(250, 247, 236, .8); padding: clamp(22px, 3vw, 38px); }
-.fields-stage, .people-stage, .actions-surface, .settings-stage { max-width: 1060px; }
+.fields-stage, .people-stage, .actions-surface, .settings-stage { width: 100%; max-width: none; }
 .fields-stage .geometry-list { margin-top: 18px; }
-.people-stage { width: min(100%, 1060px); max-width: 1060px; }
+.people-stage { width: 100%; max-width: none; }
 .people-stage .people-list { max-width: none; }
 .actions-surface { max-width: 960px; }
 .settings-stage { max-width: 760px; }
@@ -224,14 +224,14 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .signal-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
 .signal-filters input, .signal-filters select { width: 100%; min-height: 40px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
 
-.farm-directory { max-width: 1120px; }
-.directory-filters { display: grid; grid-template-columns: minmax(130px, .72fr) minmax(210px, 1.45fr) minmax(145px, .9fr) minmax(145px, .9fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }
+.farm-directory { max-width: none; }
+.directory-filters { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(250px, 1.5fr) auto; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); margin: -2px 0 20px; padding-bottom: 20px; }
 .directory-filters label { display: grid; gap: 7px; color: #71806d; font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .04em; text-transform: uppercase; }
 .directory-filters input, .directory-filters select { width: 100%; min-height: 42px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
 .directory-filter-actions { display: flex; align-items: center; gap: 9px; min-height: 42px; }
 .directory-filter-actions .text-link { border: 0; background: transparent; cursor: pointer; padding: 8px 2px; white-space: nowrap; }
-.farm-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.farm-directory-card { display: grid; min-width: 0; min-height: 218px; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 20px; }
+.farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.farm-directory-card { display: grid; min-width: 0; min-height: 188px; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 20px; }
 .farm-directory-card h3 { margin: 14px 0 6px; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.4rem; font-weight: 400; letter-spacing: -.035em; }
 .farm-directory-card p { color: var(--muted); font-size: .69rem; line-height: 1.45; margin: 0; }
 .farm-directory-card dl { display: grid; align-content: start; min-width: 112px; margin: 0; }
@@ -245,6 +245,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .source-card-grid .person-row { display: grid; min-height: 154px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 12px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 17px; }
 .source-card-grid .person-row:first-child { padding-top: 17px; }
 .source-card-grid .profile-open, .source-card-grid .profile-locked { grid-column: 1 / -1; width: fit-content; margin: auto 0 0; }
+.people-filters { grid-template-columns: minmax(240px, .9fr) minmax(170px, .55fr) 1fr; }
+.people-filters > p { align-self: end; color: var(--muted); font-family: "DM Mono", monospace; font-size: .62rem; letter-spacing: .04em; margin: 0 0 12px; text-transform: uppercase; }
+.person-code { color: #71806d !important; font-family: "DM Mono", monospace; font-size: .56rem !important; letter-spacing: .04em; margin: 0 0 7px !important; text-transform: uppercase; }
 .reported-source-work { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }
 .reported-source-work .surface-heading { margin-bottom: 12px; }
 .source-work-card-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }

@@ -422,7 +422,7 @@ const WORDS: Record<Language, Translation> = {
     signIn: "Sign in", signal: "signals", source: "sources", fieldUpdates: "field updates",
     evidence: "Proof required", work: "work", noActions: "No open actions need attention.",
     english: "EN", hindi: "हि", operator: "Field team", farm: "Farm", received: "Observed",
-    farmTruth: "Farm Truth",
+    farmTruth: "Review",
   },
   hi: {
     home: "होम", fields: "खेत", farmers: "किसान", actions: "काम", settings: "सेटिंग्स",
@@ -434,7 +434,7 @@ const WORDS: Record<Language, Translation> = {
     signIn: "साइन इन", signal: "संकेत", source: "स्रोत", fieldUpdates: "खेत अपडेट",
     evidence: "प्रमाण ज़रूरी", work: "काम", noActions: "ध्यान देने वाला कोई खुला काम नहीं है।",
     english: "EN", hindi: "हि", operator: "फील्ड टीम", farm: "फार्म", received: "देखा गया",
-    farmTruth: "खेत सत्य",
+    farmTruth: "Review",
   },
 };
 
@@ -458,6 +458,15 @@ async function readJson<T>(url: string, init?: RequestInit): Promise<{ value: T;
 
 function count(value?: number) {
   return new Intl.NumberFormat("en-IN").format(value || 0);
+}
+
+function personName(value: string) {
+  const match = value.match(/\(([^)]+)\)/);
+  return match?.[1] || value.replace(/^FC-\d+\s*/i, "").trim() || value;
+}
+
+function personCode(value: string) {
+  return value.match(/^(FC-\d+)/i)?.[1] || "";
 }
 
 function dateTime(value?: string | null) {
@@ -635,32 +644,32 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   const firstTruth = readiness?.next_stage;
   const reportedFarmCount = trackwick?.counts.farm_candidates || 0;
   const statusLine = reportedFarmCount
-    ? `${count(reportedFarmCount)} reported farms · ${count(trackwick?.counts.farmers)} farmers · ${count(trackwick?.counts.field_workers)} field workers`
+    ? `${count(reportedFarmCount)} farms · ${count(trackwick?.counts.farmers)} farmers · ${count(trackwick?.counts.field_workers)} field workers`
     : nextMove
       ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
       : history
         ? `${count(history.coverage.quantity_qtl)} qtl · ${count(history.coverage.villages)} villages · ${count(history.coverage.varieties)} varieties`
         : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} operating checks complete` : "Reading the operating record";
   const title = reportedFarmCount
-    ? `${count(reportedFarmCount)} reported farms in TrackWick.`
+    ? `${count(reportedFarmCount)} farms in the field.`
     : nextMove
       ? nextMove.title
       : history
         ? `${count(history.coverage.quantity_qtl)} qtl of past purchase context.`
         : firstTruth?.title || "Start with one reviewed farm.";
   const detail = reportedFarmCount
-    ? `${count(trackwick?.counts.reported_visits)} reported visits · ${count(trackwick?.counts.reported_signals)} disease and pest reports · ${count(trackwick?.counts.open_work)} open source work. Review source facts before they become AGRO CEO field truth.`
+    ? `${count(trackwick?.counts.reported_visits)} visits · ${count(trackwick?.counts.reported_signals)} field issues · ${count(trackwick?.counts.open_work)} open tasks.`
     : nextMove
       ? actionLine(nextMove)
       : history
         ? `${history.coverage.months.join(" · ")} · historical Fortune procurement by village and variety. It is not a current crop, farmer, or field map.`
         : firstTruth?.next_action || "The operating record begins with a real field, not a guessed one.";
   return <section className="single-stage home-stage">
-    <p className="eyebrow">{nextMove ? "One next move" : reportedFarmCount ? "Reported field context" : history ? "Historical supply context" : "Start here"}</p>
+    <p className="eyebrow">{nextMove ? "Next move" : reportedFarmCount ? "Field network" : history ? "History" : "Start here"}</p>
     <h2>{title}</h2>
     <p>{detail}</p>
     {reportedFarmCount
-      ? <Link href="/fields?state=reported" className="primary-action">Browse reported farms <span aria-hidden="true">→</span></Link>
+      ? <Link href="/fields?state=reported" className="primary-action">Open farms <span aria-hidden="true">→</span></Link>
       : nextMove
         ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
         : <Link href="/settings" className="primary-action">Open data connections <span aria-hidden="true">→</span></Link>}
@@ -917,23 +926,21 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   return <section className="single-surface fields-stage farm-directory">
     <div className="surface-heading"><div><p className="eyebrow">Farm directory</p><h2>Farms</h2></div><span className="count-badge">{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div>
     <form className="directory-filters" onSubmit={applyFilters}>
-      <label>State<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All states</option><option value="reviewed">Reviewed</option><option value="reported">Reported</option></select></label>
+      <label>View<select value={draftFilters.state} onChange={(event) => setDraftFilters((current) => ({ ...current, state: event.target.value as DirectoryFilters["state"] }))}><option value="all">All farms</option><option value="reviewed">Active farms</option><option value="reported">To review</option></select></label>
       <label>Search<input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Farm name" /></label>
-      <label>From<input type="date" value={draftFilters.dateFrom} onChange={(event) => setDraftFilters((current) => ({ ...current, dateFrom: event.target.value }))} /></label>
-      <label>To<input type="date" value={draftFilters.dateTo} onChange={(event) => setDraftFilters((current) => ({ ...current, dateTo: event.target.value }))} /></label>
       <div className="directory-filter-actions"><button className="quiet-button" type="submit" disabled={!canOpenProfiles || directory.loading}>Apply filters</button><button className="text-link" type="button" onClick={clearFilters}>Clear</button></div>
     </form>
     {!canOpenProfiles
-      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open the Farm directory" detail="The private source directory is available to named Fortune admins. Reported candidates remain distinct from reviewed Farms." action={{ href: "/login?next=/fields", label: "Sign in" }} />
+      ? <EmptyState focusId={MANAGER_ACCESS_BOUNDARY_ID} title="Sign in to open farms" detail="Farm records are available to named Fortune admins." action={{ href: "/login?next=/fields", label: "Sign in" }} />
       : directory.loading
         ? <p className="empty-copy" role="status">Reading the Farm directory…</p>
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
           : directory.items.length
             ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
-              ? <article className="farm-directory-card reported-candidate-card" key={farm.id}><div><span className="status-chip reported">reported candidate</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name} · source context awaiting review</p></div><dl><div><dt>Reported plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open source work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`reported-farm-directory-${farm.id}`} label={`Open reported candidate profile for ${farm.name}`} text="Review reported profile" open={(openerId) => void openReportedFarm(farm.destination.id, openerId)} /></article>
+              ? <article className="farm-directory-card reported-candidate-card" key={farm.id}><div><span className="status-chip reported">to review</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name}</p></div><dl><div><dt>Plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open tasks</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Last activity</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`reported-farm-directory-${farm.id}`} label={`Open ${farm.name}`} text="Open" open={(openerId) => void openReportedFarm(farm.destination.id, openerId)} /></article>
               : <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
-            : <EmptyState title="No Farms match these filters." detail={t.noData + " Reported source candidates do not become Farms until they are reviewed."} />}
+            : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
   </section>;
 }
 
@@ -991,43 +998,41 @@ function ReportedFarmPanel({ record, operatingUnit }: {
         body: JSON.stringify({ operating_unit_id: operatingUnit.id, farm_name: farmName.trim(), grower_effective_on: new Date().toISOString().slice(0, 10), expected_updated_at: candidate.updated_at }),
       });
       setReviewState("done");
-      setReviewMessage(value.status === "accepted" ? "Reviewed Farm and Grower relationship created. No Field or boundary was created." : "Review saved.");
+      setReviewMessage(value.status === "accepted" ? "Farm created." : "Saved.");
     } catch {
       setReviewState("error");
       setReviewMessage("The review could not be saved. Refresh this profile and try again.");
     }
   }
   return <div className="entity-profile-content reported-farm-context">
-    <p className="eyebrow">Reported farm candidate</p>
+    <p className="eyebrow">Farm</p>
     <h2>{record.name}</h2>
-    <p className="profile-context">TrackWick reported this candidate. It is not a reviewed Farm, Field boundary, or crop allocation.</p>
+    <p className="profile-context">Review the farm. Build the record as work happens.</p>
     <div className="farm-profile-sections">
       <section>
-        <h3>Source footprint</h3>
+        <h3>Farm details</h3>
         <dl className="profile-facts">
-          <div><dt>Reported farmer</dt><dd>{record.reported.farmer_name}</dd></div>
-          <div><dt>Reported place</dt><dd>{record.reported.place}</dd></div>
-          <div><dt>Reported area</dt><dd>{record.reported.reported_area_acres == null ? "Not reported" : `${record.reported.reported_area_acres} acres`}</dd></div>
-          <div><dt>Reported plots</dt><dd>{count(record.reported.reported_plot_count || undefined)}</dd></div>
+          <div><dt>Farmer</dt><dd>{record.reported.farmer_name}</dd></div>
+          <div><dt>Location</dt><dd>{record.reported.place}</dd></div>
+          <div><dt>Area</dt><dd>{record.reported.reported_area_acres == null ? "—" : `${record.reported.reported_area_acres} acres`}</dd></div>
+          <div><dt>Plots</dt><dd>{count(record.reported.reported_plot_count || undefined)}</dd></div>
         </dl>
       </section>
       <section>
-        <h3>Evidence &amp; activity</h3>
+        <h3>Activity</h3>
         <dl className="profile-facts">
-          <div><dt>Open source work</dt><dd>{count(record.reported.open_work)}</dd></div>
-          <div><dt>Latest activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
-          <div><dt>Photo references</dt><dd>{count(photoReferences)} reported references; media remains private</dd></div>
+          <div><dt>Open tasks</dt><dd>{count(record.reported.open_work)}</dd></div>
+          <div><dt>Last activity</dt><dd>{dateTime(record.reported.latest_activity_at)}</dd></div>
+          <div><dt>Photos</dt><dd>{count(photoReferences)}</dd></div>
         </dl>
       </section>
       <section>
-        <h3>Review state</h3>
-        <p className="profile-context">This source footprint can establish a reviewed Farm + Grower relationship. It cannot establish a Field, boundary, crop allocation, acreage, owner relationship, or operating right.</p>
-        {reviewState === "loading" ? <p className="empty-copy" role="status">Preparing safe review…</p> : null}
-        {reviewState === "ready" && candidate ? <div className="candidate-review-form"><label>Farm name<input value={farmName} maxLength={160} onChange={(event) => setFarmName(event.target.value)} /></label><p>Creates one reviewed Farm in {operatingUnit?.name || "your operating unit"} and links {candidate.farmer_name} as Grower.</p><button className="primary-action" type="button" onClick={() => void acceptCandidate()} disabled={!operatingUnit || !farmName.trim()}>Create Farm + Grower <span aria-hidden="true">→</span></button></div> : null}
-        {reviewState === "saving" ? <p className="empty-copy" role="status">Saving reviewed relationship…</p> : null}
+        <h3>Make it a Farm</h3>
+        <p className="profile-context">Create the Farm and connect its farmer.</p>
+        {reviewState === "loading" ? <p className="empty-copy" role="status">Getting it ready…</p> : null}
+        {reviewState === "ready" && candidate ? <div className="candidate-review-form"><label>Farm name<input value={farmName} maxLength={160} onChange={(event) => setFarmName(event.target.value)} /></label><p>{candidate.farmer_name} · {operatingUnit?.name || "Fortune Farms"}</p><button className="primary-action" type="button" onClick={() => void acceptCandidate()} disabled={!operatingUnit || !farmName.trim()}>Create Farm <span aria-hidden="true">→</span></button></div> : null}
+        {reviewState === "saving" ? <p className="empty-copy" role="status">Creating Farm…</p> : null}
         {reviewState === "done" || reviewState === "error" ? <p className={reviewState === "error" ? "profile-message profile-error" : "profile-message"}>{reviewMessage}</p> : null}
-        <p className="context-limitation">There is no boundary, crop allocation, owner relationship, or operational action in this reported record.</p>
-        <div className="profile-action"><a className="text-link" href="/manager?review=farm-truth">Open review workspace for Field evidence</a><span className="sr-only">Open review workspace</span></div>
       </section>
     </div>
   </div>;
@@ -1087,7 +1092,7 @@ function FieldRecordPanel({ record, openFarm, openPerson }: {
       <section>
         <h3>Geometry</h3>
         <p className="profile-context">{record.geometry.message || "A reviewed field boundary is required before this Field can appear on a map."}</p>
-        <p className="context-limitation">TrackWick source points, village context, and reported areas never become a Field boundary.</p>
+        <p className="context-limitation">A Field boundary is added only when it is confirmed.</p>
       </section>
       <section>
       <h3>Updates</h3>
@@ -1143,8 +1148,8 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   const sourceFarmers = trackwick?.farmers || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
-    <div className="surface-heading"><div><p className="eyebrow">{farmers.length ? "Reviewed grower relationships" : sourceFarmers.length ? "Reported farmers" : "Reviewed grower relationships"}</p><h2>{farmers.length ? "Farmers on this operating record" : sourceFarmers.length ? "Farmers reported by TrackWick" : "Farmers on this operating record"}</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {!canOpenProfiles ? <EmptyState title="Sign in to see people" detail="Farmer and field-worker records are private operating data." action={{ href: "/login?next=/farmers", label: "Sign in" }} /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} reviewed Farm assignment{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open profile" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No reviewed grower relationship is attached to a canonical Farm yet." : "Farmers appear here only after a reviewed grower relationship is attached to a canonical Farm."}</p>}
+    <div className="surface-heading"><div><p className="eyebrow">Farm network</p><h2>Farmers</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
+    {!canOpenProfiles ? <EmptyState title="Sign in to see farmers" detail="Farmer and field-worker records are private operating data." action={{ href: "/login?next=/farmers", label: "Sign in" }} /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No farmer is connected to a Farm yet." : "Farmers will appear here as Farms are created."}</p>}
   </section>;
 }
 
@@ -1154,8 +1159,16 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   openProfile: (id: string, kind: "farmer", recordState: "reported", openerId: string) => Promise<void>;
 }) {
   const [visibleCount, setVisibleCount] = useState(100);
-  const visible = farmers.slice(0, visibleCount);
-  return <><p className="surface-copy">Reported farmers are cached TrackWick context, not sign-ins or reviewed grower relationships.</p><div className="people-list source-card-grid">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{person.farm_candidates} reported farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open reported farmer profile for ${person.name}`} text="Open reported profile" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < farmers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(farmers.length - visible.length)} remaining)</button> : null}</>;
+  const [query, setQuery] = useState("");
+  const [order, setOrder] = useState<"activity" | "farms" | "name">("activity");
+  const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const ordered = [...matched].sort((left, right) => order === "name"
+    ? personName(left.name).localeCompare(personName(right.name))
+    : order === "farms"
+      ? right.farm_candidates - left.farm_candidates || right.open_work - left.open_work || personName(left.name).localeCompare(personName(right.name))
+      : right.open_work - left.open_work || right.farm_candidates - left.farm_candidates || personName(left.name).localeCompare(personName(right.name)));
+  const visible = ordered.slice(0, visibleCount);
+  return <><div className="directory-filters people-filters"><label>Search<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Farmer name" /></label><label>Order<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label><p>{count(matched.length)} farmers</p></div><div className="people-list source-card-grid">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><h3>{personName(person.name)}</h3><p>{person.farm_candidates} Farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open task{person.open_work === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open ${personName(person.name)}`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1185,14 +1198,14 @@ function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () =>
   const subject = profile.kind === "field_worker" ? "Field worker" : "Farmer";
   return <aside className="single-surface profile-panel" aria-label={`${profile.name} profile`}>
     <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {profile.kind === "field_worker" ? "field work" : "farmers"}</button>
-    <p className="eyebrow">{reported ? `Reported ${subject} context` : `Reviewed ${subject}`}</p>
+    <p className="eyebrow">{subject}</p>
     <h2>{profile.name}</h2>
     <p className="profile-context">{profile.limitations?.[0] || "Only reviewed operating relationships are shown here."}</p>
     <PersonProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
-        ? <a className="primary-action" href="/manager?review=farm-truth">Review in Farm Truth <span aria-hidden="true">→</span></a>
-        : <a className="primary-action" href="/manager">Open in Farm Truth <span aria-hidden="true">→</span></a>}
+        ? <a className="primary-action" href="/manager?review=farm-truth">Open <span aria-hidden="true">→</span></a>
+        : <a className="primary-action" href="/manager">Open <span aria-hidden="true">→</span></a>}
     </div>
   </aside>;
 }
@@ -1203,31 +1216,27 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
     const latest = activity?.latest_crop_context;
     if (profile.kind === "field_worker") {
       return <dl className="profile-facts">
-        <div><dt>Reported farmer reach</dt><dd>{count(profile.reported?.reported_farmer_reach)} linked through source work</dd></div>
-        <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
-        <div><dt>Completed source work</dt><dd>{count(profile.reported?.completed_work)}</dd></div>
+        <div><dt>Farmers</dt><dd>{count(profile.reported?.reported_farmer_reach)}</dd></div>
+        <div><dt>Open tasks</dt><dd>{count(profile.reported?.open_work)}</dd></div>
+        <div><dt>Completed tasks</dt><dd>{count(profile.reported?.completed_work)}</dd></div>
         <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
-        <div><dt>Latest attendance</dt><dd>{profile.reported?.latest_attendance_on ? `Reported ${profile.reported.latest_attendance_on}` : "Not reported"}</dd></div>
-        <div><dt>Reported visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
-        <div><dt>Reported crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
-        <div><dt>Disease / pest reports</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
-        <div><dt>Latest crop context</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || `Reported ${dateTime(latest.observed_at)}` : "Not reported"}</dd></div>
-        <div><dt>Geotagged evidence</dt><dd>{count(activity?.geotagged_evidence)} source points; coordinates remain private</dd></div>
-        <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
+        <div><dt>Latest attendance</dt><dd>{profile.reported?.latest_attendance_on || "—"}</dd></div>
+        <div><dt>Visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
+        <div><dt>Crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
+        <div><dt>Disease / pest</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
+        <div><dt>Latest crop check</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || dateTime(latest.observed_at) : "—"}</dd></div>
       </dl>;
     }
     return <dl className="profile-facts">
-      <div><dt>Reported farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
-      <div><dt>Reported area</dt><dd>{profile.reported?.reported_area_acres == null ? "Not reported" : `${profile.reported.reported_area_acres} acres`}</dd></div>
-      <div><dt>Open source work</dt><dd>{count(profile.reported?.open_work)}</dd></div>
+      <div><dt>Farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
+      <div><dt>Area</dt><dd>{profile.reported?.reported_area_acres == null ? "—" : `${profile.reported.reported_area_acres} acres`}</dd></div>
+      <div><dt>Open tasks</dt><dd>{count(profile.reported?.open_work)}</dd></div>
       <div><dt>Latest activity</dt><dd>{dateTime(profile.reported?.latest_activity_at)}</dd></div>
-      <div><dt>Photo references</dt><dd>{count(profile.reported?.crop_photo_references)}</dd></div>
-      <div><dt>Reported visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
-      <div><dt>Reported crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
-      <div><dt>Disease / pest reports</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
-      <div><dt>Latest crop context</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || `Reported ${dateTime(latest.observed_at)}` : "Not reported"}</dd></div>
-      <div><dt>Geotagged evidence</dt><dd>{count(activity?.geotagged_evidence)} source points; coordinates remain private</dd></div>
-      <div><dt>Account</dt><dd>{profile.account?.state === "not_created" ? "No sign-in created" : "Not reported"}</dd></div>
+      <div><dt>Photos</dt><dd>{count(profile.reported?.crop_photo_references)}</dd></div>
+      <div><dt>Visits</dt><dd>{count(activity?.reported_visits)}</dd></div>
+      <div><dt>Crop inputs</dt><dd>{count(activity?.reported_input_events)}</dd></div>
+      <div><dt>Disease / pest</dt><dd>{count(activity?.reported_disease)} / {count(activity?.reported_pest)}</dd></div>
+      <div><dt>Latest crop check</dt><dd>{latest ? [latest.crop_stage, latest.water_condition, latest.crop_condition_score == null ? null : `${latest.crop_condition_score}/10`].filter(Boolean).join(" · ") || dateTime(latest.observed_at) : "—"}</dd></div>
     </dl>;
   }
   const farms = Array.from(new Map(profile.assignments.map((assignment) => [assignment.farm_id, {
@@ -1259,20 +1268,19 @@ function ActionsView({ t, portfolio, trackwick, canOpenProfiles, selection, open
   const workers = trackwick?.field_workers || [];
   const signals = trackwick?.signals || [];
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
-  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Decision queue</p><h2>Actions</h2></div></div><EmptyState title="Sign in to see actions" detail="Source work and operating actions are private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
-  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">{actions.length ? "Decision queue" : sourceWork.length ? "Reported source work" : "Decision queue"}</p><h2>{actions.length ? "Open actions" : sourceWork.length ? "Source work awaiting review" : "Open actions"}</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : <ActionRows items={actions} empty={t.noActions} />}{sourceWork.length ? <section className="reported-source-work"><div className="surface-heading"><div><p className="eyebrow">Cached TrackWick work</p><h2>Source work awaiting review</h2></div><span className="count-badge">{count(sourceWork.length)}</span></div><SourceWorkRows items={sourceWork} /></section> : null}{trackwick ? <TrackwickSourceCoverage counts={trackwick.counts} /> : null}{signals.length ? <ReportedSignalQueue signals={signals} total={trackwick?.counts.reported_signals || signals.length} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
+  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Work</p><h2>Actions</h2></div></div><EmptyState title="Sign in to see actions" detail="Tasks and updates are private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
+  return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Work</p><h2>Open actions</h2></div><span className="count-badge">{count(actions.length || sourceWork.length)}</span></div>{actions.length ? <ActionRows items={actions} empty={t.noActions} /> : <ActionRows items={actions} empty={t.noActions} />}{sourceWork.length ? <section className="reported-source-work"><div className="surface-heading"><div><p className="eyebrow">Tasks</p><h2>Open tasks</h2></div><span className="count-badge">{count(sourceWork.length)}</span></div><SourceWorkRows items={sourceWork} /></section> : null}{trackwick ? <TrackwickSourceCoverage counts={trackwick.counts} /> : null}{signals.length ? <ReportedSignalQueue signals={signals} total={trackwick?.counts.reported_signals || signals.length} /> : null}{workers.length ? <ReportedFieldWorkers workers={workers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : null}</section>;
 }
 
 function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["counts"] }) {
   return <section className="reported-source-coverage">
-    <div className="surface-heading"><div><p className="eyebrow">TrackWick source coverage</p><h2>Historical field footprint</h2></div></div>
-    <p className="surface-copy">Reported source context only. It becomes a Farm, Field, assignment, or action only through manager review.</p>
+    <div className="surface-heading"><div><p className="eyebrow">Field activity</p><h2>What we know</h2></div></div>
     <dl className="profile-facts">
-      <div><dt>Reported visits</dt><dd>{count(source.reported_visits)}</dd></div>
-      <div><dt>Disease / pest reports</dt><dd>{count(source.reported_signals)}</dd></div>
+      <div><dt>Visits</dt><dd>{count(source.reported_visits)}</dd></div>
+      <div><dt>Disease / pest</dt><dd>{count(source.reported_signals)}</dd></div>
       <div><dt>Crop-input events</dt><dd>{count(source.reported_input_events)}</dd></div>
-      <div><dt>Geotagged evidence</dt><dd>{count(source.geotagged_evidence)} source points; coordinates remain private</dd></div>
-      <div><dt>Crop-photo references</dt><dd>{count(source.crop_photo_references)}; media remains private</dd></div>
+      <div><dt>Locations</dt><dd>{count(source.geotagged_evidence)}</dd></div>
+      <div><dt>Photos</dt><dd>{count(source.crop_photo_references)}</dd></div>
     </dl>
   </section>;
 }
@@ -1280,7 +1288,7 @@ function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["c
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
   const [visibleCount, setVisibleCount] = useState(100);
   const visible = items.slice(0, visibleCount);
-  return <><p className="surface-copy">These are cached TrackWick tasks. They are not yet assigned AGRO CEO actions and cannot complete work here.</p><ol className="action-list source-work-card-grid">{visible.map((item) => <li key={item.id}><span className="severity medium">reported</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < items.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(items.length - visible.length)} remaining)</button> : null}</>;
+  return <><ol className="action-list source-work-card-grid">{visible.map((item) => <li key={item.id}><span className="severity medium">open</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Open <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < items.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(items.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
@@ -1291,9 +1299,8 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   const [visibleCount, setVisibleCount] = useState(40);
   const visible = workers.slice(0, visibleCount);
   return <section className="reported-field-workers">
-    <div className="surface-heading"><div><p className="eyebrow">Reported field workers</p><h2>Source work coverage</h2></div><span className="count-badge">{count(workers.length)}</span></div>
-    <p className="surface-copy">Coverage is derived only from cached TrackWick source work. It is not a reviewed assignment, account, or farmer relationship.</p>
-    <div className="people-list source-card-grid">{visible.map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} reported farmer reach · {count(worker.open_work)} open source work</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open reported field worker profile for ${worker.name}`} text="Open reported profile" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>{visible.length < workers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(workers.length - visible.length)} remaining)</button> : null}
+    <div className="surface-heading"><div><p className="eyebrow">Field team</p><h2>Field workers</h2></div><span className="count-badge">{count(workers.length)}</span></div>
+    <div className="people-list source-card-grid">{visible.map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} farmers · {count(worker.open_work)} open tasks</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open ${worker.name}`} text="Open" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>{visible.length < workers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(workers.length - visible.length)} remaining)</button> : null}
   </section>;
 }
 
@@ -1312,15 +1319,14 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
   });
   const visible = filtered.slice(0, visibleCount);
   return <section className="reported-signal-queue">
-    <div className="surface-heading"><div><p className="eyebrow">Reported field signals</p><h2>Disease &amp; pest reports</h2></div><span className="count-badge">{count(filtered.length)} of {count(total)}</span></div>
-    <p className="surface-copy">Declared TrackWick observations only. A report is not a diagnosis, verified field attribution, or AGRO CEO action.</p>
-    <div className="signal-filters" aria-label="Filter reported field signals">
+    <div className="surface-heading"><div><p className="eyebrow">Field watch</p><h2>Disease &amp; pest</h2></div><span className="count-badge">{count(filtered.length)} of {count(total)}</span></div>
+    <div className="signal-filters" aria-label="Filter field issues">
       <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">All reports</option><option value="disease">Disease</option><option value="pest">Pest</option></select></label>
       <label>Severity<select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)}><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="moderate">Moderate</option><option value="low">Low</option><option value="unknown">Not declared</option></select></label>
       <label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
       <label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
     </div>
-    {filtered.length ? <><ol className="action-list reported-signal-list">{visible.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease reported" : "Pest reported"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")} · This is not a diagnosis.</p></div><a className="text-link" href="/manager?review=farm-truth">Review <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < filtered.length ? <button type="button" className="quiet-button" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(filtered.length - visible.length)} remaining)</button> : null}</> : <p className="empty-copy">No reported signals match these filters.</p>}
+    {filtered.length ? <><ol className="action-list reported-signal-list">{visible.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease" : "Pest"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Open <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < filtered.length ? <button type="button" className="quiet-button" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(filtered.length - visible.length)} remaining)</button> : null}</> : <p className="empty-copy">No issues match these filters.</p>}
   </section>;
 }
 
@@ -1336,15 +1342,15 @@ function SettingsView({ t, state, managerBusy, logout }: {
   const history = state.procurementHistory?.summary;
   const trackwick = state.trackwick;
   const trackwickStatus = trackwick?.source.state === "succeeded"
-    ? `Last synced ${dateTime(trackwick.source.last_synced_at)}.`
-    : "Not connected yet. No TrackWick data is being shown.";
+    ? `Updated ${dateTime(trackwick.source.last_synced_at)}.`
+    : "No field updates yet.";
   return <section className="single-surface settings-stage">
     <div className="surface-heading"><div><p className="eyebrow">Private setup</p><h2>Access and connections</h2></div></div>
     <p className="surface-copy">{state.profile?.display_name || "Fortune Farms"} stays private until a named person is given the exact access they need.</p>
     <div className="settings-rows">
       <div><strong>People</strong><span>{session?.authenticated ? "Manage named ID access below." : "Use your admin ID to manage access."}</span></div>
       <div><strong>Purchase history</strong><span>{history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages, ${history.coverage.months.join(" · ")}. Historical context only.` : "No reviewed purchase history yet."}</span></div>
-      <div><strong>Field context</strong><span>{trackwickStatus}</span></div>
+      <div><strong>Field updates</strong><span>{trackwickStatus}</span></div>
       <div className="disabled-connection" aria-disabled="true"><strong>WhatsApp updates <em>Coming soon</em></strong><span>Named requests and reviewable evidence will arrive here after the separate launch gate. WhatsApp never decides or closes work.</span></div>
     </div>
     {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
@@ -1430,7 +1436,7 @@ function AccountManager() {
 
   return <details className="account-manager">
     <summary>Manage named sign-ins</summary>
-    <p className="surface-copy">Create access only for a person you have deliberately confirmed. A source contact, village, or purchase row never creates a login.</p>
+    <p className="surface-copy">Create access only for people you have confirmed.</p>
     <form className="account-form" onSubmit={submitAccount}>
       <label htmlFor="account-name">Name<input id="account-name" value={name} onChange={(event) => setName(event.target.value)} required /></label>
       <label htmlFor="account-id">Login ID<input id="account-id" value={loginId} onChange={(event) => setLoginId(event.target.value)} placeholder="e.g. ravi.grower" autoCapitalize="none" required /></label>
