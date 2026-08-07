@@ -137,6 +137,7 @@ type TrackwickBoard = {
   field_workers: TrackwickFieldWorker[];
   signals: TrackwickSignal[];
   inbox: TrackwickWork[];
+  map?: { points: Array<{ id: string; latitude: number; longitude: number; kind: string; confidence: string; observed_at: string; label: string }>; total_points: number; truncated: boolean };
 };
 type ReviewedFarmerCard = {
   state: "reviewed";
@@ -671,38 +672,36 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   const nextMove = portfolio?.risk_action_ledger.items[0];
   const firstTruth = readiness?.next_stage;
   const reportedFarmCount = trackwick?.counts.farm_candidates || 0;
-  const statusLine = reportedFarmCount
-    ? `${count(reportedFarmCount)} farms · ${count(trackwick?.counts.farmers)} farmers · ${count(trackwick?.counts.field_workers)} field workers`
-    : nextMove
-      ? `${count(portfolio?.risk_action_ledger.total_count)} open action${portfolio?.risk_action_ledger.total_count === 1 ? "" : "s"}`
-      : history
-        ? `${count(history.coverage.quantity_qtl)} qtl · ${count(history.coverage.villages)} villages · ${count(history.coverage.varieties)} varieties`
-        : readiness ? `${readiness.progress.completed} of ${readiness.progress.total} operating checks complete` : "Reading the operating record";
-  const title = reportedFarmCount
-    ? `${count(reportedFarmCount)} farms in the field.`
-    : nextMove
-      ? nextMove.title
-      : history
-        ? `${count(history.coverage.quantity_qtl)} qtl of past purchase context.`
-        : firstTruth?.title || "Start with one reviewed farm.";
+  const mapPoints = trackwick?.map?.points || [];
+  const locationCount = trackwick?.map?.total_points || trackwick?.counts.geotagged_evidence || 0;
+  const title = reportedFarmCount ? `${count(reportedFarmCount)} farms in the field.` : nextMove?.title || firstTruth?.title || "Start with one reviewed farm.";
   const detail = reportedFarmCount
     ? `${count(trackwick?.counts.reported_visits)} visits · ${count(trackwick?.counts.reported_signals)} field issues · ${count(trackwick?.counts.open_work)} open tasks.`
-    : nextMove
-      ? actionLine(nextMove)
-      : history
-        ? `${history.coverage.months.join(" · ")} · historical Fortune procurement by village and variety. It is not a current crop, farmer, or field map.`
-        : firstTruth?.next_action || "The operating record begins with a real field, not a guessed one.";
-  return <section className="single-stage home-stage">
-    <p className="eyebrow">{nextMove ? "Next move" : reportedFarmCount ? "Field network" : history ? "History" : "Start here"}</p>
-    <h2>{title}</h2>
-    <p>{detail}</p>
-    {reportedFarmCount
-      ? <Link href="/fields?state=reported" className="primary-action">Open farms <span aria-hidden="true">→</span></Link>
-      : nextMove
-        ? <Link href="/actions" className="primary-action">Open action <span aria-hidden="true">→</span></Link>
-        : <Link href="/settings" className="primary-action">Open data connections <span aria-hidden="true">→</span></Link>}
-    <footer>{statusLine} · {state.profile?.display_name || "Fortune Farms"}</footer>
+    : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "The operating record begins with a real field, not a guessed one.";
+  return <section className="single-surface home-map-stage">
+    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div><Link href="/fields?state=reported" className="primary-action">Open farms <span aria-hidden="true">→</span></Link></div>
+    <OperatingMap points={mapPoints} />
   </section>;
+}
+
+function OperatingMap({ points }: { points: NonNullable<TrackwickBoard["map"]>["points"] }) {
+  const visible = points.slice(0, 700);
+  if (!visible.length) return <div className="operating-map map-empty"><strong>Map is preparing</strong><p>Location activity will appear here as the operating record arrives.</p></div>;
+  const latitudes = visible.map((point) => point.latitude);
+  const longitudes = visible.map((point) => point.longitude);
+  const minLatitude = Math.min(...latitudes), maxLatitude = Math.max(...latitudes);
+  const minLongitude = Math.min(...longitudes), maxLongitude = Math.max(...longitudes);
+  const latitudeRange = Math.max(maxLatitude - minLatitude, .002);
+  const longitudeRange = Math.max(maxLongitude - minLongitude, .002);
+  return <div className="operating-map" aria-label="Field activity map">
+    <svg viewBox="0 0 1000 580" role="img" aria-label={`${visible.length} mapped field activity points`}>
+      <defs><radialGradient id="map-glow"><stop stopColor="#dce7d3" stopOpacity=".9" /><stop offset="1" stopColor="#dce7d3" stopOpacity="0" /></radialGradient><pattern id="map-grid" width="72" height="72" patternUnits="userSpaceOnUse"><path d="M72 0H0V72" fill="none" stroke="rgba(20,61,45,.10)" strokeWidth="1" /></pattern></defs>
+      <rect width="1000" height="580" fill="url(#map-grid)" />
+      <ellipse cx="500" cy="290" rx="410" ry="244" fill="url(#map-glow)" opacity=".75" />
+      {visible.map((point) => <circle key={point.id} cx={74 + ((point.longitude - minLongitude) / longitudeRange) * 852} cy={506 - ((point.latitude - minLatitude) / latitudeRange) * 432} r="3.3" fill="#143d2d" fillOpacity=".62"><title>{point.label}</title></circle>)}
+    </svg>
+    <div className="map-key"><span /><span>Field activity</span></div>
+  </div>;
 }
 
 const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {

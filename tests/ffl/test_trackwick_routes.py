@@ -119,7 +119,8 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     assert legacy_board.status_code == 200
     serialized = repr([allowed.json(), legacy_board.json()]).lower()
     assert allowed.json()["inbox"][0]["label"] == "TrackWick source work"
+    assert allowed.json()["map"] == {"points": [], "total_points": 0, "truncated": False}
     assert "task_type" not in allowed.json()["inbox"][0]
     assert "raw action sentinel 4419" not in serialized
-    for forbidden in ("map", "location", "latitude", "longitude", "crm_status", "provider_tag", "registration_status", "pb1", "1718"):
+    for forbidden in ("crm_status", "provider_tag", "registration_status", "pb1", "1718"):
         assert forbidden not in serialized

@@ -213,6 +213,13 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
             "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
             **{key: row.get(key) for key in ("status", "farmer_name", "follow_up_at", "opened_at")},
         } for row in board["inbox"]],
+        "map": {
+            "points": [{key: point.get(key) for key in (
+                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label",
+            )} for point in board["map"]["points"]],
+            "total_points": board["map"]["total_source_points"],
+            "truncated": board["map"]["truncated"],
+        },
         "limitations": ["Reported farm candidates require Fortune review before they become canonical farms.", "Photo counts are references only; image files and links remain private."],
     }
 
