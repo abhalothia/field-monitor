@@ -9,6 +9,8 @@ from ffl.services.trackwick_ingest import SOURCE_KEY
 
 
 def _parse_time(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if not isinstance(value, str) or not value:
         return None
     try:

@@ -2,6 +2,7 @@ from ffl.persistence import repository
 from ffl.services import agent_notifications
 from fastapi.testclient import TestClient
 from ffl.app import create_app
+from datetime import datetime, timezone
 
 
 def _seed_source(conn):
@@ -77,3 +78,8 @@ def test_agent_routes_are_manager_only_and_allow_a_saved_rule(tmp_path):
 
     assert updated.json()["enabled"] is False
     assert board.json()["custom_agents"][0]["name"] == "Priority farmers"
+
+
+def test_agent_activity_accepts_postgres_timestamp_values():
+    value = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    assert agent_notifications._parse_time(value) == value
