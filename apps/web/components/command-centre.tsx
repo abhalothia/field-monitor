@@ -753,7 +753,18 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
       // never leaves the cached activity canvas blank.
       const L = (typeof module.map === "function" ? module : module.default) as typeof import("leaflet");
       if (cancelled || !mapElement.current || typeof L?.map !== "function") throw new Error("Map could not start");
-      const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true });
+      const map = L.map(mapElement.current, {
+        zoomControl: false,
+        attributionControl: true,
+        preferCanvas: true,
+        scrollWheelZoom: true,
+        dragging: true,
+        doubleClickZoom: true,
+        keyboard: true,
+        touchZoom: true,
+      });
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      map.getContainer().setAttribute("aria-label", "Interactive field activity map. Drag to explore, scroll or pinch to zoom, and use arrow keys after focusing the map to pan.");
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
         attribution: "© OpenStreetMap contributors",
@@ -821,12 +832,23 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
   }, [active?.id, dataKey, mapReady, preview, select, visible]);
 
   if (!visible.length) return <div className="operating-map map-empty"><strong>Map is preparing</strong><p>Location activity will appear here as the operating record arrives.</p></div>;
+  const area = mapAreaLabel(visible);
   return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
     {mapHealth !== "ready" ? <CachedMapFallback points={visible} onSelect={select} /> : null}
+    <div className="map-area-label"><strong>{area}</strong><span className="map-gesture-copy">Drag · scroll to zoom</span><span className="map-touch-copy">Drag · pinch to zoom</span></div>
     <div className="map-key"><span /><span>{mapHealth === "ready" ? "Field activity" : "Cached activity"}</span></div>
     {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
   </div>;
+}
+
+function mapAreaLabel(points: MapPoint[]) {
+  const frequency = new Map<string, number>();
+  for (const point of points) {
+    const place = point.subject.place?.split("·").at(-1)?.trim();
+    if (place) frequency.set(place, (frequency.get(place) || 0) + 1);
+  }
+  return [...frequency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Field area";
 }
 
 function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect: (point: MapPoint) => void }) {
@@ -873,18 +895,47 @@ function MapView({ state }: { state: State }) {
     });
   }, [allPoints, days, kind, query]);
   useEffect(() => {
-    if (selected && !points.some((point) => point.id === selected.id)) setSelected(null);
-  }, [points, selected]);
+    setSelected((current) => {
+      if (current && points.some((point) => point.id === current.id)) return current;
+      return points.find((point) => point.subject.kind === "field_worker") || points[0] || null;
+    });
+  }, [points]);
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
-      <label>Show<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">All activity</option><option value="reported_farm">Farms</option><option value="farmer">Farmers</option><option value="field_worker">Field workers</option><option value="work">Tasks</option></select></label>
+      <div className="map-type-tabs" aria-label="Map view"><span>View</span><div>{([ ["all", "Everything"], ["reported_farm", "Fields"], ["farmer", "Farmers"], ["field_worker", "Workers"] ] as const).map(([value, label]) => <button type="button" key={value} className={kind === value ? "active" : ""} aria-pressed={kind === value} onClick={() => setKind(value)}>{label}</button>)}</div></div>
       <label>When<select value={days} onChange={(event) => setDays(event.target.value as typeof days)}><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
       <p><strong>{count(points.length)}</strong> mapped activities</p>
     </div>
     <div className="map-content"><div className="map-canvas"><OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} /></div></div>
-    {selected ? <aside className="map-inspector" aria-label="Selected map record"><MapGlance point={selected} close={() => setSelected(null)} /></aside> : null}
+    {selected ? <MapInspector point={selected} state={state} close={() => setSelected(null)} /> : null}
   </section>;
+}
+
+function MapInspector({ point, state, close }: { point: MapPoint; state: State; close: () => void }) {
+  const subject = point.subject;
+  const matchingActivity = (state.trackwick?.map?.points || []).filter((candidate) => candidate.subject.kind === subject.kind && candidate.subject.id === subject.id).sort((a, b) => new Date(b.observed_at).valueOf() - new Date(a.observed_at).valueOf());
+  const farm = subject.kind === "reported_farm" ? state.trackwick?.farms.find((candidate) => candidate.id === subject.id) : null;
+  const farmer = subject.kind === "farmer" ? state.trackwick?.farmers.find((candidate) => candidate.id === subject.id) : null;
+  const worker = subject.kind === "field_worker" ? state.trackwick?.field_workers.find((candidate) => candidate.id === subject.id) : null;
+  const facts = subject.kind === "reported_farm"
+    ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open tasks", count(farm?.open_work ?? subject.open_work)], ["Field activity", count(matchingActivity.length)]]
+    : subject.kind === "farmer"
+      ? [["Fields", count(farmer?.farm_candidates)], ["Open tasks", count(farmer?.open_work ?? subject.open_work)], ["Photo evidence", count(farmer?.crop_photo_references)], ["Field activity", count(matchingActivity.length)]]
+      : subject.kind === "field_worker"
+        ? [["Farmer reach", count(worker?.reported_farmer_reach)], ["Open tasks", count(worker?.open_work ?? subject.open_work)], ["Completed work", count(worker?.completed_work)], ["Field activity", count(matchingActivity.length)]]
+        : [["Place", subject.place || "—"], ["Open tasks", count(subject.open_work)], ["Field activity", count(matchingActivity.length)], ["Last activity", dateTime(point.observed_at)]];
+  return <aside className="map-inspector" aria-label="Selected map record">
+    <div className="map-inspector-record">
+      <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
+      <p className="eyebrow">{subject.kind === "reported_farm" ? "Field" : subject.kind.replaceAll("_", " ")}</p>
+      <h2>{subject.name}</h2>
+      <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}</p>
+      <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
+      {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
+    </div>
+  </aside>;
 }
 
 function mapTooltip(point: MapPoint) {
