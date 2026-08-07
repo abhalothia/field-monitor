@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ffl.communications.auth import require_manager
+from ffl.communications.auth import require_manager, require_operating_read
 from ffl.persistence import repository
 from ffl.services import agent_notifications
 
@@ -53,7 +53,7 @@ def _item(item: repository.AgentNotification) -> dict:
 
 
 @router.get("")
-def get_agents(request: Request, _manager_id: str = Depends(require_manager)) -> dict:
+def get_agents(request: Request, _manager_id: str = Depends(require_operating_read)) -> dict:
     return agent_notifications.board(_connection(request))
 
 

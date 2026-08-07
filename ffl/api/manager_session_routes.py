@@ -66,6 +66,8 @@ def manager_session_status(request: Request) -> dict:
             "expires_at": password_principal.expires_at,
             "auth_method": "id_password",
         }
+    if request.session.get(SESSION_FLAG) is True and _configured_manager_is_valid(request):
+        return {"authenticated": True, "auth_method": "launch"}
     if active is None:
         return {"authenticated": False}
     if not _configured_manager_is_valid(request):

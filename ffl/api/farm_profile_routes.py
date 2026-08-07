@@ -6,7 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from ffl.communications.auth import require_manager
+from ffl.communications.auth import require_manager, require_operating_read
 from ffl.services import farm_profiles
 
 
@@ -54,7 +54,7 @@ def list_farms(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=10_000),
     state: str | None = None,
-    _manager_id: str = Depends(require_manager),
+    _manager_id: str = Depends(require_operating_read),
 ) -> list[dict]:
     """List a bounded, canonical entity directory; candidates stay elsewhere."""
     if kind not in {"farm", "field", "farmer", "field_worker"}:
@@ -73,7 +73,7 @@ def get_farm(
     farm_id: str,
     date_from: str | None = None,
     date_to: str | None = None,
-    _manager_id: str = Depends(require_manager),
+    _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     _validate_date_window(date_from, date_to)
     try:
@@ -91,7 +91,7 @@ def get_field(
     block_id: str,
     date_from: str | None = None,
     date_to: str | None = None,
-    _manager_id: str = Depends(require_manager),
+    _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     _validate_date_window(date_from, date_to)
     try:
@@ -112,7 +112,7 @@ def list_people(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
-    _manager_id: str = Depends(require_manager),
+    _manager_id: str = Depends(require_operating_read),
 ) -> list[dict]:
     """List only people with an openable canonical Farm assignment."""
     if kind not in {"farmer", "field_worker"}:
@@ -130,7 +130,7 @@ def get_person(
     person_id: str,
     date_from: str | None = None,
     date_to: str | None = None,
-    _manager_id: str = Depends(require_manager),
+    _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     if kind not in {"farmer", "field_worker"}:
         _invalid("kind must be farmer or field_worker")
@@ -148,7 +148,7 @@ def get_person(
 
 @router.get("/farm-profiles/{block_id}")
 def get_farm_profile(
-    request: Request, block_id: str, _manager_id: str = Depends(require_manager),
+    request: Request, block_id: str, _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     profile = farm_profiles.farm_profile(_connection(request), block_id)
     if profile is None:
@@ -158,7 +158,7 @@ def get_farm_profile(
 
 @router.get("/farmer-profiles/{person_id}")
 def get_farmer_profile(
-    request: Request, person_id: str, _manager_id: str = Depends(require_manager),
+    request: Request, person_id: str, _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     profile = farm_profiles.farmer_profile(_connection(request), person_id)
     if profile is None:
@@ -168,7 +168,7 @@ def get_farmer_profile(
 
 @router.get("/reported-farm-profiles/{candidate_id}")
 def get_reported_farm_profile(
-    request: Request, candidate_id: str, _manager_id: str = Depends(require_manager),
+    request: Request, candidate_id: str, _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     profile = farm_profiles.reported_farm_profile(_connection(request), candidate_id)
     if profile is None:
@@ -178,7 +178,7 @@ def get_reported_farm_profile(
 
 @router.get("/reported-farmer-profiles/{party_id}")
 def get_reported_farmer_profile(
-    request: Request, party_id: str, _manager_id: str = Depends(require_manager),
+    request: Request, party_id: str, _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     profile = farm_profiles.reported_farmer_profile(_connection(request), party_id)
     if profile is None:
@@ -188,7 +188,7 @@ def get_reported_farmer_profile(
 
 @router.get("/reported-field-worker-profiles/{party_id}")
 def get_reported_field_worker_profile(
-    request: Request, party_id: str, _manager_id: str = Depends(require_manager),
+    request: Request, party_id: str, _manager_id: str = Depends(require_operating_read),
 ) -> dict:
     profile = farm_profiles.reported_field_worker_profile(_connection(request), party_id)
     if profile is None:

@@ -406,6 +406,8 @@ const EMPTY_STATE: State = {
   needsLaunchLogin: false,
 };
 
+const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
+
 type Translation = {
   home: string; fields: string; farmers: string; actions: string; settings: string;
   refresh: string; updated: string; loading: string; noData: string; open: string;
@@ -493,13 +495,31 @@ export function CommandCentre({ view }: { view: View }) {
   const [language, setLanguage] = useState<Language>("en");
   const [state, setState] = useState<State>(EMPTY_STATE);
   const [managerBusy, setManagerBusy] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const profileRequest = useRef(0);
   const profileOpener = useRef<string | null>(null);
   const t = WORDS[language];
 
+  useEffect(() => {
+    try {
+      const cached = window.sessionStorage.getItem(OPERATING_CACHE_KEY);
+      if (!cached) return;
+      const value = JSON.parse(cached) as Partial<State>;
+      setState((current) => ({ ...current, ...value, loading: false, error: null }));
+    } catch { /* a bad local cache should never block the operating record */ }
+  }, []);
+
+  useEffect(() => {
+    if (!state.profile || !state.trackwick) return;
+    try {
+      const { session: _session, loading: _loading, error: _error, needsLaunchLogin: _needsLaunchLogin, ...cached } = state;
+      window.sessionStorage.setItem(OPERATING_CACHE_KEY, JSON.stringify(cached));
+    } catch { /* cache is an enhancement, not a dependency */ }
+  }, [state]);
+
   const load = useCallback(async () => {
-    setState((current) => ({ ...current, loading: true, error: null }));
+    setState((current) => ({ ...current, loading: current.profile === null, error: null }));
     const results = await Promise.allSettled([
       readJson<OperatingProfile>("/api/v1/operating-profile"),
       readJson<Portfolio>("/api/v1/portfolio"),
@@ -610,10 +630,10 @@ export function CommandCentre({ view }: { view: View }) {
           {NAV.map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "nav-link active" : "nav-link"}>{t[item.view]}</Link>)}
         </nav>
         <div className="command-tools">
-          {state.session?.authenticated ? <a href="/manager" className="quiet-button">{t.farmTruth}</a> : null}
-          {!state.session?.authenticated ? <Link href={`/login?next=/${view}`} className="quiet-button">Sign in</Link> : null}
-          <button type="button" className="language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
-          <button type="button" className="quiet-button" onClick={() => void load()} disabled={state.loading}>{state.loading ? t.loading : t.refresh}</button>
+          <button type="button" className="tool-icon language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
+          <button type="button" className="tool-icon" onClick={() => void load()} disabled={state.loading} aria-label="Refresh">↻</button>
+          <button type="button" className="tool-icon" aria-label="Notifications">♢</button>
+          <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
         </div>
       </header>
 
@@ -622,14 +642,14 @@ export function CommandCentre({ view }: { view: View }) {
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           <h1>{headingFor(view, t)}</h1>
         </div>
-        <p>{state.loading ? t.loading : state.portfolio?.as_of ? `${t.updated} ${dateTime(state.portfolio.as_of)} IST` : ""}</p>
+        <p>{state.portfolio?.as_of ? `${t.updated} ${dateTime(state.portfolio.as_of)} IST` : ""}</p>
       </section>
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
-      {view === "actions" ? <AgentsView agents={state.agents} canOpenProfiles={Boolean(state.session?.authenticated)} reload={() => void load()} /> : null}
+      {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load()} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
   );
@@ -1157,7 +1177,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">Farm network</p><h2>Farmers</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {!canOpenProfiles ? <EmptyState title="Sign in to see farmers" detail="Farmer and field-worker records are private operating data." action={{ href: "/login?next=/farmers", label: "Sign in" }} /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">{readiness?.counts.people ? "No farmer is connected to a Farm yet." : "Farmers will appear here as Farms are created."}</p>}
+    {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
 
@@ -1176,7 +1196,7 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
       ? right.farm_candidates - left.farm_candidates || right.open_work - left.open_work || personName(left.name).localeCompare(personName(right.name))
       : right.open_work - left.open_work || right.farm_candidates - left.farm_candidates || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-filters people-filters"><label>Search<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Farmer name" /></label><label>Order<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label><p>{count(matched.length)} farmers</p></div><div className="people-list source-card-grid">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><h3>{personName(person.name)}</h3><p>{person.farm_candidates} Farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open task{person.open_work === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open ${personName(person.name)}`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  return <><div className="directory-filters people-filters"><label>Find farmer<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Search by name" /></label><label>Sort<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><h3>{personName(person.name)}</h3><p>{person.farm_candidates} Farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open task{person.open_work === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open ${personName(person.name)}`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1262,17 +1282,14 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
   </div>;
 }
 
-function AgentsView({ agents, canOpenProfiles, reload }: {
+function AgentsView({ agents, reload }: {
   agents: AgentBoard | null;
-  canOpenProfiles: boolean;
   reload: () => void;
 }) {
   const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  if (!canOpenProfiles) return <section className="single-surface actions-surface"><div className="surface-heading"><div><p className="eyebrow">Watch</p><h2>Agents</h2></div></div><EmptyState title="Sign in to see agents" detail="The operating record is private." action={{ href: "/login?next=/actions", label: "Sign in" }} /></section>;
-
   async function createAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setMessage(null);

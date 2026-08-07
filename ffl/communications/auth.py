@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request, status
 
 from ffl.manager_session_auth import active_manager_session
 from ffl.password_identity import active_password_principal
+from ffl.launch_auth import SESSION_FLAG
 from ffl.portal import (
     customer_portal_for_hostname,
     hostname_from_host_header,
@@ -18,6 +19,30 @@ from ffl.portal_auth import active_portal_session
 
 
 MANAGER_ROLES = {"farm_manager", "operations_lead", "agronomist"}
+
+
+def require_operating_read(request: Request) -> str:
+    """Allow the already-authenticated pilot workspace to read its own record.
+
+    Writes still require a named manager identity.  The launch session is the
+    single read gate for the internal Fortune workspace, avoiding a second
+    browser unlock that strands the UI behind empty screens.
+    """
+    try:
+        return require_manager(request)
+    except HTTPException:
+        portal_host = portal_host_is_under_base(
+            hostname_from_host_header(request.headers.get("host")),
+            getattr(request.app.state, "portal_base_domain", "agroceo.com"),
+        )
+        if portal_host or request.session.get(SESSION_FLAG) is not True:
+            raise
+        manager_id = request.app.state.manager_person_id
+        connection = getattr(request.state, "conn", request.app.state.conn)
+        person = connection.execute("SELECT role FROM people WHERE id = ?", (manager_id,)).fetchone()
+        if not manager_id or person is None or person["role"] not in MANAGER_ROLES:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="operating record is unavailable")
+        return manager_id
 
 
 def active_portal_principal(request: Request):

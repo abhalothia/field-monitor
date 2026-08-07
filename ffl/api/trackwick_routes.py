@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from ffl.communications.auth import require_manager
+from ffl.communications.auth import require_manager, require_operating_read
 from ffl.persistence import repository
 from ffl.services import trackolap_metrics, trackwick_board, trackwick_ingest
 
@@ -74,7 +74,7 @@ def get_trackwick_board(request: Request, _manager_id: str = Depends(require_man
 
 
 @router.get("/command-centre-board")
-def get_command_centre_board(request: Request, _manager_id: str = Depends(require_manager)) -> dict:
+def get_command_centre_board(request: Request, _manager_id: str = Depends(require_operating_read)) -> dict:
     return trackwick_board.command_centre_board_for_source(
         _connection(request), source_key=trackwick_ingest.SOURCE_KEY
     )
