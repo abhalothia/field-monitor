@@ -20,7 +20,7 @@ from ffl.services.trackwick_ingest import SOURCE_KEY
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
 _MAP_POINT_LIMIT = 4_000
 _SIGNAL_LIMIT = 3_000
-_SAFE_SOURCE_WORK_LABEL = "TrackWick source work"
+_SAFE_SOURCE_WORK_LABEL = "Field work"
 
 
 def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str, Any]:
@@ -215,7 +215,7 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         } for row in board["inbox"]],
         "map": {
             "points": [{key: point.get(key) for key in (
-                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label",
+                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "subject",
             )} for point in board["map"]["points"]],
             "total_points": board["map"]["total_source_points"],
             "truncated": board["map"]["truncated"],
@@ -639,6 +639,9 @@ def _map_points(
     tasks: Iterable[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], bool]:
     registration_by_id = {str(row["id"]): row for row in registrations}
+    registrations_by_task = {
+        str(row["task_id"]): row for row in registrations if row["task_id"]
+    }
     task_by_id = {str(row["id"]): row for row in tasks}
     points: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -653,6 +656,8 @@ def _map_points(
             continue
         registration = registration_by_id.get(str(location["registration_id"])) if location["registration_id"] else None
         task = task_by_id.get(str(location["task_id"])) if location["task_id"] else None
+        if registration is None and task is not None:
+            registration = registrations_by_task.get(str(task["id"]))
         farmer = None
         if registration is not None and registration["farmer_party_id"]:
             farmer = parties.get(str(registration["farmer_party_id"]))
@@ -660,6 +665,7 @@ def _map_points(
             farmer = parties.get(str(task["farmer_party_id"]))
         elif location["party_id"]:
             farmer = parties.get(str(location["party_id"]))
+        subject = _map_subject(location, registration, task, farmer, parties)
         points.append({
             "id": key,
             "latitude": float(location["latitude"]),
@@ -668,10 +674,59 @@ def _map_points(
             "confidence": location["location_confidence"],
             "observed_at": location["observed_at"],
             "label": _point_label(registration, task, farmer),
+            "subject": subject,
             "record_kind": "source_point",
             "is_boundary": False,
         })
     return points, len(seen) > _MAP_POINT_LIMIT
+
+
+def _map_subject(
+    location: Mapping[str, Any],
+    registration: Optional[Mapping[str, Any]],
+    task: Optional[Mapping[str, Any]],
+    farmer: Optional[Mapping[str, Any]],
+    parties: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Browser-safe context for a single map glance card.
+
+    A point may open its reported farm, farmer or field worker.  It is never
+    represented as a reviewed field boundary.
+    """
+    if registration is not None:
+        return {
+            "kind": "reported_farm",
+            "id": str(registration["id"]),
+            "name": _place(registration),
+            "place": _place(registration),
+            "farmer_name": farmer["display_name"] if farmer is not None else None,
+            "open_work": int(task["task_status"] in _OPEN_TASK_STATUSES) if task is not None else 0,
+        }
+    party = None
+    if task is not None:
+        party_id = task["field_worker_party_id"] or task["farmer_party_id"]
+        party = parties.get(str(party_id)) if party_id else None
+    elif location["party_id"]:
+        party = parties.get(str(location["party_id"]))
+    if party is not None:
+        return {
+            "kind": str(party["party_kind"]),
+            "id": str(party["id"]),
+            "name": party["display_name"],
+            "place": None,
+            "farmer_name": farmer["display_name"] if farmer is not None else None,
+            "open_work": int(task["task_status"] in _OPEN_TASK_STATUSES) if task is not None else 0,
+        }
+    if task is not None:
+        return {
+            "kind": "work",
+            "id": str(task["id"]),
+            "name": _SAFE_SOURCE_WORK_LABEL,
+            "place": None,
+            "farmer_name": farmer["display_name"] if farmer is not None else None,
+            "open_work": int(task["task_status"] in _OPEN_TASK_STATUSES),
+        }
+    return {"kind": "point", "id": None, "name": "Field activity", "place": None, "farmer_name": None, "open_work": 0}
 
 
 def _location_entity_key(row: Mapping[str, Any]) -> str:
@@ -691,10 +746,10 @@ def _point_label(
     if registration is not None:
         return "Reported farm candidate · " + _place(registration)
     if task is not None:
-        return "Field observation · " + task["task_type"]
+        return "Field observation"
     if farmer is not None:
         return "Grower source point · " + farmer["display_name"]
-    return "TrackWick source point"
+    return "Field activity"
 
 
 def _location(row: Optional[Mapping[str, Any]]) -> Optional[dict[str, Any]]:

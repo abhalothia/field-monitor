@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "leaflet/dist/leaflet.css";
 
 :root {
   --ink: #143d2d;
@@ -202,9 +203,32 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .home-map-metrics span { display: grid; gap: 4px; color: var(--muted); font-family: "DM Mono", monospace; font-size: .52rem; letter-spacing: .04em; text-transform: uppercase; }
 .home-map-metrics strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.52rem; font-weight: 400; letter-spacing: -.045em; text-transform: none; }
 .operating-map { position: relative; min-height: 360px; overflow: hidden; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(220, 231, 211, .78), rgba(246, 239, 220, .88)); }
-.operating-map svg { display: block; width: 100%; height: 100%; min-height: 360px; }
+.leaflet-map { width: 100%; height: 100%; min-height: 360px; }
+.operating-map .leaflet-tile-pane { filter: saturate(.54) sepia(.13) hue-rotate(30deg) brightness(1.07); }
+.operating-map .leaflet-control-zoom a { border-color: rgba(20, 61, 45, .24); background: rgba(255, 250, 238, .94); color: var(--ink); }
+.operating-map .leaflet-control-attribution { background: rgba(255, 250, 238, .78); color: var(--muted); font-size: 9px; }
+.operating-map .leaflet-tooltip { border: 1px solid rgba(20, 61, 45, .22); border-radius: 2px; box-shadow: 0 8px 24px rgba(59, 68, 43, .15); color: var(--ink); font-family: Manrope, Arial, sans-serif; font-size: .68rem; line-height: 1.45; }
+.operating-map .leaflet-tooltip span { color: var(--muted); }
 .map-key { display: flex; position: absolute; left: 17px; bottom: 16px; align-items: center; gap: 7px; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .54rem; letter-spacing: .05em; text-transform: uppercase; }
 .map-key span:first-child { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+.map-glance { display: grid; position: absolute; z-index: 700; right: 16px; bottom: 16px; width: min(310px, calc(100% - 32px)); border: 1px solid rgba(20, 61, 45, .25); background: rgba(255, 251, 239, .97); box-shadow: 0 16px 40px rgba(45, 55, 35, .18); padding: 16px; }
+.map-glance .eyebrow { margin: 0 28px 7px 0; }
+.map-glance strong { max-width: 22ch; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.38rem; font-weight: 400; letter-spacing: -.04em; line-height: 1; }
+.map-glance p:not(.eyebrow) { color: var(--muted); font-size: .67rem; line-height: 1.45; margin: 8px 0 13px; }
+.map-glance-close { position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: 1.3rem; line-height: 1; }
+.map-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; width: 100%; min-height: calc(100vh - 180px); }
+.map-workspace-selected { grid-template-columns: minmax(0, 1fr) minmax(310px, 370px); }
+.map-controls { display: grid; grid-template-columns: minmax(230px, 1fr) repeat(2, minmax(145px, .42fr)) auto; align-items: end; gap: 10px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 14px; }
+.map-controls label { display: grid; gap: 6px; color: #71806d; font-family: "DM Mono", monospace; font-size: .56rem; letter-spacing: .04em; text-transform: uppercase; }
+.map-controls input, .map-controls select { width: 100%; min-height: 40px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-size: .74rem; padding: 8px 10px; text-transform: none; }
+.map-controls p { align-self: center; color: var(--muted); font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .04em; margin: 0; text-transform: uppercase; white-space: nowrap; }
+.map-controls p strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.2rem; font-weight: 400; letter-spacing: -.04em; text-transform: none; }
+.map-controls { grid-column: 1 / -1; }
+.map-content { min-width: 0; }
+.map-canvas { min-height: min(690px, calc(100vh - 270px)); border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 10px; }
+.map-canvas .operating-map, .map-canvas .leaflet-map { min-height: min(668px, calc(100vh - 292px)); }
+.map-inspector { position: relative; min-height: 420px; border: 1px solid var(--line); background: rgba(250, 247, 236, .88); padding: 12px; }
+.map-inspector .map-glance { position: sticky; top: 12px; right: auto; bottom: auto; width: 100%; box-shadow: none; }
 .fields-stage, .people-stage, .actions-surface, .settings-stage { width: 100%; max-width: none; }
 .fields-stage .geometry-list { margin-top: 18px; }
 .people-stage { width: 100%; max-width: none; }
@@ -274,21 +298,23 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .directory-filters input, .directory-filters select { width: 100%; min-height: 42px; border: 1px solid rgba(20, 61, 45, .28); border-radius: 2px; background: rgba(255, 253, 244, .74); color: var(--ink); font: inherit; font-family: system-ui, sans-serif; font-size: .73rem; letter-spacing: 0; padding: 8px 10px; text-transform: none; }
 .directory-filter-actions { display: flex; align-items: center; gap: 9px; min-height: 42px; }
 .directory-filter-actions .text-link { border: 0; background: transparent; cursor: pointer; padding: 8px 2px; white-space: nowrap; }
-.farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-.farm-directory-card { display: grid; min-width: 0; min-height: 188px; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 20px; }
-.farm-directory-card h3 { margin: 14px 0 6px; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.4rem; font-weight: 400; letter-spacing: -.035em; }
+.farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.farm-directory-card { display: grid; min-width: 0; min-height: 138px; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 16px; }
+.directory-card-button { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.directory-card-button:hover, .directory-card-button:focus-visible, .compact-entity-card:hover, .compact-entity-card:focus-visible { border-color: rgba(20, 61, 45, .55); background: rgba(220, 231, 211, .48); transform: translateY(-1px); }
+.farm-directory-card h3 { margin: 11px 0 4px; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.18rem; font-weight: 400; letter-spacing: -.035em; }
 .farm-directory-card p { color: var(--muted); font-size: .69rem; line-height: 1.45; margin: 0; }
-.farm-directory-card dl { display: grid; align-content: start; min-width: 112px; margin: 0; }
+.farm-directory-card dl { display: grid; align-content: start; min-width: 96px; margin: 0; }
 .farm-directory-card dl > div { display: grid; gap: 3px; border-top: 1px solid rgba(20, 61, 45, .13); padding: 8px 0; }
 .farm-directory-card dl > div:first-child { border-top: 0; padding-top: 0; }
 .farm-directory-card dt { color: #71806d; font-family: "DM Mono", monospace; font-size: .51rem; letter-spacing: .035em; text-transform: uppercase; }
 .farm-directory-card dd { color: var(--ink-soft); font-size: .68rem; margin: 0; }
-.farm-directory-card .profile-open { align-self: end; grid-column: 1 / -1; }
 
-.source-card-grid { grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 12px; max-width: none !important; }
-.source-card-grid .person-row { display: grid; min-height: 154px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 12px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); padding: 17px; }
-.source-card-grid .person-row:first-child { padding-top: 17px; }
-.source-card-grid .profile-open, .source-card-grid .profile-locked { grid-column: 1 / -1; width: fit-content; margin: auto 0 0; }
+.source-card-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; max-width: none !important; }
+.source-card-grid .person-row { display: grid; width: 100%; min-height: 122px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 11px; border: 1px solid var(--line); background: rgba(250, 247, 236, .78); color: inherit; font: inherit; padding: 14px; text-align: left; }
+.source-card-grid .person-row:first-child { padding-top: 14px; }
+.compact-entity-card { cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+.compact-entity-card .person-summary p + p { margin-top: 5px; color: #788673; font-family: "DM Mono", monospace; font-size: .55rem; letter-spacing: .025em; text-transform: uppercase; }
 .people-filters { grid-template-columns: minmax(280px, .9fr) minmax(160px, .42fr) 1fr; }
 .person-code { color: #71806d !important; font-family: "DM Mono", monospace; font-size: .56rem !important; letter-spacing: .04em; margin: 0 0 7px !important; text-transform: uppercase; }
 .reported-source-work { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 26px; }
@@ -349,6 +375,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .command-intro { align-items: start; flex-direction: column; padding: 36px 0 22px; }
   .command-intro > p { margin: 0; }
   .hero-grid, .home-lower-grid, .people-layout, .settings-grid, .access-flow-grid, .home-map-stage { grid-template-columns: 1fr; }
+  .map-workspace-selected { grid-template-columns: 1fr; }
+  .map-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .map-controls label:first-child { grid-column: 1 / -1; }
+  .map-inspector { min-height: 0; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .today-card, .programme-card { min-height: 270px; }
   .single-surface { min-height: 0; }
@@ -384,6 +414,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .account-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .account-list span:last-child { display: none; }
   .directory-filters { grid-template-columns: 1fr; }
+  .map-controls { grid-template-columns: 1fr; }
+  .map-controls label:first-child { grid-column: auto; }
+  .map-canvas, .map-canvas .operating-map, .map-canvas .leaflet-map { min-height: 420px; }
   .directory-filter-actions { grid-column: auto; }
   .farm-directory-card { grid-template-columns: 1fr; }
   .farm-directory-card dl { grid-template-columns: 1fr; }

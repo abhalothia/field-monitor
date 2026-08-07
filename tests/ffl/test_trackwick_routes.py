@@ -103,6 +103,16 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
                       'RAW ACTION SENTINEL 4419', 'pending', ?, ?, 'v1', 'valid', ?, ?, ?)""",
             (source.id, now, "b" * 64, now, now, now),
         )
+        app.state.conn.execute(
+            """INSERT INTO trackwick_location_observations (
+                id, source_id, party_id, task_id, provider_location_key,
+                location_kind, location_confidence, latitude, longitude, observed_at,
+                source_fingerprint, mapping_version, data_quality_status,
+                first_seen_at, last_seen_at, created_at
+            ) VALUES ('route-location', ?, 'route-farmer', 'route-task', 'private-location',
+                      'visit_location', 'declared', 27.95, 78.27, ?, ?, 'v1', 'valid', ?, ?, ?)""",
+            (source.id, now, "c" * 64, now, now, now),
+        )
         app.state.conn.commit()
         denied = client.get("/api/v1/trackwick/command-centre-board")
         allowed = client.get(
@@ -118,8 +128,15 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
     assert allowed.status_code == 200
     assert legacy_board.status_code == 200
     serialized = repr([allowed.json(), legacy_board.json()]).lower()
-    assert allowed.json()["inbox"][0]["label"] == "TrackWick source work"
-    assert allowed.json()["map"] == {"points": [], "total_points": 0, "truncated": False}
+    assert allowed.json()["inbox"][0]["label"] == "Field work"
+    assert allowed.json()["map"] == {
+        "points": [{
+            "id": "task_id:route-task", "latitude": 27.95, "longitude": 78.27,
+            "kind": "visit_location", "confidence": "declared", "observed_at": now,
+            "label": "Field observation",
+            "subject": {"kind": "farmer", "id": "route-farmer", "name": "Ramesh Kumar", "place": None, "farmer_name": "Ramesh Kumar", "open_work": 1},
+        }], "total_points": 1, "truncated": False,
+    }
     assert "task_type" not in allowed.json()["inbox"][0]
     assert "raw action sentinel 4419" not in serialized
     for forbidden in ("crm_status", "provider_tag", "registration_status", "pb1", "1718"):

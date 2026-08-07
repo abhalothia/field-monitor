@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type View = "home" | "fields" | "farmers" | "actions" | "settings";
+type View = "home" | "map" | "fields" | "farmers" | "actions" | "settings";
 type Language = "en" | "hi";
 
 type OperatingProfile = {
@@ -137,7 +137,18 @@ type TrackwickBoard = {
   field_workers: TrackwickFieldWorker[];
   signals: TrackwickSignal[];
   inbox: TrackwickWork[];
-  map?: { points: Array<{ id: string; latitude: number; longitude: number; kind: string; confidence: string; observed_at: string; label: string }>; total_points: number; truncated: boolean };
+  map?: { points: Array<MapPoint>; total_points: number; truncated: boolean };
+};
+type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
+type MapPoint = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  kind: string;
+  confidence: string;
+  observed_at: string;
+  label: string;
+  subject: { kind: MapSubjectKind; id: string | null; name: string; place: string | null; farmer_name: string | null; open_work: number };
 };
 type ReviewedFarmerCard = {
   state: "reviewed";
@@ -409,9 +420,21 @@ const EMPTY_STATE: State = {
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
 const DIRECTORY_CACHE_PREFIX = "agro-ceo-farm-directory-v1:";
+const PROFILE_CACHE_PREFIX = "agro-ceo-profile-v1:";
+
+function readSessionCache<T>(key: string): T | null {
+  try {
+    const saved = window.sessionStorage.getItem(key);
+    return saved ? JSON.parse(saved) as T : null;
+  } catch { return null; }
+}
+
+function writeSessionCache(key: string, value: unknown) {
+  try { window.sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* caching never blocks the record */ }
+}
 
 type Translation = {
-  home: string; fields: string; farmers: string; actions: string; settings: string;
+  home: string; map: string; fields: string; farmers: string; actions: string; settings: string;
   refresh: string; updated: string; loading: string; noData: string; open: string;
   fieldMap: string; programmeContext: string; notFieldMap: string; reviewedFields: string;
   people: string; nextMove: string; dataReadiness: string; unlock: string; lock: string;
@@ -423,7 +446,7 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", fields: "Fields", farmers: "Farmers", actions: "Agents", settings: "Settings",
+    home: "Home", map: "Map", fields: "Fields", farmers: "Farmers", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
@@ -435,7 +458,7 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", fields: "खेत", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
+    home: "होम", map: "नक्शा", fields: "खेत", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
@@ -450,6 +473,7 @@ const WORDS: Record<Language, Translation> = {
 
 const NAV: Array<{ view: View; href: string }> = [
   { view: "home", href: "/home" },
+  { view: "map", href: "/map" },
   { view: "fields", href: "/fields" },
   { view: "farmers", href: "/farmers" },
   { view: "actions", href: "/actions" },
@@ -573,7 +597,9 @@ export function CommandCentre({ view }: { view: View }) {
     if (!state.session?.authenticated) return;
     profileOpener.current = openerId;
     const request = ++profileRequest.current;
-    setProfileSelection({ kind, loading: true, error: null, profile: null });
+    const cacheKey = `${PROFILE_CACHE_PREFIX}${recordState}:${kind}:${id}`;
+    const cached = readSessionCache<PersonProfile>(cacheKey);
+    setProfileSelection({ kind, loading: !cached, error: null, profile: cached });
     try {
       const { value } = recordState === "reviewed"
         ? await readJson<PersonContext>("/api/v1/people/" + kind + "/" + id)
@@ -581,10 +607,12 @@ export function CommandCentre({ view }: { view: View }) {
           ? await readJson<ReportedFarmerProfile>("/api/v1/reported-farmer-profiles/" + id)
           : await readJson<ReportedFieldWorkerProfile>("/api/v1/reported-field-worker-profiles/" + id);
       if (request === profileRequest.current) {
+        writeSessionCache(cacheKey, value);
         setProfileSelection({ kind, loading: false, error: null, profile: value });
       }
     } catch (error) {
       if (request === profileRequest.current) {
+        if (cached) return;
         const reauth = profileReadError(error) === "Manager access expired.";
         if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
         setProfileSelection({ kind, loading: false, error: profileReadError(error), profile: null, reauth });
@@ -648,8 +676,9 @@ export function CommandCentre({ view }: { view: View }) {
 
       {state.error ? <p className="honest-notice" role="status">{state.error}</p> : null}
       {view === "home" ? <HomeView t={t} state={state} /> : null}
+      {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} expireManagerSession={expireManagerSession} /> : null}
-      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection?.kind === "farmer" ? profileSelection : null} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
+      {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load()} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
     </main>
@@ -657,7 +686,7 @@ export function CommandCentre({ view }: { view: View }) {
 }
 
 function headingFor(view: View, t: Translation) {
-  return ({ home: "Today, in the field.", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+  return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
 }
 
 function languageFarmHeading(t: Translation) {
@@ -679,29 +708,171 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
     ? `${count(trackwick?.counts.reported_visits)} visits · ${count(trackwick?.counts.reported_signals)} field issues · ${count(trackwick?.counts.open_work)} open tasks.`
     : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "The operating record begins with a real field, not a guessed one.";
   return <section className="single-surface home-map-stage">
-    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div><Link href="/fields?state=reported" className="primary-action">Open farms <span aria-hidden="true">→</span></Link></div>
-    <OperatingMap points={mapPoints} />
+    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div><Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
+    <OperatingMap points={mapPoints} preview />
   </section>;
 }
 
-function OperatingMap({ points }: { points: NonNullable<TrackwickBoard["map"]>["points"] }) {
-  const visible = points.slice(0, 700);
+function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void }) {
+  const mapElement = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<import("leaflet").Map | null>(null);
+  const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const leafletRef = useRef<typeof import("leaflet") | null>(null);
+  const fittedDataRef = useRef<string | null>(null);
+  const [active, setActive] = useState<MapPoint | null>(selectedPoint || null);
+  const [mapReady, setMapReady] = useState(false);
+  const visible = useMemo(() => preview ? points.slice(0, 700) : points, [points, preview]);
+  const dataKey = `${preview}:${visible.length}:${visible[0]?.id || ""}:${visible.at(-1)?.id || ""}`;
+
+  const select = useCallback((point: MapPoint | null) => {
+    setActive(point);
+    onSelect?.(point);
+  }, [onSelect]);
+
+  useEffect(() => { setActive(selectedPoint || null); }, [selectedPoint]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void import("leaflet").then((L) => {
+      if (cancelled || !mapElement.current) return;
+      leafletRef.current = L;
+      const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: !preview });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "© OpenStreetMap contributors",
+      }).addTo(map);
+      mapRef.current = map;
+      markerLayerRef.current = L.layerGroup().addTo(map);
+      setMapReady(true);
+      map.whenReady(() => window.setTimeout(() => map.invalidateSize(), 0));
+    });
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+      leafletRef.current = null;
+      setMapReady(false);
+    };
+  }, [preview]);
+
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapRef.current;
+    const layer = markerLayerRef.current;
+    if (!L || !map || !layer) return;
+    layer.clearLayers();
+    if (!visible.length) return;
+    const render = () => {
+      layer.clearLayers();
+      for (const group of mapClusters(visible, map.getZoom())) {
+        if (group.points.length > 1) {
+          const marker = L.circleMarker([group.latitude, group.longitude], {
+            radius: Math.min(18, 8 + Math.log2(group.points.length) * 2),
+            color: "#143d2d", weight: 1.5, fillColor: "#dce7d3", fillOpacity: .94,
+          }).bindTooltip(`${count(group.points.length)} field activities`, { direction: "top", sticky: true });
+          marker.on("click", () => map.setView([group.latitude, group.longitude], Math.min(map.getZoom() + 2, 16)));
+          marker.addTo(layer);
+          continue;
+        }
+        const point = group.points[0];
+        const marker = L.circleMarker([point.latitude, point.longitude], {
+          radius: active?.id === point.id ? 8 : 5.5, color: "#143d2d", weight: active?.id === point.id ? 2.5 : 1.25, fillColor: "#f9f6ea", fillOpacity: .96,
+        }).bindTooltip(mapTooltip(point), { direction: "top", sticky: true, opacity: .98 });
+        marker.on("click", () => select(point));
+        marker.addTo(layer);
+      }
+    };
+    const bounds = L.latLngBounds(visible.map((point) => [point.latitude, point.longitude] as [number, number]));
+    if (bounds.isValid() && fittedDataRef.current !== dataKey) {
+      fittedDataRef.current = dataKey;
+      map.fitBounds(bounds.pad(preview ? .18 : .1), { maxZoom: preview ? 11 : 13, animate: false });
+    }
+    render();
+    map.on("zoomend", render);
+    return () => { map.off("zoomend", render); };
+  }, [active?.id, dataKey, mapReady, preview, select, visible]);
+
   if (!visible.length) return <div className="operating-map map-empty"><strong>Map is preparing</strong><p>Location activity will appear here as the operating record arrives.</p></div>;
-  const latitudes = visible.map((point) => point.latitude);
-  const longitudes = visible.map((point) => point.longitude);
-  const minLatitude = Math.min(...latitudes), maxLatitude = Math.max(...latitudes);
-  const minLongitude = Math.min(...longitudes), maxLongitude = Math.max(...longitudes);
-  const latitudeRange = Math.max(maxLatitude - minLatitude, .002);
-  const longitudeRange = Math.max(maxLongitude - minLongitude, .002);
-  return <div className="operating-map" aria-label="Field activity map">
-    <svg viewBox="0 0 1000 580" role="img" aria-label={`${visible.length} mapped field activity points`}>
-      <defs><radialGradient id="map-glow"><stop stopColor="#dce7d3" stopOpacity=".9" /><stop offset="1" stopColor="#dce7d3" stopOpacity="0" /></radialGradient><pattern id="map-grid" width="72" height="72" patternUnits="userSpaceOnUse"><path d="M72 0H0V72" fill="none" stroke="rgba(20,61,45,.10)" strokeWidth="1" /></pattern></defs>
-      <rect width="1000" height="580" fill="url(#map-grid)" />
-      <ellipse cx="500" cy="290" rx="410" ry="244" fill="url(#map-glow)" opacity=".75" />
-      {visible.map((point) => <circle key={point.id} cx={74 + ((point.longitude - minLongitude) / longitudeRange) * 852} cy={506 - ((point.latitude - minLatitude) / latitudeRange) * 432} r="3.3" fill="#143d2d" fillOpacity=".62"><title>{point.label}</title></circle>)}
-    </svg>
+  return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
+    <div className="leaflet-map" ref={mapElement} />
     <div className="map-key"><span /><span>Field activity</span></div>
+    {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
   </div>;
+}
+
+function MapView({ state }: { state: State }) {
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<"all" | MapSubjectKind>("all");
+  const [days, setDays] = useState<"all" | "7" | "30" | "90">("all");
+  const [selected, setSelected] = useState<MapPoint | null>(null);
+  const allPoints = state.trackwick?.map?.points || [];
+  const points = useMemo(() => {
+    const minimum = days === "all" ? null : Date.now() - Number(days) * 86_400_000;
+    const needle = query.trim().toLocaleLowerCase();
+    return allPoints.filter((point) => {
+      if (kind !== "all" && point.subject.kind !== kind) return false;
+      if (minimum && new Date(point.observed_at).valueOf() < minimum) return false;
+      if (!needle) return true;
+      return [point.subject.name, point.subject.place, point.subject.farmer_name, point.label].filter(Boolean).some((value) => value!.toLocaleLowerCase().includes(needle));
+    });
+  }, [allPoints, days, kind, query]);
+  useEffect(() => {
+    if (selected && !points.some((point) => point.id === selected.id)) setSelected(null);
+  }, [points, selected]);
+  return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
+    <div className="map-controls" aria-label="Map filters">
+      <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
+      <label>Show<select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">All activity</option><option value="reported_farm">Farms</option><option value="farmer">Farmers</option><option value="field_worker">Field workers</option><option value="work">Tasks</option></select></label>
+      <label>When<select value={days} onChange={(event) => setDays(event.target.value as typeof days)}><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
+      <p><strong>{count(points.length)}</strong> mapped activities</p>
+    </div>
+    <div className="map-content"><div className="map-canvas"><OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} /></div></div>
+    {selected ? <aside className="map-inspector" aria-label="Selected map record"><MapGlance point={selected} close={() => setSelected(null)} /></aside> : null}
+  </section>;
+}
+
+function mapTooltip(point: MapPoint) {
+  const label = escapeMapText(point.subject.name || point.label);
+  const detail = point.subject.place || point.subject.farmer_name || dateTime(point.observed_at);
+  return `<strong>${label}</strong><br><span>${escapeMapText(detail)}</span>`;
+}
+
+function escapeMapText(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
+}
+
+function mapClusters(points: MapPoint[], zoom: number) {
+  const precision = Math.max(.0012, .24 / 2 ** Math.max(0, zoom - 7));
+  const groups = new Map<string, { latitude: number; longitude: number; points: MapPoint[] }>();
+  for (const point of points) {
+    const key = `${Math.round(point.latitude / precision)}:${Math.round(point.longitude / precision)}`;
+    const group = groups.get(key) || { latitude: 0, longitude: 0, points: [] };
+    group.latitude += point.latitude;
+    group.longitude += point.longitude;
+    group.points.push(point);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({ ...group, latitude: group.latitude / group.points.length, longitude: group.longitude / group.points.length }));
+}
+
+function MapGlance({ point, close }: { point: MapPoint; close: () => void }) {
+  const subject = point.subject;
+  return <aside className="map-glance" aria-live="polite">
+    <button type="button" className="map-glance-close" onClick={close} aria-label="Close map card">×</button>
+    <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
+    <strong>{subject.name}</strong>
+    <p>{[subject.place, subject.farmer_name, subject.open_work ? `${subject.open_work} open task${subject.open_work === 1 ? "" : "s"}` : null, `Updated ${dateTime(point.observed_at)}`].filter(Boolean).join(" · ")}</p>
+    {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="text-link">Open profile <span aria-hidden="true">→</span></Link> : null}
+  </aside>;
+}
+
+function mapProfileHref(subject: MapPoint["subject"]) {
+  if (!subject.id) return null;
+  if (subject.kind === "reported_farm") return `/fields?reported_farm=${encodeURIComponent(subject.id)}`;
+  if (subject.kind === "farmer") return `/farmers?person=${encodeURIComponent(subject.id)}`;
+  if (subject.kind === "field_worker") return `/farmers?worker=${encodeURIComponent(subject.id)}`;
+  return null;
 }
 
 const EMPTY_DIRECTORY_FILTERS: DirectoryFilters = {
@@ -754,11 +925,13 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
   const managerAccessWasEnabled = useRef(canOpenProfiles);
   const pendingManagerExpiryFocus = useRef(false);
   const initialFarmRequest = useRef<string | null>(null);
+  const initialReportedFarmRequest = useRef<string | null>(null);
 
   useEffect(() => {
     function syncFromUrl() {
       const next = filtersFromLocation();
       initialFarmRequest.current = new URLSearchParams(window.location.search).get("farm");
+      initialReportedFarmRequest.current = new URLSearchParams(window.location.search).get("reported_farm");
       setFilters(next);
       setDraftFilters(next);
       setFiltersReady(true);
@@ -854,11 +1027,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     if (!nested) directoryOpener.current = openerId;
     const history = panelHistory(openerId, nested);
     const request = ++panelRequest.current;
-    setPanel({ kind: "farm", loading: true, error: null, record: null, history });
+    const cacheKey = `${PROFILE_CACHE_PREFIX}reviewed:farm:${id}`;
+    const cached = readSessionCache<FarmRecord>(cacheKey);
+    setPanel({ kind: "farm", loading: !cached, error: null, record: cached, history });
     try {
       const { value } = await readJson<FarmRecord>("/api/v1/farms/" + id);
-      if (request === panelRequest.current) setPanel({ kind: "farm", loading: false, error: null, record: value, history });
+      if (request === panelRequest.current) { writeSessionCache(cacheKey, value); setPanel({ kind: "farm", loading: false, error: null, record: value, history }); }
     } catch (error) {
+      if (cached) return;
       finishPanelError(request, "farm", history, error);
     }
   }
@@ -867,11 +1043,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     if (!canOpenProfiles) return;
     directoryOpener.current = openerId;
     const request = ++panelRequest.current;
-    setPanel({ kind: "farm", loading: true, error: null, record: null, history: [] });
+    const cacheKey = `${PROFILE_CACHE_PREFIX}reported:farm:${id}`;
+    const cached = readSessionCache<ReportedFarmProfile>(cacheKey);
+    setPanel({ kind: "farm", loading: !cached, error: null, record: cached, history: [] });
     try {
       const { value } = await readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id);
-      if (request === panelRequest.current) setPanel({ kind: "farm", loading: false, error: null, record: value, history: [] });
+      if (request === panelRequest.current) { writeSessionCache(cacheKey, value); setPanel({ kind: "farm", loading: false, error: null, record: value, history: [] }); }
     } catch (error) {
+      if (cached) return;
       finishPanelError(request, "farm", [], error);
     }
   }
@@ -883,15 +1062,25 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     void openFarm(farmId, MANAGER_ACCESS_BOUNDARY_ID);
   }, [canOpenProfiles, filtersReady]);
 
+  useEffect(() => {
+    const farmId = initialReportedFarmRequest.current;
+    if (!filtersReady || !canOpenProfiles || !farmId) return;
+    initialReportedFarmRequest.current = null;
+    void openReportedFarm(farmId, MANAGER_ACCESS_BOUNDARY_ID);
+  }, [canOpenProfiles, filtersReady]);
+
   async function openField(id: string, openerId: string) {
     if (!canOpenProfiles) return;
     const history = panelHistory(openerId, true);
     const request = ++panelRequest.current;
-    setPanel({ kind: "field", loading: true, error: null, record: null, history });
+    const cacheKey = `${PROFILE_CACHE_PREFIX}reviewed:field:${id}`;
+    const cached = readSessionCache<FieldRecord>(cacheKey);
+    setPanel({ kind: "field", loading: !cached, error: null, record: cached, history });
     try {
       const { value } = await readJson<FieldRecord>("/api/v1/fields/" + id);
-      if (request === panelRequest.current) setPanel({ kind: "field", loading: false, error: null, record: value, history });
+      if (request === panelRequest.current) { writeSessionCache(cacheKey, value); setPanel({ kind: "field", loading: false, error: null, record: value, history }); }
     } catch (error) {
+      if (cached) return;
       finishPanelError(request, "field", history, error);
     }
   }
@@ -900,11 +1089,14 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
     if (!canOpenProfiles) return;
     const history = panelHistory(openerId, true);
     const request = ++panelRequest.current;
-    setPanel({ kind, loading: true, error: null, record: null, history });
+    const cacheKey = `${PROFILE_CACHE_PREFIX}reviewed:${kind}:${id}`;
+    const cached = readSessionCache<PersonContext>(cacheKey);
+    setPanel({ kind, loading: !cached, error: null, record: cached, history });
     try {
       const { value } = await readJson<PersonContext>("/api/v1/people/" + kind + "/" + id);
-      if (request === panelRequest.current) setPanel({ kind, loading: false, error: null, record: value, history });
+      if (request === panelRequest.current) { writeSessionCache(cacheKey, value); setPanel({ kind, loading: false, error: null, record: value, history }); }
     } catch (error) {
+      if (cached) return;
       finishPanelError(request, kind, history, error);
     }
   }
@@ -973,8 +1165,8 @@ function FieldsView({ t, state, canOpenProfiles, expireManagerSession }: {
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
           : directory.items.length
             ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
-              ? <article className="farm-directory-card reported-candidate-card" key={farm.id}><div><span className="status-chip reported">to review</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name}</p></div><dl><div><dt>Plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open tasks</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Last activity</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`reported-farm-directory-${farm.id}`} label={`Open ${farm.name}`} text="Open" open={(openerId) => void openReportedFarm(farm.destination.id, openerId)} /></article>
-              : <article className="farm-directory-card" key={farm.id}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl><ProfileControl canOpenProfiles controlId={`farm-directory-${farm.id}`} label={`Open ${farm.name} Farm profile`} text="Open Farm" open={(openerId) => void openFarm(farm.id, openerId)} /></article>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
+              ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><div><span className="status-chip reported">to review</span><h3>{farm.name}</h3><p>{farm.reported_farmer_name}</p></div><dl><div><dt>Plots</dt><dd>{count(farm.reported_plot_count || undefined)}</dd></div><div><dt>Open tasks</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Last activity</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>
+              : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><div><span className="status-chip">{farm.state}</span><h3>{farm.name}</h3><p>{farm.crops.join(" · ") || "No active crop recorded"}</p></div><dl><div><dt>Fields</dt><dd>{count(farm.field_count)}</dd></div><div><dt>Open work</dt><dd>{count(farm.open_work_count)}</dd></div><div><dt>Latest update</dt><dd>{dateTime(farm.latest_update_at)}</dd></div></dl></button>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
             : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
   </section>;
 }
@@ -1181,10 +1373,20 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, selection
   closeProfile: () => void;
 }) {
   const sourceFarmers = trackwick?.farmers || [];
+  const mapProfileRequested = useRef(false);
+  useEffect(() => {
+    if (!canOpenProfiles || mapProfileRequested.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const farmerId = params.get("person");
+    const workerId = params.get("worker");
+    if (!farmerId && !workerId) return;
+    mapProfileRequested.current = true;
+    void openProfile(farmerId || workerId!, farmerId ? "farmer" : "field_worker", "reported", "map-profile-link");
+  }, [canOpenProfiles, openProfile]);
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
   return <section className="single-surface people-stage">
     <div className="surface-heading"><div><p className="eyebrow">Farm network</p><h2>Find a farmer</h2></div><span className="count-badge">{count(farmers.length || sourceFarmers.length)}</span></div>
-    {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reviewed-farmer-${person.id}`} label={`Open ${person.name} farmer profile`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reviewed", openerId)} /></article>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
+    {farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{person.name}</h3><p>{count(person.assignment_count)} Farm{person.assignment_count === 1 ? "" : "s"}</p></div></button>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
 
@@ -1203,7 +1405,7 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
       ? right.farm_candidates - left.farm_candidates || right.open_work - left.open_work || personName(left.name).localeCompare(personName(right.name))
       : right.open_work - left.open_work || right.farm_candidates - left.farm_candidates || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-filters people-filters"><label>Find farmer<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Search by name" /></label><label>Sort<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <article className="person-row" key={person.id}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><h3>{personName(person.name)}</h3><p>{person.farm_candidates} Farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open task{person.open_work === 1 ? "" : "s"}</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-farmer-${person.id}`} label={`Open ${personName(person.name)}`} text="Open" open={(openerId) => void openProfile(person.id, "farmer", "reported", openerId)} /></article>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  return <><div className="directory-filters people-filters"><label>Find farmer<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Search by name" /></label><label>Sort<select value={order} onChange={(event) => { setOrder(event.target.value as typeof order); setVisibleCount(100); }}><option value="activity">Open tasks</option><option value="farms">Most farms</option><option value="name">Name</option></select></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><h3>{personName(person.name)}</h3><p>{person.farm_candidates} Farm{person.farm_candidates === 1 ? "" : "s"} · {person.open_work} open task{person.open_work === 1 ? "" : "s"}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1235,7 +1437,7 @@ function ProfilePanel({ profile, close }: { profile: PersonProfile; close: () =>
     <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {profile.kind === "field_worker" ? "field work" : "farmers"}</button>
     <p className="eyebrow">{subject}</p>
     <h2>{profile.name}</h2>
-    <p className="profile-context">{profile.limitations?.[0] || "Only reviewed operating relationships are shown here."}</p>
+    <p className="profile-context">{reported ? "Farm history, field activity, and current work in one place." : profile.limitations?.[0] || "Current operating relationships in one place."}</p>
     <PersonProfileFacts profile={profile} />
     <div className="profile-action">
       {reported
@@ -1371,7 +1573,7 @@ function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["c
 function SourceWorkRows({ items }: { items: TrackwickWork[] }) {
   const [visibleCount, setVisibleCount] = useState(100);
   const visible = items.slice(0, visibleCount);
-  return <><ol className="action-list source-work-card-grid">{visible.map((item) => <li key={item.id}><span className="severity medium">open</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Open <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < items.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(items.length - visible.length)} remaining)</button> : null}</>;
+  return <><ol className="action-list source-work-card-grid">{visible.map((item) => <li key={item.id}><span className="severity medium">open</span><div><h3>{item.label}</h3><p>{[item.farmer_name, item.follow_up_at ? `due ${dateTime(item.follow_up_at)}` : null].filter(Boolean).join(" · ")}</p></div></li>)}</ol>{visible.length < items.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(items.length - visible.length)} remaining)</button> : null}</>;
 }
 
 function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
@@ -1383,7 +1585,7 @@ function ReportedFieldWorkers({ workers, canOpenProfiles, openProfile }: {
   const visible = workers.slice(0, visibleCount);
   return <section className="reported-field-workers">
     <div className="surface-heading"><div><p className="eyebrow">Field team</p><h2>Field workers</h2></div><span className="count-badge">{count(workers.length)}</span></div>
-    <div className="people-list source-card-grid">{visible.map((worker) => <article className="person-row" key={worker.id}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} farmers · {count(worker.open_work)} open tasks</p></div><ProfileControl canOpenProfiles={canOpenProfiles} controlId={`profile-reported-field-worker-${worker.id}`} label={`Open ${worker.name}`} text="Open" open={(openerId) => void openProfile(worker.id, "field_worker", "reported", openerId)} /></article>)}</div>{visible.length < workers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(workers.length - visible.length)} remaining)</button> : null}
+    <div className="people-list source-card-grid">{visible.map((worker) => <button id={`profile-reported-field-worker-${worker.id}`} type="button" className="person-row compact-entity-card" key={worker.id} onClick={(event) => void openProfile(worker.id, "field_worker", "reported", event.currentTarget.id)}><span className="person-initial">{worker.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><h3>{worker.name}</h3><p>{count(worker.reported_farmer_reach)} farmers · {count(worker.open_work)} open tasks</p><p>Updated {dateTime(worker.latest_activity_at)}</p></div></button>)}</div>{visible.length < workers.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 40)}>Show 40 more ({count(workers.length - visible.length)} remaining)</button> : null}
   </section>;
 }
 
@@ -1409,7 +1611,7 @@ function ReportedSignalQueue({ signals, total }: { signals: TrackwickSignal[]; t
       <label>From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
       <label>To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
     </div>
-    {filtered.length ? <><ol className="action-list reported-signal-list">{visible.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease" : "Pest"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")}</p></div><a className="text-link" href="/manager?review=farm-truth">Open <span aria-hidden="true">→</span></a></li>)}</ol>{visible.length < filtered.length ? <button type="button" className="quiet-button" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(filtered.length - visible.length)} remaining)</button> : null}</> : <p className="empty-copy">No issues match these filters.</p>}
+    {filtered.length ? <><ol className="action-list reported-signal-list">{visible.map((signal) => <li key={signal.id}><span className={`severity ${signal.declared_severity}`}>{signal.declared_severity}</span><div><h3>{signal.finding_kind === "disease" ? "Disease" : "Pest"}</h3><p>{[signal.farmer_name, dateTime(signal.observed_at)].filter(Boolean).join(" · ")}</p></div></li>)}</ol>{visible.length < filtered.length ? <button type="button" className="quiet-button" onClick={() => setVisibleCount((current) => current + 100)}>Show 100 more ({count(filtered.length - visible.length)} remaining)</button> : null}</> : <p className="empty-copy">No issues match these filters.</p>}
   </section>;
 }
 
