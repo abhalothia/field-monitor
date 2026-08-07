@@ -736,7 +736,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
     void import("leaflet").then((L) => {
       if (cancelled || !mapElement.current) return;
       leafletRef.current = L;
-      const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: !preview });
+      const map = L.map(mapElement.current, { zoomControl: true, attributionControl: true, preferCanvas: true, scrollWheelZoom: true });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
         attribution: "© OpenStreetMap contributors",
