@@ -251,6 +251,14 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
     assert safe_board["map"]["points"][0]["subject"]["kind"] == "reported_farm"
+    worker_visit_point = next(point for point in safe_board["map"]["points"] if point["subject"]["kind"] == "field_worker")
+    assert worker_visit_point["has_disease"] is True
+    assert worker_visit_point["related_farm"] == {
+        "id": safe_board["farms"][0]["id"],
+        "name": "Dargava · Gabhana · Aligarh",
+        "place": "Dargava · Gabhana · Aligarh",
+        "farmer_name": "Ramesh Kumar",
+    }
     assert safe_board["map"]["places"] == []
     for forbidden in ("crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333", "private disease value 7731", "private source field"):
         assert forbidden not in safe_serialized
