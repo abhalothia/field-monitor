@@ -34,6 +34,9 @@ AlertSender = Callable[[Dict[str, Any]], None]
 def run_once(conn, provider, receipt_key: str, alert_sender: Optional[AlertSender] = None) -> Dict[str, int]:
     if not receipt_key:
         raise ValueError("FFL_COMMUNICATION_RECEIPT_KEY is required for the communications worker")
+    # Receipt processing invokes the exact-interaction inbound router before
+    # any allocation candidate can exist; the worker handles only the sealed
+    # receipt and its redacted routing outcome.
     receipts = process_pending_communications(conn, provider, receipt_key)
     media = process_pending_communication_media(conn, provider, receipt_key)
     dispatches = dispatch_due_workflows(conn, provider, datetime.now(timezone.utc))
@@ -50,6 +53,8 @@ def run_once(conn, provider, receipt_key: str, alert_sender: Optional[AlertSende
         "unknown_delivery_count": health["unknown_delivery_count"],
         "retryable_receipt_count": health["retryable_receipt_count"],
         "failed_media_count": health["failed_media_count"],
+        "identity_review_count": health["identity_review_count"],
+        "context_review_count": health["context_review_count"],
     }
     if _needs_alert(result) and alert_sender is not None:
         # Intentionally no contact, message, URL, or error text is emitted.

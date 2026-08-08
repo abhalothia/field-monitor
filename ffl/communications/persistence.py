@@ -348,6 +348,21 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             reviewed_at TEXT,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS communication_inbound_reviews (
+            event_id TEXT PRIMARY KEY REFERENCES communication_events(id),
+            state TEXT NOT NULL CHECK (state IN ('identity_review', 'context_review')),
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS communication_inbound_outcomes (
+            event_id TEXT PRIMARY KEY REFERENCES communication_events(id),
+            kind TEXT NOT NULL CHECK (kind IN (
+                'review_candidate', 'identity_review', 'context_review', 'opt_out'
+            )),
+            interaction_run_id TEXT REFERENCES communication_interaction_runs(id),
+            candidate_id TEXT REFERENCES communication_candidates(id),
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_communication_prompts_endpoint_status
             ON communication_prompts(endpoint_id, status);
         CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_profile
@@ -1404,6 +1419,61 @@ def get_candidate_for_event(conn: sqlite3.Connection, event_id: str) -> Optional
     return dict(row) if row is not None else None
 
 
+def create_inbound_review(
+    conn: sqlite3.Connection, event_id: str, state: str, reason: str,
+) -> Dict[str, Any]:
+    """Persist a redacted review state without turning it into a farm candidate."""
+    if state not in {"identity_review", "context_review"}:
+        raise ValueError("invalid inbound review state")
+    conn.execute(
+        "INSERT OR IGNORE INTO communication_inbound_reviews (event_id, state, reason, created_at) VALUES (?, ?, ?, ?)",
+        (event_id, state, reason[:120], datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    review = get_inbound_review_for_event(conn, event_id)
+    if review is None:
+        raise RuntimeError("communication inbound review was not created")
+    return review
+
+
+def get_inbound_review_for_event(conn: sqlite3.Connection, event_id: str) -> Optional[Dict[str, Any]]:
+    row = conn.execute(
+        "SELECT * FROM communication_inbound_reviews WHERE event_id = ?", (event_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def create_inbound_outcome(
+    conn: sqlite3.Connection,
+    event_id: str,
+    kind: str,
+    *,
+    interaction_run_id: Optional[str] = None,
+    candidate_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Store an idempotency marker for a private inbound routing decision."""
+    if kind not in {"review_candidate", "identity_review", "context_review", "opt_out"}:
+        raise ValueError("invalid inbound outcome kind")
+    conn.execute(
+        """INSERT OR IGNORE INTO communication_inbound_outcomes
+           (event_id, kind, interaction_run_id, candidate_id, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (event_id, kind, interaction_run_id, candidate_id, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    outcome = get_inbound_outcome_for_event(conn, event_id)
+    if outcome is None:
+        raise RuntimeError("communication inbound outcome was not created")
+    return outcome
+
+
+def get_inbound_outcome_for_event(conn: sqlite3.Connection, event_id: str) -> Optional[Dict[str, Any]]:
+    row = conn.execute(
+        "SELECT * FROM communication_inbound_outcomes WHERE event_id = ?", (event_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def candidate_detail(conn: sqlite3.Connection, candidate_id: str) -> Optional[Dict[str, Any]]:
     candidate = get_candidate(conn, candidate_id)
     if candidate is None:
@@ -1459,6 +1529,12 @@ def health(conn: sqlite3.Connection) -> Dict[str, int]:
     retryable_receipts = conn.execute("SELECT count(*) FROM communication_receipts WHERE status = 'retryable'").fetchone()[0]
     unavailable_media = conn.execute("SELECT count(*) FROM communication_attachments WHERE status = 'unavailable'").fetchone()[0]
     failed_media = conn.execute("SELECT count(*) FROM communication_attachments WHERE status = 'failed'").fetchone()[0]
+    identity_reviews = conn.execute(
+        "SELECT count(*) FROM communication_inbound_reviews WHERE state = 'identity_review'",
+    ).fetchone()[0]
+    context_reviews = conn.execute(
+        "SELECT count(*) FROM communication_inbound_reviews WHERE state = 'context_review'",
+    ).fetchone()[0]
     return {
         "failed_delivery_count": failed,
         "unknown_delivery_count": unknown,
@@ -1467,4 +1543,6 @@ def health(conn: sqlite3.Connection) -> Dict[str, int]:
         "retryable_receipt_count": retryable_receipts,
         "unavailable_media_count": unavailable_media,
         "failed_media_count": failed_media,
+        "identity_review_count": identity_reviews,
+        "context_review_count": context_reviews,
     }

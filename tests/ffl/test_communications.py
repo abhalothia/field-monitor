@@ -255,26 +255,26 @@ def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_
         )
         _send_prompt(client, second_work, endpoint, template, seed)
         ambiguous = _inbound(client, provider, "webhook-ambiguous", message_id="inbound-ambiguous", text="crop looks fine")
-        candidate = client.get("/api/v1/communications/inbox").json()["candidates"][0]
         assert ambiguous.status_code == 200
-        assert candidate["work_item_id"] is None
-        assert json.loads(conn.execute(
-            "SELECT draft_json FROM communication_candidates WHERE id = ?", (candidate["id"],),
-        ).fetchone()[0])["context_resolved"] is False
+        assert client.get("/api/v1/communications/inbox").json()["candidates"] == []
+        ambiguous_event = conn.execute(
+            "SELECT id FROM communication_events WHERE provider_event_id = 'webhook-ambiguous'",
+        ).fetchone()
+        assert conn.execute(
+            "SELECT state FROM communication_inbound_reviews WHERE event_id = ?", (ambiguous_event["id"],),
+        ).fetchone()["state"] == "context_review"
+        assert conn.execute(
+            "SELECT 1 FROM communication_candidates WHERE event_id = ?", (ambiguous_event["id"],),
+        ).fetchone() is None
         assert {
             row["status"]
             for row in conn.execute("SELECT status FROM communication_interaction_runs").fetchall()
         } == {"dispatched"}
-        assert client.post(
-            "/api/v1/communications/candidates/{}/accept".format(candidate["id"]),
-            json={"reviewer_id": seed["manager_id"], "signal_template_id": "missing", "signal_template_version": 1},
-        ).status_code == 422
-
         # Exact provider reply correlation resolves the intended run even while
         # both prompts remain open. Endpoint history alone is never authority.
         resolved = _inbound(
             client, provider, "webhook-signal", message_id="inbound-signal",
-            text="crop looks fine", reply_to_message_id=first_prompt["provider_message_id"],
+            text="SUBMIT_EVIDENCE", reply_to_message_id=first_prompt["provider_message_id"],
         )
         signal_candidate = client.get("/api/v1/communications/inbox").json()["candidates"][-1]
         assert resolved.status_code == 200
@@ -374,12 +374,18 @@ def test_webhook_receipt_recovers_after_crash_and_replay_creates_one_candidate_a
         assert replay.json()["status"] == "duplicate"
         assert conn.execute("SELECT status FROM communication_receipts").fetchone()[0] == "queued"
         assert process_pending_communications(conn, provider, "test-receipt-key") == 1
-        assert conn.execute("SELECT count(*) FROM communication_candidates").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM communication_candidates").fetchone()[0] == 0
+        event = conn.execute(
+            "SELECT id FROM communication_events WHERE provider_event_id = 'crash-receipt-1'",
+        ).fetchone()
+        assert conn.execute(
+            "SELECT state FROM communication_inbound_reviews WHERE event_id = ?", (event["id"],),
+        ).fetchone()["state"] == "context_review"
         assert conn.execute("SELECT count(*) FROM communication_attachments").fetchone()[0] == 1
         processed_replay = client.post("/api/v1/communications/loopmessage/webhook", json=payload, headers={"Authorization": provider.webhook_authorization})
         assert processed_replay.json()["status"] == "duplicate"
         assert process_pending_communications(conn, provider, "test-receipt-key") == 0
-        assert conn.execute("SELECT count(*) FROM communication_candidates").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM communication_candidates").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM communication_attachments").fetchone()[0] == 1
 
 
@@ -766,15 +772,18 @@ def test_loopmessage_http_5xx_is_ambiguous_and_not_a_rejection(monkeypatch):
 
 def test_manager_candidate_detail_is_narrow_redacted_and_not_an_archive(tmp_path):
     for client, conn, provider, seed, work, _endpoint, _consent, _template in _setup(tmp_path):
-        _send_prompt(client, work, _endpoint, _template, seed)
-        _inbound(client, provider, "detail-event", text="irrigation line is blocked")
+        prompt = _send_prompt(client, work, _endpoint, _template, seed)
+        _inbound(
+            client, provider, "detail-event", text="REPORT_DEVIATION",
+            reply_to_message_id=prompt["provider_message_id"],
+        )
         candidate_id = client.get("/api/v1/communications/inbox").json()["candidates"][0]["id"]
         denied = client.get("/api/v1/communications/candidates/{}".format(candidate_id), headers={"X-FFL-Manager-Token": "wrong"})
         assert denied.status_code == 403
         detail = client.get("/api/v1/communications/candidates/{}".format(candidate_id))
         assert detail.status_code == 200
         body = detail.json()
-        assert body["context"]["reported_text"] == "irrigation line is blocked"
+        assert body["context"]["reported_text"] == "REPORT_DEVIATION"
         assert body["endpoint"]["address_last4"] == "0001"
         assert "address" not in body["endpoint"]
         assert "draft_json" not in json.dumps(body)

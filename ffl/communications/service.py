@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
 from ffl.communications import private
+from ffl.communications.inbound import process_inbound_event
 from ffl.communications.outbox import (
     dispatch_ready_interaction,
     reconcile_outbox_messages,
@@ -388,67 +389,13 @@ def _process_event(
         persistence.update_event_status(conn, stored["id"], "processed")
         return
 
-    endpoint = None
-    if stored["endpoint_id"]:
-        endpoint_row = conn.execute("SELECT * FROM communication_endpoints WHERE id = ? AND provider = ?", (stored["endpoint_id"], provider.name)).fetchone()
-        endpoint = dict(endpoint_row) if endpoint_row is not None else None
-    existing_candidate = persistence.get_candidate_for_event(conn, stored["id"])
-    if existing_candidate is not None:
-        # A crash may have happened after candidate persistence but before its
-        # prompt/event status updates.  Do not create duplicate evidence rows.
-        prompt = None
-        if existing_candidate["prompt_id"]:
-            prompt_row = conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (existing_candidate["prompt_id"],)).fetchone()
-            prompt = dict(prompt_row) if prompt_row is not None else None
-        if prompt is not None and prompt["status"] in ("accepted", "scheduled", "delivered"):
-            persistence.update_prompt(conn, prompt["id"], "responded")
-        existing_draft = json.loads(existing_candidate["draft_json"])
-        if existing_draft.get("interaction_run_id"):
-            try:
-                mark_interaction_responded(conn, existing_draft["interaction_run_id"])
-            except ValueError:
-                pass
-        persistence.update_event_status(conn, stored["id"], "review_required")
-        return
-
-    attachments = [
-        persistence.add_attachment(conn, stored["id"], url, event["message_type"])
-        for url in event["attachments"]
-    ]
-    interaction = find_interaction_for_inbound(
-        conn,
-        provider.name,
-        endpoint["id"],
-        event.get("reply_to_message_id"),
-        event.get("passthrough"),
-        context_token_hash=context_token_hash,
-    ) if endpoint else None
-    prompt = None
-    if interaction is not None and interaction.legacy_prompt_id:
-        prompt_row = conn.execute(
-            "SELECT * FROM communication_prompts WHERE id = ?", (interaction.legacy_prompt_id,),
-        ).fetchone()
-        prompt = dict(prompt_row) if prompt_row is not None else None
-    intent = event["text"].strip().upper()
-    kind = "exception" if intent == "REPORT_DEVIATION" else "signal"
-    persistence.create_candidate(
-        conn, stored["id"], prompt["id"] if prompt else None,
-        interaction.allocation_id if interaction else None,
-        interaction.work_item_id if interaction else None,
-        endpoint["id"] if endpoint else None, kind,
-        {
-            "text": event["text"], "intent": intent, "message_type": event["message_type"],
-            "attachment_ids": [attachment["id"] for attachment in attachments],
-            "context_resolved": interaction is not None,
-            "interaction_run_id": interaction.id if interaction else None,
-            "observed_at": event["raw"].get("observed_at"),
-        },
-    )
-    if prompt is not None:
-        persistence.update_prompt(conn, prompt["id"], "responded")
-    if interaction is not None:
-        mark_interaction_responded(conn, interaction.id)
-    persistence.update_event_status(conn, stored["id"], "review_required")
+    # The router owns every inbound allocation decision.  It may produce an
+    # explicit redacted review state, but never uses a known contact or prose
+    # alone as identity/scope authority.
+    event_for_routing = dict(event)
+    if context_token_hash:
+        event_for_routing["_ffl_context_token_hash"] = context_token_hash
+    process_inbound_event(conn, provider, event_for_routing, stored)
     return
 
 
