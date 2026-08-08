@@ -52,6 +52,14 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .hindi { margin: 40px 0 0; color: #617160; font-size: .75rem; }
 
 .command-shell { width: min(1800px, 100%); margin: 0 auto; padding: 24px clamp(22px, 4vw, 68px) 72px; }
+@media (min-width: 861px) {
+  .command-shell-map { display: flex; height: 100svh; min-height: 0; flex-direction: column; overflow: hidden; padding-bottom: 24px; }
+  .command-shell-map .map-workspace { flex: 1; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+  .command-shell-map .map-content, .command-shell-map .map-canvas { min-height: 0; height: 100%; }
+  .command-shell-map .map-canvas .operating-map, .command-shell-map .map-canvas .leaflet-map { min-height: 0; height: 100%; }
+  .command-shell-map .map-inspector { min-height: 0; overflow: auto; }
+  .command-shell-map .map-inspector-record { min-height: 100%; }
+}
 .command-header { min-height: 68px; border-bottom: 1px solid var(--line); }
 .command-nav { display: flex; align-items: center; gap: 3px; border: 1px solid rgba(20, 61, 45, .19); border-radius: 999px; background: rgba(255, 251, 239, .62); padding: 5px; }
 .nav-link { border-radius: 999px; color: #617163; font-size: .82rem; font-weight: 800; padding: 11px 16px; transition: .16s ease; }
@@ -144,6 +152,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-locked, .map-empty { display: grid; min-height: 144px; place-items: center; align-content: center; background: linear-gradient(135deg, rgba(220, 231, 211, .72), rgba(238, 231, 205, .6)); color: var(--muted); padding: 28px; text-align: center; }
 .map-locked p, .map-empty p { max-width: 47ch; font-size: .76rem; line-height: 1.5; }
 .map-empty strong { color: var(--ink-soft); font-size: .85rem; }
+.map-empty .quiet-button { margin-top: 5px; }
 .map-loading { display: grid; min-height: inherit; place-items: center; background: rgba(225, 234, 209, .5); color: var(--muted); }
 .map-loading-content { display: grid; justify-items: center; gap: 9px; padding: 28px; text-align: center; }
 .map-loading-content strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.35rem; font-weight: 400; letter-spacing: -.04em; }
@@ -521,6 +530,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .personal-item footer { border-top: 1px solid rgba(20, 61, 45, .16); color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .6rem; margin-top: 20px; padding-top: 12px; text-transform: uppercase; }
 
 @media (max-width: 860px) {
+  .command-shell-map { height: auto; min-height: 0; overflow: visible; }
   .command-header { padding-bottom: 11px; }
   .command-nav { display: none; }
   .nav-link { padding: 8px 10px; white-space: nowrap; }

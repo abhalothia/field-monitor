@@ -852,7 +852,7 @@ export function CommandCentre({ view }: { view: View }) {
   }
 
   return (
-    <main className="command-shell">
+    <main className={`command-shell command-shell-${view}`}>
       <header className="command-header">
         <Link className="brand-mark" href="/home"><i aria-hidden="true" /> AGRO CEO</Link>
         <nav className="command-nav" aria-label="AGRO CEO views">
@@ -870,7 +870,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
-          {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} /> : <h1>{headingFor(view, t)}</h1>}
+          {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} updatedAt={state.updatedAt} /> : <h1>{headingFor(view, t)}</h1>}
         </div>
       </section> : null}
 
@@ -894,7 +894,7 @@ function headingFor(view: View, t: Translation) {
 
 type FieldWeather = { temperature: number; code: number; fetchedAt: number };
 
-function FieldMoment({ points }: { points: MapPoint[] }) {
+function FieldMoment({ points, updatedAt }: { points: MapPoint[]; updatedAt: string | null }) {
   const [now, setNow] = useState<Date | null>(null);
   const [weather, setWeather] = useState<FieldWeather | null>(null);
   const fieldLocation = useMemo(() => {
@@ -941,7 +941,7 @@ function FieldMoment({ points }: { points: MapPoint[] }) {
   const date = now ? new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(now) : "Field briefing";
   const time = now ? new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata", timeZoneName: "short" }).format(now) : "";
   const weatherLine = weather ? `${Math.round(weather.temperature)}°C · ${weatherLabel(weather.code)}` : "Weather updating";
-  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p>{fieldLocation ? `${fieldLocation.label} · ${weatherLine}` : weatherLine}</p></div>;
+  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p>{[fieldLocation?.label, weatherLine, updatedAt ? updatedAgo(updatedAt).replace("Updated ", "Saved ") : null].filter(Boolean).join(" · ")}</p></div>;
 }
 
 function weatherLabel(code: number) {
@@ -1024,7 +1024,7 @@ function HomeUnavailableState({ retry }: { retry: () => void }) {
   </section>;
 }
 
-function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyState }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void; emptyState?: { title: string; detail: string } }) {
+function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyState, clearFilters }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void; emptyState?: { title: string; detail: string }; clearFilters?: () => void }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
@@ -1140,7 +1140,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyS
     return () => { map.off("zoomend", render); };
   }, [active?.id, dataKey, mapReady, preview, select, visible]);
 
-  if (!visible.length) return <div className="operating-map map-empty"><strong>{emptyState?.title || "No saved location activity yet"}</strong><p>{emptyState?.detail || "Location activity will appear here after a field visit is recorded."}</p></div>;
+  if (!visible.length) return <div className="operating-map map-empty"><strong>{emptyState?.title || "No saved location activity yet"}</strong><p>{emptyState?.detail || "Location activity will appear here after a field visit is recorded."}</p>{clearFilters ? <button type="button" className="quiet-button" onClick={clearFilters}>Clear filters</button> : null}</div>;
   const area = mapAreaLabel(visible);
   return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
@@ -1220,6 +1220,8 @@ function MapView({ state }: { state: State }) {
   const viewLabel = kind === "reported_farm" ? "farm" : kind === "field_worker" ? "worker" : kind === "farmer" ? "farmer" : "field";
   const diseaseCount = points.filter((point) => point.has_disease).length;
   const openTaskCount = points.filter((point) => point.subject.open_work > 0).length;
+  const clearFilters = () => { setQuery(""); setKind("all"); setDays("all"); setFocus(["all"]); };
+  const hasActiveFilters = Boolean(query.trim()) || kind !== "all" || days !== "all" || !focus.includes("all");
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
@@ -1228,7 +1230,7 @@ function MapView({ state }: { state: State }) {
       <MultiFilter label="Show" values={focus} options={[["all", "All points"], ["disease", "Disease reported"], ["recent_checked", "Recently checked"], ["open_tasks", "Open tasks"]]} onChange={setFocus} />
       <p className="map-summary" aria-live="polite"><strong>{count(points.length)} {viewLabel} {points.length === 1 ? "location" : "locations"}</strong>{diseaseCount || openTaskCount ? <span>{[diseaseCount ? `${count(diseaseCount)} disease-marked ${diseaseCount === 1 ? "location" : "locations"}` : null, openTaskCount ? `${count(openTaskCount)} ${openTaskCount === 1 ? "location" : "locations"} with open tasks` : null].filter(Boolean).join(" · ")}</span> : <span>No reported disease or open tasks</span>}</p>
     </div>
-    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
+    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} clearFilters={allPoints.length && hasActiveFilters ? clearFilters : undefined} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}
   </section>;
 }
