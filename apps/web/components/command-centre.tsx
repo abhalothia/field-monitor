@@ -554,8 +554,10 @@ const NAV: Array<{ view: View; href: string }> = [
 async function readJson<T>(url: string, init?: RequestInit): Promise<{ value: T; response: Response }> {
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...init });
   if (!response.ok) {
-    const error = new Error("The operating record is unavailable.") as Error & { status?: number };
+    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    const error = new Error("The operating record is unavailable.") as Error & { status?: number; detail?: string };
     error.status = response.status;
+    error.detail = typeof payload?.detail === "string" ? payload.detail : undefined;
     throw error;
   }
   return { value: (await response.json()) as T, response };
@@ -675,7 +677,8 @@ export function CommandCentre({ view }: { view: View }) {
       const value = JSON.parse(cached) as Partial<State>;
       if (!value.session?.authenticated) return;
       cachedStateRef.current = value;
-      setState((current) => ({ ...current, ...value, session: { authenticated: true }, loading: false, error: null }));
+      // Cached records make the shell feel immediate, but they must never revive an expired sign-in.
+      setState((current) => ({ ...current, ...value, session: null, loading: false, error: null }));
     } catch { /* a bad local cache should never block the operating record */ }
   }, []);
 
@@ -698,11 +701,7 @@ export function CommandCentre({ view }: { view: View }) {
 
   const load = useCallback((force = false) => {
     if (loadRequest.current) return loadRequest.current;
-    const cached = cachedStateRef.current;
-    const cachedAt = cached?.updatedAt ? new Date(cached.updatedAt).valueOf() : 0;
-    if (!force && cached?.profile && cached?.trackwick && cachedAt > Date.now() - OPERATING_CACHE_TTL_MS) {
-      return Promise.resolve();
-    }
+    // Always confirm access with the server. The cache is for rendering, never authorization.
     const request = (async () => {
     setState((current) => ({ ...current, loading: current.profile === null, error: null }));
     const results = await Promise.allSettled([
@@ -812,8 +811,8 @@ export function CommandCentre({ view }: { view: View }) {
     } catch (error) {
       if (request === profileRequest.current) {
         if (cached) return;
-        const reauth = profileReadError(error) === "Manager access expired.";
-        if (reauth) setState((current) => ({ ...current, session: { authenticated: false } }));
+        const reauth = requiresReauthentication(error);
+        if (reauth) expireManagerSession(requiresLaunchLogin(error));
         setProfileSelection({ kind, loading: false, error: profileReadError(error), profile: null, reauth });
       }
     }
@@ -829,8 +828,12 @@ export function CommandCentre({ view }: { view: View }) {
     });
   }
 
-  const expireManagerSession = useCallback(() => {
-    setState((current) => ({ ...current, session: { authenticated: false } }));
+  const expireManagerSession = useCallback((launchLogin = false) => {
+    setState((current) => ({
+      ...current,
+      session: launchLogin ? null : { authenticated: false },
+      needsLaunchLogin: launchLogin || current.needsLaunchLogin,
+    }));
   }, []);
 
   async function endManagerSession() {
@@ -880,7 +883,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
       {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load(true)} /> : null}
-      {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
+      {view === "settings" ? <SettingsView state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
       <nav className="mobile-nav" aria-label="Primary views">
         {NAV.filter((item) => item.view !== "settings").map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "active" : ""}>{t[item.view]}</Link>)}
       </nav>
@@ -1418,7 +1421,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
   state: State;
   canOpenProfiles: boolean;
   accessResolved: boolean;
-  expireManagerSession: () => void;
+  expireManagerSession: (launchLogin?: boolean) => void;
 }) {
   const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
   const [draftFilters, setDraftFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
@@ -1502,7 +1505,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
         if (request !== directoryRequest.current) return;
         nextPageRequested.current = false;
         const message = profileReadError(error);
-        if (message === "Manager access expired.") expireManagerSession();
+        if (requiresReauthentication(error)) expireManagerSession(requiresLaunchLogin(error));
         setDirectory((current) => ({ items: current.items, loading: false, error: current.items.length ? null : message, stale: Boolean(current.items.length), hasMore: false }));
       });
   }, [accessResolved, canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
@@ -1650,8 +1653,8 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
   ) {
     if (request !== panelRequest.current) return;
     const message = profileReadError(error);
-    const reauth = message === "Manager access expired.";
-    if (reauth) expireManagerSession();
+    const reauth = requiresReauthentication(error);
+    if (reauth) expireManagerSession(requiresLaunchLogin(error));
     setPanel({ kind, loading: false, error: message, record: null, history, reauth });
   }
 
@@ -1703,7 +1706,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
             ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm to review</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.reported_farmer_name}</p><div className="entity-card-metrics"><span><strong>{count(farm.reported_plot_count || undefined)}</strong> Plots</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><OperatingTags snapshot={farm.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>
             : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Reviewed farm</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.crops.join(" · ") || "No active crop recorded"}</p><div className="entity-card-metrics"><span><strong>{farm.field_count ? count(farm.field_count) : "—"}</strong> {farm.field_count ? "Fields" : "Field setup pending"}</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>)}</div>{canLoadMore ? <div className="directory-more" ref={loadMoreRef}><button className="quiet-button" type="button" onClick={loadNextPage} disabled={directory.loading}>{directory.loading ? "Loading farms…" : "Load more farms"}</button></div> : null}</>
         : directory.error
-          ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
+          ? <p className="profile-message profile-error" role="alert">{directory.error}</p>
           : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
   </section>;
 }
@@ -2211,8 +2214,8 @@ function ActionRows({ items, empty }: { items: LedgerItem[]; empty: string }) {
   return <ol className="action-list">{items.map((item) => <li key={`${item.entity.type}-${item.entity.id}`}><span className={`severity ${item.severity}`}>{item.severity}</span><div><h3>{item.title}</h3><p>{actionLine(item)}</p></div><Link className="text-link" href={item.allocation_id ? `/farms?field=${encodeURIComponent(item.allocation_id)}` : "/actions"}>Open <span aria-hidden="true">→</span></Link></li>)}</ol>;
 }
 
-function SettingsView({ t, state, managerBusy, logout }: {
-  t: Translation; state: State; managerBusy: boolean; logout: () => Promise<void>;
+function SettingsView({ state, managerBusy, logout }: {
+  state: State; managerBusy: boolean; logout: () => Promise<void>;
 }) {
   const session = state.session;
   const history = state.procurementHistory?.summary;
@@ -2228,7 +2231,11 @@ function SettingsView({ t, state, managerBusy, logout }: {
       <div><strong>Field updates</strong><span>{trackwickStatus}</span></div>
       <div className="disabled-connection" aria-disabled="true"><strong>WhatsApp updates <em>Coming soon</em></strong><span>Named requests and reviewable evidence will arrive here after the separate launch gate. WhatsApp never decides or closes work.</span></div>
     </div>
-    {session?.authenticated ? <><PasswordChanger /><AccountManager /><div className="settings-actions"><a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a><button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{t.lock}</button></div></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
+    {session?.authenticated ? <><PasswordChanger /><AccountManager /></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
+    <div className="settings-actions">
+      {session?.authenticated ? <a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a> : null}
+      <button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{managerBusy ? "Signing out…" : "Sign out"}</button>
+    </div>
   </section>;
 }
 
@@ -2349,11 +2356,28 @@ function actionLine(item: LedgerItem) {
   return `${item.status.replaceAll("_", " ")}${item.proof_required ? " · proof required" : ""}${timing}`;
 }
 
+function errorStatus(error: unknown) {
+  return error instanceof Error ? (error as Error & { status?: number }).status : undefined;
+}
+
+function requiresLaunchLogin(error: unknown) {
+  return errorStatus(error) === 401;
+}
+
+function requiresReauthentication(error: unknown) {
+  const status = errorStatus(error);
+  return status === 401 || status === 403;
+}
+
 function profileReadError(error: unknown) {
-  const status = error instanceof Error ? (error as Error & { status?: number }).status : undefined;
-  return status === 403
-    ? "Manager access expired."
+  const status = errorStatus(error);
+  return status === 401
+    ? "Your workspace sign-in has ended. Sign in again to continue."
+    : status === 403
+    ? "Manager access has ended. Sign in again to open this record."
     : status === 404
     ? "This profile is no longer available. Return to the list and refresh the operating record."
-    : "This profile could not be read. Return to the list and try again.";
+    : status && status >= 500
+    ? "The record service is unavailable right now. Try again shortly."
+    : "This profile could not be read. Check your connection and try again.";
 }
