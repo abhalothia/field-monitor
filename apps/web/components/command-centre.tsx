@@ -872,8 +872,8 @@ export function CommandCentre({ view }: { view: View }) {
         </div>
       </section> : null}
 
-      {state.error ? <p className="honest-notice" role="status">{state.error}</p> : state.stale ? <p className="honest-notice honest-notice-stale" role="status">Showing saved data while we reconnect.</p> : null}
-      {view === "home" ? <HomeView t={t} state={state} /> : null}
+      {state.error && view !== "home" ? <p className="honest-notice" role="status">{state.error}</p> : state.stale ? <p className="honest-notice honest-notice-stale" role="status">Showing saved data while we reconnect.</p> : null}
+      {view === "home" ? <HomeView t={t} state={state} retry={() => void load(true)} /> : null}
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
@@ -910,7 +910,11 @@ function languageFarmHeading(t: Translation) {
   return t.farm === "Farm" ? "Farms" : t.farm;
 }
 
-function HomeView({ t, state }: { t: Translation; state: State }) {
+function HomeView({ t, state, retry }: { t: Translation; state: State; retry: () => void }) {
+  const isFirstLoad = state.loading && state.updatedAt === null && !state.trackwick;
+  if (isFirstLoad) return <HomeLoadingState />;
+  if (state.error && !state.trackwick) return <HomeUnavailableState retry={retry} />;
+
   const portfolio = state.portfolio;
   const readiness = state.readiness;
   const history = state.procurementHistory?.summary;
@@ -920,14 +924,36 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   const reportedFarmCount = trackwick?.counts.farm_candidates || 0;
   const mapPoints = trackwick?.map?.points || [];
   const locationCount = trackwick?.map?.total_points || trackwick?.counts.geotagged_evidence || 0;
-  const title = reportedFarmCount ? `${count(reportedFarmCount)} farms in the field.` : nextMove?.title || firstTruth?.title || "Start with one reviewed farm.";
+  const hasBoard = Boolean(trackwick);
+  const isEmptyBoard = hasBoard && !reportedFarmCount && !mapPoints.length;
+  const title = reportedFarmCount
+    ? `${count(reportedFarmCount)} farms in the field.`
+    : isEmptyBoard
+      ? "No field activity yet."
+      : nextMove?.title || firstTruth?.title || "Field activity is ready.";
   const detail = reportedFarmCount
     ? `${count(trackwick?.counts.reported_visits)} visits · ${count(trackwick?.counts.reported_signals)} field issues · ${count(trackwick?.counts.open_work)} open tasks.`
-    : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "The operating record begins with a real field, not a guessed one.";
+    : isEmptyBoard
+      ? "New field activity will appear here as it is recorded."
+      : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "Saved field activity will appear here when available.";
   const mapIsPreparing = state.loading && !mapPoints.length;
   return <section className="single-surface home-map-stage">
-    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div><Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
-    {mapIsPreparing ? <MapLoadingState label="Opening the field map" /> : <OperatingMap points={mapPoints} preview />}
+    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p>{hasBoard ? <div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div> : null}<Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
+    {mapIsPreparing ? <MapLoadingState label="Loading field activity" /> : <OperatingMap points={mapPoints} preview />}
+  </section>;
+}
+
+function HomeLoadingState() {
+  return <section className="single-surface home-map-stage home-loading-stage" role="status" aria-live="polite" aria-busy="true">
+    <div className="home-map-copy home-loading-copy"><p className="eyebrow">Fortune Farms</p><p className="home-loading-status"><span className="directory-loading-dot" aria-hidden="true" />Loading workspace</p><h2>Preparing your field view.</h2><p>Opening saved activity, then checking for updates.</p><span className="home-loading-progress" aria-hidden="true"><i /></span></div>
+    <div className="home-loading-map" aria-hidden="true"><div><span className="home-loading-map-label">Field activity</span><strong>Loading the map</strong><p>Your saved view appears first.</p><span className="home-loading-map-progress"><i /></span></div></div>
+  </section>;
+}
+
+function HomeUnavailableState({ retry }: { retry: () => void }) {
+  return <section className="single-surface home-map-stage home-loading-stage home-unavailable" role="status">
+    <div className="home-map-copy home-loading-copy"><p className="eyebrow">Fortune Farms</p><p className="home-loading-status">Connection paused</p><h2>The field workspace could not open.</h2><p>We will keep your last saved view whenever one is available. Try again when you are ready.</p><button type="button" className="primary-action" onClick={retry}>Try again <span aria-hidden="true">→</span></button></div>
+    <div className="home-loading-map" aria-hidden="true"><div><span className="home-loading-map-label">Field activity</span><strong>Waiting to reconnect</strong><p>Nothing has been replaced with an empty view.</p></div></div>
   </section>;
 }
 
@@ -1126,7 +1152,7 @@ function MapView({ state }: { state: State }) {
       <MapTabs label="Activity date" value={days} onChange={setDays} options={[["7", "Last 7 days"], ["30", "Last 30 days"], ["all", "All history"]]} />
       <MultiFilter label="Show" values={focus} options={[["all", "All points"], ["disease", "Disease reported"], ["recent_checked", "Recently checked"], ["open_tasks", "Open tasks"]]} onChange={setFocus} />
     </div>
-    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Opening map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
+    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}
   </section>;
 }
@@ -2218,9 +2244,7 @@ function DirectoryLoadingState({ label }: { label: string }) {
 
 function MapLoadingState({ label }: { label: string }) {
   return <div className="map-loading" role="status" aria-live="polite" aria-label={label}>
-    <span className="directory-loading-dot" aria-hidden="true" />
-    <p>{label}</p>
-    <i /><i /><i />
+    <div className="map-loading-content"><span className="directory-loading-dot" aria-hidden="true" /><strong>{label}</strong><p>Loading saved field activity</p></div>
   </div>;
 }
 
