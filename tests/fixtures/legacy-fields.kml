@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Untitled polygon</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              77.81393119925725,28.09170424616262,0
+              77.81400403886089,28.09165679811246,0
+              77.81441502722812,28.09200071130502,0
+              77.81382517591547,28.09244514583643,0
+              77.81351367346001,28.09217715050744,0
+              77.81393119925725,28.09170424616262,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>new option 10 acre farm</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              77.8200,28.0900,0
+              77.8230,28.0900,0
+              77.8230,28.0930,0
+              77.8200,28.0930,0
+              77.8200,28.0900,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

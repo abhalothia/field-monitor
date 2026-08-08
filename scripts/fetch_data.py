@@ -7,7 +7,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+load_dotenv()
 
 from config.settings import DB_PATH, DEFAULT_LOOKBACK_DAYS, FIELD_NAME, KML_PATH, get_sentinel_config
 from db.schema import create_tables

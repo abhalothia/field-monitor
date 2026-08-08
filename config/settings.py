@@ -4,10 +4,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = PROJECT_ROOT / "db" / "field_monitor.db"
 IMAGES_DIR = PROJECT_ROOT / "images"

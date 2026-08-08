@@ -13,7 +13,7 @@ os.environ.setdefault("SENTINEL_HUB_CLIENT_ID", "test-client-id")
 os.environ.setdefault("SENTINEL_HUB_CLIENT_SECRET", "test-client-secret")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-KML_PATH = PROJECT_ROOT.parent / "mandi_field.kml"
+KML_PATH = PROJECT_ROOT / "tests" / "fixtures" / "legacy-fields.kml"
 
 
 UNTITLED_POLYGON_COORDS = [

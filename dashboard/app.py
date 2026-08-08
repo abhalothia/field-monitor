@@ -6,9 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+load_dotenv()
 
 from config.settings import DB_PATH, FIELD_NAME, KML_PATH, get_sentinel_config
 from db.schema import create_tables
