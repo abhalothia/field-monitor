@@ -158,6 +158,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         "plot_photo_references": sum(kind_counts["plot_photo"] for kind_counts in media_counts.values()),
         **coverage,
     }
+    daily_brief = _daily_brief(conn, source.id, open_tasks=counts["open_work"])
     return {
         "source": {"state": source_state, "last_synced_at": last_synced_at},
         "counts": counts,
@@ -166,6 +167,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         "field_workers": worker_rows,
         "signals": signal_rows,
         "inbox": inbox_rows,
+        "daily_brief": daily_brief,
         "map": {
             "points": map_points,
             "places": place_summaries,
@@ -202,6 +204,7 @@ def _empty_board(state: str) -> dict[str, Any]:
         "field_workers": [],
         "signals": [],
         "inbox": [],
+        "daily_brief": _empty_daily_brief(),
         "map": {
             "points": [],
             "places": [],
@@ -235,6 +238,7 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
             "id": row.get("id"), "label": _SAFE_SOURCE_WORK_LABEL,
             **{key: row.get(key) for key in ("status", "farmer_name", "follow_up_at", "opened_at")},
         } for row in board["inbox"]],
+        "daily_brief": board["daily_brief"],
         "map": {
             "points": [{key: point.get(key) for key in (
                 "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "has_disease", "related_farm", "subject",
@@ -244,6 +248,62 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
             "truncated": board["map"]["truncated"],
         },
         "limitations": ["Reported farm candidates require Fortune review before they become canonical farms.", "Photo counts are references only; image files and links remain private."],
+    }
+
+
+def _empty_daily_brief() -> dict[str, Any]:
+    return {
+        "as_of": None,
+        "visits": 0,
+        "farmers_updated": 0,
+        "disease_reports": 0,
+        "open_tasks": 0,
+    }
+
+
+def _daily_brief(conn, source_id: str, *, open_tasks: int) -> dict[str, Any]:
+    """Return a small, factual brief for the latest *recorded* field day.
+
+    TrackWick history can be imported after the fact, so this deliberately
+    anchors to the latest visit date in the source instead of calling a total
+    count "today". The browser can therefore link each line to the exact day
+    of source activity without inventing a live operational claim.
+    """
+    empty = _empty_daily_brief()
+    empty["open_tasks"] = int(open_tasks)
+    if not source_relation_exists(conn, "trackwick_visits") or not source_relation_exists(conn, "trackwick_tasks"):
+        return empty
+    latest = conn.execute(
+        """SELECT max(substr(observed_at, 1, 10)) AS observed_on
+           FROM trackwick_visits
+           WHERE source_id = ? AND data_quality_status = 'valid'""",
+        (source_id,),
+    ).fetchone()["observed_on"]
+    if not latest:
+        return empty
+    visits = conn.execute(
+        """SELECT count(*) AS total, count(DISTINCT task.farmer_party_id) AS farmers_updated
+           FROM trackwick_visits AS visit
+           JOIN trackwick_tasks AS task ON task.id = visit.task_id
+           WHERE visit.source_id = ? AND visit.data_quality_status = 'valid'
+             AND task.data_quality_status = 'valid' AND substr(visit.observed_at, 1, 10) = ?""",
+        (source_id, latest),
+    ).fetchone()
+    disease_reports = 0
+    if source_relation_exists(conn, "trackwick_visit_findings"):
+        finding = conn.execute(
+            """SELECT count(*) AS total FROM trackwick_visit_findings
+               WHERE source_id = ? AND finding_kind = 'disease' AND data_quality_status = 'valid'
+                 AND substr(observed_at, 1, 10) = ?""",
+            (source_id, latest),
+        ).fetchone()
+        disease_reports = int(finding["total"] or 0)
+    return {
+        "as_of": str(latest),
+        "visits": int(visits["total"] or 0),
+        "farmers_updated": int(visits["farmers_updated"] or 0),
+        "disease_reports": disease_reports,
+        "open_tasks": int(open_tasks),
     }
 
 

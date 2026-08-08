@@ -192,6 +192,7 @@ type TrackwickBoard = {
   field_workers: TrackwickFieldWorker[];
   signals: TrackwickSignal[];
   inbox: TrackwickWork[];
+  daily_brief?: { as_of: string | null; visits: number; farmers_updated: number; disease_reports: number; open_tasks: number };
   map?: { points: Array<MapPoint>; places?: PlaceOperatingSummary[]; total_points: number; truncated: boolean };
 };
 type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
@@ -1068,8 +1069,23 @@ function HomeView({ t, state, retry }: { t: Translation; state: State; retry: ()
       : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "Saved field activity will appear here when available.";
   const mapIsPreparing = state.loading && !mapPoints.length;
   return <section className="single-surface home-map-stage">
-    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p>{hasBoard ? <div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div> : null}<Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
+    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><DailyBrief brief={trackwick?.daily_brief} />{hasBoard ? <div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div> : null}<Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
     {mapIsPreparing ? <MapLoadingState label="Loading field activity" /> : <OperatingMap points={mapPoints} preview />}
+  </section>;
+}
+
+function DailyBrief({ brief }: { brief?: TrackwickBoard["daily_brief"] }) {
+  if (!brief?.as_of) return null;
+  const day = brief.as_of;
+  const items = [
+    { label: "Visits filed", value: brief.visits, href: `/map?date=${encodeURIComponent(day)}` },
+    { label: "Farmers updated", value: brief.farmers_updated, href: `/map?date=${encodeURIComponent(day)}&view=farmer` },
+    { label: "Disease reports", value: brief.disease_reports, href: `/map?date=${encodeURIComponent(day)}&show=disease` },
+    { label: "Open tasks", value: brief.open_tasks, href: "/farms?activity=open_tasks" },
+  ];
+  return <section className="daily-brief" aria-label="Daily field brief">
+    <div><p className="eyebrow">Daily brief</p><span>Latest field record · {new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(`${day}T12:00:00+05:30`))}</span></div>
+    <div className="daily-brief-items">{items.map((item) => <Link href={item.href} key={item.label}><strong>{count(item.value)}</strong><span>{item.label}</span></Link>)}</div>
   </section>;
 }
 
@@ -1255,10 +1271,18 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
 }
 
 function MapView({ state }: { state: State }) {
+  const mapQuery = () => typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<"all" | MapSubjectKind>("all");
+  const [kind, setKind] = useState<"all" | MapSubjectKind>(() => {
+    const value = mapQuery().get("view");
+    return value === "reported_farm" || value === "farmer" || value === "field_worker" ? value : "all";
+  });
   const [days, setDays] = useState<"all" | "7" | "30">("30");
-  const [focus, setFocus] = useState<Array<"all" | "disease" | "recent_checked" | "open_tasks">>(["all"]);
+  const [focus, setFocus] = useState<Array<"all" | "disease" | "recent_checked" | "open_tasks">>(() => {
+    const value = mapQuery().get("show");
+    return value === "disease" || value === "recent_checked" || value === "open_tasks" ? [value] : ["all"];
+  });
+  const [exactDate, setExactDate] = useState(() => mapQuery().get("date") || "");
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const allPoints = state.trackwick?.map?.points || [];
   const mapIsPreparing = state.loading && !allPoints.length;
@@ -1266,6 +1290,7 @@ function MapView({ state }: { state: State }) {
     const minimum = days === "all" ? null : Date.now() - Number(days) * 86_400_000;
     const needle = query.trim().toLocaleLowerCase();
     return allPoints.filter((point) => {
+      if (exactDate && point.observed_at.slice(0, 10) !== exactDate) return false;
       if (kind === "reported_farm" && point.subject.kind !== kind && !point.related_farm) return false;
       if (kind !== "all" && kind !== "reported_farm" && point.subject.kind !== kind) return false;
       if (minimum && new Date(point.observed_at).valueOf() < minimum) return false;
@@ -1273,7 +1298,7 @@ function MapView({ state }: { state: State }) {
       if (!needle) return true;
       return [point.subject.name, point.subject.place, point.subject.farmer_name, point.label].filter(Boolean).some((value) => value!.toLocaleLowerCase().includes(needle));
     });
-  }, [allPoints, days, focus, kind, query]);
+  }, [allPoints, days, exactDate, focus, kind, query]);
   useEffect(() => {
     setSelected((current) => {
       if (current && points.some((point) => point.id === current.id)) return current;
@@ -1283,8 +1308,8 @@ function MapView({ state }: { state: State }) {
   const viewLabel = kind === "reported_farm" ? "farm" : kind === "field_worker" ? "worker" : kind === "farmer" ? "farmer" : "field";
   const diseaseCount = points.filter((point) => point.has_disease).length;
   const openTaskCount = points.filter((point) => point.subject.open_work > 0).length;
-  const clearFilters = () => { setQuery(""); setKind("all"); setDays("all"); setFocus(["all"]); };
-  const hasActiveFilters = Boolean(query.trim()) || kind !== "all" || days !== "all" || !focus.includes("all");
+  const clearFilters = () => { setQuery(""); setKind("all"); setDays("all"); setFocus(["all"]); setExactDate(""); };
+  const hasActiveFilters = Boolean(query.trim()) || kind !== "all" || days !== "all" || Boolean(exactDate) || !focus.includes("all");
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
@@ -1293,6 +1318,7 @@ function MapView({ state }: { state: State }) {
       <MultiFilter label="Show" values={focus} options={[["all", "All points"], ["disease", "Disease reported"], ["recent_checked", "Recently checked"], ["open_tasks", "Open tasks"]]} onChange={setFocus} />
       <p className="map-summary" aria-live="polite"><strong>{count(points.length)} {viewLabel} {points.length === 1 ? "location" : "locations"}</strong>{diseaseCount || openTaskCount ? <span>{[diseaseCount ? `${count(diseaseCount)} disease-marked ${diseaseCount === 1 ? "location" : "locations"}` : null, openTaskCount ? `${count(openTaskCount)} ${openTaskCount === 1 ? "location" : "locations"} with open tasks` : null].filter(Boolean).join(" · ")}</span> : <span>No reported disease or open tasks</span>}</p>
     </div>
+    {exactDate ? <p className="map-date-filter">Showing activity recorded on {new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(`${exactDate}T12:00:00+05:30`))}<button type="button" onClick={() => setExactDate("")}>Clear day</button></p> : null}
     <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} clearFilters={allPoints.length && hasActiveFilters ? clearFilters : undefined} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}
   </section>;

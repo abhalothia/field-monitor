@@ -209,7 +209,7 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     safe_board = command_centre_board_for_source(ffl_db, source_key=source.source_key)
     safe_serialized = repr(safe_board).lower()
     assert set(safe_board) == {
-        "source", "counts", "farms", "farmers", "field_workers", "signals", "inbox", "map", "limitations",
+        "source", "counts", "farms", "farmers", "field_workers", "signals", "inbox", "daily_brief", "map", "limitations",
     }
     assert set(safe_board["farms"][0]) == {
         "id", "farmer_name", "place", "reported_area_acres", "reported_plot_count",
@@ -247,6 +247,13 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "observed_at": "2026-08-03T15:30:00+05:30",
         "farmer_name": "Ramesh Kumar",
     }]
+    assert safe_board["daily_brief"] == {
+        "as_of": "2026-08-03",
+        "visits": 1,
+        "farmers_updated": 1,
+        "disease_reports": 1,
+        "open_tasks": 1,
+    }
     assert safe_board["inbox"][0]["label"] == "Field work"
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
