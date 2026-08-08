@@ -870,7 +870,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
-          {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} updatedAt={state.updatedAt} /> : <h1>{headingFor(view, t)}</h1>}
+          {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} /> : <h1>{headingFor(view, t)}</h1>}
         </div>
       </section> : null}
 
@@ -894,14 +894,14 @@ function headingFor(view: View, t: Translation) {
 
 type FieldWeather = { temperature: number; code: number; fetchedAt: number };
 
-function FieldMoment({ points, updatedAt }: { points: MapPoint[]; updatedAt: string | null }) {
+function FieldMoment({ points }: { points: MapPoint[] }) {
   const [now, setNow] = useState<Date | null>(null);
   const [weather, setWeather] = useState<FieldWeather | null>(null);
   const fieldLocation = useMemo(() => {
     if (!points.length) return null;
     const latitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
     const longitude = points.reduce((total, point) => total + point.longitude, 0) / points.length;
-    return { latitude, longitude, label: mapAreaLabel(points) };
+    return { latitude, longitude };
   }, [points]);
 
   useEffect(() => {
@@ -941,7 +941,7 @@ function FieldMoment({ points, updatedAt }: { points: MapPoint[]; updatedAt: str
   const date = now ? new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(now) : "Field briefing";
   const time = now ? new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata", timeZoneName: "short" }).format(now) : "";
   const weatherLine = weather ? `${Math.round(weather.temperature)}°C · ${weatherLabel(weather.code)}` : "Weather updating";
-  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p><i aria-hidden="true">{weather ? weatherIcon(weather.code) : "◌"}</i>{[fieldLocation?.label, weatherLine, updatedAt ? updatedAgo(updatedAt).replace("Updated ", "Saved ") : null].filter(Boolean).join(" · ")}</p></div>;
+  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p><i aria-hidden="true">{weather ? weatherIcon(weather.code) : "◌"}</i>{weatherLine}</p></div>;
 }
 
 function weatherIcon(code: number) {
