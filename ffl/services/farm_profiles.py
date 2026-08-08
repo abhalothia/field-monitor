@@ -782,11 +782,14 @@ def _reported_farm_directory(
             "state": "reported",
             "kind": "reported_farm_candidate",
             "id": row["id"],
-            "name": row["place"],
-            "reported_farmer_name": row["farmer_name"],
-            "reported_area_acres": row["reported_area_acres"],
-            "reported_plot_count": row["reported_plot_count"],
-            "open_work_count": row["open_work"],
+            # The browser board intentionally omits unknown optional values.
+            # A partially captured registration must still be discoverable,
+            # never turn a directory read into a 500 response.
+            "name": row.get("place") or "Reported farm",
+            "reported_farmer_name": row.get("farmer_name"),
+            "reported_area_acres": row.get("reported_area_acres"),
+            "reported_plot_count": row.get("reported_plot_count"),
+            "open_work_count": int(row.get("open_work") or 0),
             "latest_update_at": occurred_at,
             "destination": {"kind": "review_reported_farm", "id": row["id"]},
         }

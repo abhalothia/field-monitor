@@ -453,6 +453,23 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
     assert "RAW DIRECTORY SENTINEL 9217" not in repr(reported)
 
 
+def test_reported_farm_directory_tolerates_missing_optional_capture_values(ffl_db, monkeypatch):
+    monkeypatch.setattr(farm_profiles, "command_centre_board_for_source", lambda conn: {
+        "farms": [{
+            "id": "reported-1", "place": "Village · Block", "farmer_name": "Grower",
+            "open_work": 1, "latest_activity_at": "2026-08-08T12:00:00+00:00",
+        }],
+    })
+
+    assert farm_profiles._reported_farm_directory(ffl_db, None, None, (None, None), 10) == [{
+        "state": "reported", "kind": "reported_farm_candidate", "id": "reported-1",
+        "name": "Village · Block", "reported_farmer_name": "Grower",
+        "reported_area_acres": None, "reported_plot_count": None, "open_work_count": 1,
+        "latest_update_at": "2026-08-08T12:00:00+00:00",
+        "destination": {"kind": "review_reported_farm", "id": "reported-1"},
+    }]
+
+
 def test_farm_profile_returns_reviewed_truth_and_not_source_context(ffl_db, users, crop_allocation):
     grower = repository.create_person(ffl_db, "Asha Grower", "grower")
     repository.create_person_operating_relationship(
