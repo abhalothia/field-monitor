@@ -2093,6 +2093,7 @@ function AgentsView({ agents, reload }: {
     <div className="agent-list">
       {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>
         <strong className="agent-count">{count(agent.count)}</strong>
+        <AgentIcon id={agent.id} />
         <div><h3>{agent.name}</h3><p>{agent.summary}</p></div>
         <Link href={agent.id === "disease-watch" ? "/farms?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
       </article>)}
@@ -2109,6 +2110,13 @@ function AgentsView({ agents, reload }: {
       {agents?.custom_agents.length ? <div className="custom-agent-list">{agents.custom_agents.map((agent) => <CustomAgentEditor key={agent.id} agent={agent} reload={reload} />)}</div> : null}
     </section>
   </section>;
+}
+
+function AgentIcon({ id }: { id: string }) {
+  if (id === "disease-watch") return <span className="agent-icon disease" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 18C5 9 10 4 19 4c0 9-5 14-14 14Z" /><path d="M7 16c3-3 6-5 10-7" /><circle cx="14.7" cy="8.6" r="1" /><circle cx="11.4" cy="12" r="1" /></svg></span>;
+  if (id === "farmer-no-update") return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><path d="M12 8v4l2.8 1.8M6 5v3H3" /></svg></span>;
+  if (id === "farmer-no-visits") return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M6 19c.8-3.4 2.8-5 6-5s5.2 1.6 6 5M5 5l14 14" /></svg></span>;
+  return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 19V8l6-4 6 4v11" /><path d="M9 19v-5h6v5M4 19h16" /></svg></span>;
 }
 
 function CustomAgentEditor({ agent, reload }: { agent: CustomAgent; reload: () => void }) {

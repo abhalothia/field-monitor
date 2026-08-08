@@ -195,9 +195,12 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .access-flow-grid p { color: var(--muted); font-size: .69rem; line-height: 1.48; margin: 0; }
 .actions-surface, .agents-stage { max-width: none; }
 .agent-list { display: grid; margin: 22px 0 0; }
-.agent-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 18px; border-top: 1px solid rgba(20, 61, 45, .16); padding: 17px 0; }
+.agent-row { display: grid; grid-template-columns: 74px 34px minmax(0, 1fr) auto; align-items: center; gap: 18px; border-top: 1px solid rgba(20, 61, 45, .16); padding: 17px 0; }
 .agent-row:last-child { border-bottom: 1px solid rgba(20, 61, 45, .16); }
 .agent-count { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 2rem; font-weight: 400; letter-spacing: -.055em; line-height: 1; }
+.agent-icon { display: grid; width: 31px; height: 31px; place-items: center; border: 1px solid rgba(20, 61, 45, .2); border-radius: 50%; background: rgba(220, 231, 211, .36); color: var(--ink-soft); }
+.agent-icon svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
+.agent-icon.disease { border-color: rgba(166, 87, 75, .28); background: #f4d8d2; color: #8a4439; }
 .agent-row h3, .agent-builder h3 { color: var(--ink); font-size: .88rem; margin: 0 0 4px; }
 .agent-row p, .agent-builder > div > p { color: var(--muted); font-size: .72rem; line-height: 1.45; margin: 0; }
 .agent-builder { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(0, 1.35fr); gap: 22px; border-top: 1px solid var(--line); margin-top: 34px; padding-top: 26px; }
@@ -578,6 +581,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .section-heading > p { text-align: left; }
   .action-list li { grid-template-columns: auto minmax(0, 1fr); }
   .action-list .text-link { grid-column: 2; justify-self: start; }
+  .agent-row { grid-template-columns: 46px 31px minmax(0, 1fr); gap: 10px; }
+  .agent-row .text-link { grid-column: 3; justify-self: start; }
   .single-stage { min-height: 440px; padding: 30px 24px; }
   .single-stage h2 { font-size: clamp(2.8rem, 15vw, 4.2rem); }
   .single-surface { padding: 22px 18px; }
