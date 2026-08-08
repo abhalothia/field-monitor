@@ -864,7 +864,7 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert '"/api/v1/trackwick/board"' not in source
     assert "reviewed_farms" in source
     assert 'setState({ ...EMPTY_STATE, session: { authenticated: false }, loading: false, needsLaunchLogin: true });' in source
-    assert 'Re-authenticate in Farm Truth' in source
+    assert 'Re-authenticate in Farm Truth' not in source
     assert "Disease &amp; pest" in source
     assert "Filter field issues" in source
     assert "PersonContextPanel" in source

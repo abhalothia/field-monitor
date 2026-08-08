@@ -1777,7 +1777,7 @@ function ContextProfilePanel({ panel, close, operatingUnit, openFarm, openField,
     {panel.loading
       ? <p className="profile-message" role="status">Reading this {subject} context…</p>
       : panel.error
-        ? <p className="profile-message profile-error" role="alert">{panel.error} {panel.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>
+        ? <p className="profile-message profile-error" role="alert">{panel.error} {panel.reauth ? <Link href="/login?next=/farms&reason=session-expired">Sign in again</Link> : null}</p>
         : panel.record?.kind === "farm" && panel.record.state === "reported"
           ? <ReportedFarmPanel record={panel.record} operatingUnit={operatingUnit} />
           : panel.record?.kind === "farm"
@@ -1986,7 +1986,7 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, accessRes
     <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Farmers</h1><span>{count(farmerCount)}</span></div></div>
     {!accessResolved ? <DirectoryLoadingState label="Opening farmers" /> : farmerCount ? <div className="farmer-directory-sections">
       {farmers.length ? <section><div className="surface-heading"><div><p className="eyebrow">Reviewed operating record</p><h2>Reviewed farmers</h2></div><span className="count-badge">{count(farmers.length)}</span></div><div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Reviewed farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Reviewed Farms</span></div></div></button>)}</div></section> : null}
-      {sourceFarmers.length ? <section><div className="surface-heading"><div><p className="eyebrow">Reported source context</p><h2>Reported farmers</h2></div><span className="count-badge">{count(sourceFarmers.length)}</span></div><ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /></section> : null}
+      {sourceFarmers.length ? <section><div className="surface-heading"><div><p className="eyebrow">Field network</p><h2>Farmers</h2></div><span className="count-badge">{count(sourceFarmers.length)}</span></div><ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /></section> : null}
     </div> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
@@ -2052,7 +2052,7 @@ function ProfileReading({ selection, close }: { selection: ProfileSelection; clo
     <button type="button" className="quiet-button profile-back" onClick={close} autoFocus>Back to {selection.kind === "field_worker" ? "field work" : "farmers"}</button>
     {selection.loading
       ? <p className="profile-message" role="status">Reading this {subject} profile…</p>
-      : <p className="profile-message profile-error" role="alert">{selection.error} {selection.reauth ? <a href="/manager">Re-authenticate in Farm Truth</a> : null}</p>}
+      : <p className="profile-message profile-error" role="alert">{selection.error} {selection.reauth ? <Link href="/login?next=/farmers&reason=session-expired">Sign in again</Link> : null}</p>}
   </aside>;
 }
 
