@@ -251,6 +251,18 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             UNIQUE (provider, provider_message_id)
         );
+        CREATE TABLE IF NOT EXISTS communication_outbox (
+            id TEXT PRIMARY KEY,
+            interaction_run_id TEXT NOT NULL UNIQUE REFERENCES communication_interaction_runs(id),
+            legacy_prompt_id TEXT REFERENCES communication_prompts(id),
+            provider_message_id TEXT UNIQUE,
+            status TEXT NOT NULL CHECK (status IN (
+                'pending', 'dispatching', 'dispatched', 'suppressed', 'failed', 'unknown'
+            )),
+            policy_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS communication_workflows (
             id TEXT PRIMARY KEY,
             workflow_key TEXT NOT NULL UNIQUE,
@@ -350,6 +362,8 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             ON communication_interaction_runs(field_information_request_id);
         CREATE INDEX IF NOT EXISTS idx_communication_interaction_dispatches_message
             ON communication_interaction_dispatches(provider, provider_message_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_outbox_status
+            ON communication_outbox(status, updated_at);
         CREATE INDEX IF NOT EXISTS idx_communication_workflow_versions_workflow_status
             ON communication_workflow_versions(workflow_id, status, version);
         CREATE INDEX IF NOT EXISTS idx_communication_workflow_runs_version_window
@@ -1047,6 +1061,108 @@ def has_unknown_delivery_attempt(conn: sqlite3.Connection, prompt_id: str) -> bo
     return conn.execute(
         "SELECT 1 FROM communication_deliveries WHERE prompt_id = ? AND status = 'unknown'", (prompt_id,)
     ).fetchone() is not None
+
+
+def create_outbox_entry(
+    conn: sqlite3.Connection, interaction_run_id: str, legacy_prompt_id: Optional[str] = None,
+) -> Tuple[Dict[str, Any], bool]:
+    """Durably reserve one logical interaction before any provider call.
+
+    The outbox deliberately contains correlation IDs and lifecycle state only.
+    Contacts, provider request bodies, template parameters, and raw context
+    tokens are assembled transiently at dispatch time and are never retained
+    here.
+    """
+    existing = conn.execute(
+        "SELECT * FROM communication_outbox WHERE interaction_run_id = ?", (interaction_run_id,),
+    ).fetchone()
+    if existing is not None:
+        return dict(existing), False
+    identifier, now = _identity()
+    conn.execute(
+        """INSERT INTO communication_outbox
+           (id, interaction_run_id, legacy_prompt_id, provider_message_id, status, policy_code, created_at, updated_at)
+           VALUES (?, ?, ?, NULL, 'pending', NULL, ?, ?)""",
+        (identifier, interaction_run_id, legacy_prompt_id, now, now),
+    )
+    conn.commit()
+    return dict(conn.execute(
+        "SELECT * FROM communication_outbox WHERE id = ?", (identifier,),
+    ).fetchone()), True
+
+
+def outbox_entry(conn: sqlite3.Connection, interaction_run_id: str) -> Optional[Dict[str, Any]]:
+    row = conn.execute(
+        "SELECT * FROM communication_outbox WHERE interaction_run_id = ?", (interaction_run_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def update_outbox_entry(
+    conn: sqlite3.Connection,
+    interaction_run_id: str,
+    status: str,
+    *,
+    provider_message_id: Optional[str] = None,
+    policy_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Advance an outbox entry without allowing a second send lifecycle."""
+    row = conn.execute(
+        "SELECT * FROM communication_outbox WHERE interaction_run_id = ?", (interaction_run_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("communication outbox entry does not exist")
+    allowed = {
+        "pending": {"dispatching", "suppressed"},
+        "dispatching": {"dispatched", "failed", "unknown", "suppressed"},
+        "unknown": {"dispatched", "failed"},
+        "dispatched": {"dispatched"},
+        "failed": {"failed"},
+        "suppressed": {"suppressed"},
+    }
+    if status not in allowed.get(row["status"], set()):
+        raise ValueError("invalid communication outbox transition")
+    if provider_message_id is not None and row["provider_message_id"] not in (None, provider_message_id):
+        raise ValueError("outbox interaction is already bound to another provider message")
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """UPDATE communication_outbox
+           SET status = ?, provider_message_id = COALESCE(?, provider_message_id),
+               policy_code = COALESCE(?, policy_code), updated_at = ?
+           WHERE interaction_run_id = ?""",
+        (status, provider_message_id, policy_code, now, interaction_run_id),
+    )
+    conn.commit()
+    updated = outbox_entry(conn, interaction_run_id)
+    if updated is None:
+        raise RuntimeError("communication outbox entry disappeared")
+    return updated
+
+
+def outbox_requiring_reconciliation(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT * FROM communication_outbox
+           WHERE status IN ('dispatching', 'unknown')
+           ORDER BY updated_at""",
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def workflow_dispatch_count(
+    conn: sqlite3.Connection, profile_id: str, workflow_version_id: str, weekly_window: str,
+) -> int:
+    row = conn.execute(
+        """SELECT COUNT(*) AS count
+           FROM communication_outbox outbox
+           JOIN communication_interaction_runs interaction
+             ON interaction.id = outbox.interaction_run_id
+           JOIN communication_workflow_runs run
+             ON run.interaction_run_id = interaction.id
+           WHERE run.profile_id = ? AND run.workflow_version_id = ? AND run.weekly_window = ?
+             AND outbox.status = 'dispatched'""",
+        (profile_id, workflow_version_id, weekly_window),
+    ).fetchone()
+    return int(row["count"])
 
 
 def quarantine(conn: sqlite3.Connection, provider: str, reason: str, payload: bytes) -> None:

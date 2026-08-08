@@ -5,6 +5,11 @@ from typing import Any, Dict, Optional, Tuple
 
 from ffl.communications import persistence
 from ffl.communications import private
+from ffl.communications.outbox import (
+    dispatch_ready_interaction,
+    reconcile_outbox_messages,
+    record_outbox_callback,
+)
 from ffl.communications.interactions import (
     context_token_digest,
     create_interaction_run,
@@ -67,6 +72,11 @@ def send_work_prompt(
     conn: sqlite3.Connection, provider: CommunicationsProvider, work_item_id: str, endpoint_id: str,
     template_id: str, initiated_by_person_id: str, idempotency_key: str,
 ) -> Dict[str, Any]:
+    """Compatibility adapter for the legacy work-prompt API.
+
+    The prompt record remains available to existing callers, but creation and
+    delivery now flow through the same durable interaction outbox as workflows.
+    """
     endpoint = conn.execute("SELECT * FROM communication_endpoints WHERE id = ? AND status = 'active'", (endpoint_id,)).fetchone()
     template = conn.execute("SELECT * FROM communication_templates WHERE id = ?", (template_id,)).fetchone()
     work = repository.get_work_item(conn, work_item_id)
@@ -80,7 +90,11 @@ def send_work_prompt(
         raise ValueError("validated WhatsApp capability gate is required for work-prompt delivery")
     if not getattr(provider, "sender_id", None):
         raise ValueError("a dedicated WhatsApp sender id is required for work-prompt delivery")
-    if not template["provider_template_id"] or template["provider_approval_state"] != "approved":
+    if (
+        not template["provider_template_id"]
+        or template["provider_approval_state"] != "approved"
+        or template["locale"] != endpoint["locale"]
+    ):
         raise ValueError("approved external WhatsApp template is required for work-prompt delivery")
     if not persistence.has_active_consent(conn, endpoint_id, WORK_PROMPT_PURPOSE):
         raise ValueError("work prompt consent is not active")
@@ -113,31 +127,12 @@ def send_work_prompt(
                 interaction = transition_interaction_run(conn, interaction.id, "expired")
             elif prompt["status"] == "failed":
                 interaction = transition_interaction_run(conn, interaction.id, "cancelled")
-    if not created:
-        return prompt
-    persistence.create_delivery_attempt(conn, prompt["id"], "attempting")
-    try:
-        result = provider.send_message(
-            endpoint["address"], template["body"], provider.sender_id, interaction.context_token
+    if interaction.status == "ready":
+        dispatch_ready_interaction(
+            conn, provider, interaction.id, datetime.now(timezone.utc), context_token=interaction.context_token,
         )
-    except ProviderRejectedError as error:
-        if error.error_code == 500:
-            _suppress_opted_out_endpoint(conn, endpoint_id, "LoopMessage synchronous error_code 500")
-        persistence.create_delivery_attempt(
-            conn, prompt["id"], "failed", error_summary="LoopMessage error_code {0}".format(error.error_code or "unknown"),
-        )
-        return persistence.update_prompt(conn, prompt["id"], "failed")
-    except ProviderAmbiguousError:
-        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="provider send outcome ambiguous")
-        return persistence.update_prompt(conn, prompt["id"], "unknown")
-    except Exception as error:
-        # The provider may have accepted a request before a transport timeout;
-        # mark it unknown and reconcile, never blindly issue a second send.
-        persistence.create_delivery_attempt(conn, prompt["id"], "unknown", error_summary="provider transport outcome unknown")
-        return persistence.update_prompt(conn, prompt["id"], "unknown")
-    persistence.create_delivery_attempt(conn, prompt["id"], "accepted", result.provider_message_id)
-    record_interaction_dispatch(conn, interaction.id, result.provider_message_id, status="accepted")
-    return persistence.update_prompt(conn, prompt["id"], result.status, result.provider_message_id)
+    row = conn.execute("SELECT * FROM communication_prompts WHERE id = ?", (prompt["id"],)).fetchone()
+    return dict(row) if row is not None else prompt
 
 
 def receive_webhook(
@@ -261,7 +256,7 @@ def process_pending_communication_media(
 
 def reconcile_outbound_messages(conn: sqlite3.Connection, provider: CommunicationsProvider) -> int:
     """Resolve ambiguous sends without ever re-sending a logical work prompt."""
-    reconciled = 0
+    reconciled = reconcile_outbox_messages(conn, provider)
     for prompt in persistence.prompts_requiring_reconciliation(conn):
         if prompt["status"] == "pending":
             # The process could have died after LoopMessage accepted the request
@@ -349,6 +344,10 @@ def _process_event(
                     )
                 except ValueError:
                     pass
+            if interaction is not None:
+                record_outbox_callback(
+                    conn, interaction.id, event["message_id"], callback_dispatch_status,
+                )
             if prompt is None and interaction is not None and interaction.legacy_prompt_id:
                 prompt_row = conn.execute(
                     "SELECT * FROM communication_prompts WHERE id = ?",

@@ -79,7 +79,9 @@ def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acc
         assert replayed_prompt["id"] == prompt["id"]
         assert len(provider.sent) == 1
         assert provider.sent[0]["contact"] == "+15550000001"
-        assert "सिंचाई" in provider.sent[0]["text"]
+        assert provider.sent[0]["template_id"] == "fake-whatsapp-template-v1"
+        assert provider.sent[0]["locale"] == "hi-IN"
+        assert provider.sent[0]["parameters"] == {}
 
         first = _inbound(
             client, provider, "webhook-inbound-1",

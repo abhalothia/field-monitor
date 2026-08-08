@@ -6,6 +6,7 @@ reconciles ambiguous outbound sends without issuing a resend.
 """
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -20,6 +21,7 @@ from ffl.communications.service import (
     process_pending_communications,
     reconcile_outbound_messages,
 )
+from ffl.communications.outbox import dispatch_due_workflows
 from ffl.config import FFL_DATABASE_PATH
 from ffl.communications import persistence
 from ffl.persistence.database import database_target, open_connection
@@ -34,6 +36,7 @@ def run_once(conn, provider, receipt_key: str, alert_sender: Optional[AlertSende
         raise ValueError("FFL_COMMUNICATION_RECEIPT_KEY is required for the communications worker")
     receipts = process_pending_communications(conn, provider, receipt_key)
     media = process_pending_communication_media(conn, provider, receipt_key)
+    dispatches = dispatch_due_workflows(conn, provider, datetime.now(timezone.utc))
     reconciled = reconcile_outbound_messages(conn, provider)
     health = persistence.health(conn)
     result = {
@@ -41,6 +44,8 @@ def run_once(conn, provider, receipt_key: str, alert_sender: Optional[AlertSende
         "media_retained": media["retained"],
         "media_retryable": media["retryable"],
         "media_failed": media["failed"],
+        "workflows_dispatched": sum(1 for dispatch in dispatches if dispatch.status == "dispatched"),
+        "workflows_suppressed": sum(1 for dispatch in dispatches if dispatch.status == "suppressed"),
         "outbounds_reconciled": reconciled,
         "unknown_delivery_count": health["unknown_delivery_count"],
         "retryable_receipt_count": health["retryable_receipt_count"],
