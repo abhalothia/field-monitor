@@ -2,7 +2,7 @@
 
 /** Shared, URL-backed controls for the operating directories. */
 export type FarmStateFilter = "all" | "reviewed" | "reported";
-export type FarmActivityFilter = "all" | "open_tasks" | "updated_week" | "updated_month" | "no_recent_update";
+export type FarmActivityFilter = "all" | "open_tasks" | "disease_reported" | "updated_week" | "updated_month" | "no_recent_update";
 export type FarmOrder = "open_tasks" | "recently_updated" | "least_updated" | "name";
 
 function toggleFilterValue<T extends string>(values: T[], next: T): T[] {

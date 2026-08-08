@@ -63,7 +63,7 @@ def list_farms(
         _invalid("kind must be farm, field, farmer, or field_worker")
     if state is not None and (not set(state.split(",")) <= {"all", "reviewed", "reported"}):
         _invalid("state must contain only all, reviewed, or reported")
-    if activity is not None and (not set(activity.split(",")) <= {"all", "open_tasks", "updated_week", "updated_month", "no_recent_update"}):
+    if activity is not None and (not set(activity.split(",")) <= {"all", "open_tasks", "disease_reported", "updated_week", "updated_month", "no_recent_update"}):
         _invalid("activity contains an unsupported filter")
     if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
         _invalid("order contains an unsupported value")

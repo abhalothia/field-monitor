@@ -79,3 +79,11 @@ run `scripts/enrich_operating_language.py --apply --batches 40`. The model sees
 only controlled display labels or village/block/district components. It cannot
 merge places, change raw source values, identify people, draw boundaries, or
 diagnose a reported issue. Suggested labels remain invisible until reviewed.
+
+`0030_agro_field_context_enrichment.sql` extends the cached operating snapshot
+with the latest non-empty reported crop stage, water condition, kit status, and
+observed timestamp, plus the reported plot count. Apply it after `0023`, then
+run `scripts/backfill_operating_snapshots.py` once. Future imports refresh the
+same facts atomically. It does not predict crop state, diagnose a field, infer
+a farm relationship, or create a boundary; a visit reaches a farm only through
+an existing exact source association.

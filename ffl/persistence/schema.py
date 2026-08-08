@@ -32,6 +32,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
         ("linked_place_count", "INTEGER NOT NULL DEFAULT 0"),
         ("crop_profile", "TEXT NOT NULL DEFAULT 'not_recorded'"),
         ("latest_activity_kind", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("reported_plot_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("latest_crop_stage", "TEXT"),
+        ("latest_water_condition", "TEXT"),
+        ("latest_kit_status", "TEXT"),
+        ("latest_field_observed_at", "TEXT"),
     )
     for column_name, definition in snapshot_additions:
         if existing_snapshot_columns and column_name not in existing_snapshot_columns:
@@ -1373,6 +1378,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             place_key TEXT,
             linked_place_count INTEGER NOT NULL DEFAULT 0 CHECK (linked_place_count >= 0),
             crop_profile TEXT NOT NULL DEFAULT 'not_recorded' CHECK (crop_profile IN ('pb1', '1718', 'mixed', 'not_recorded')),
+            reported_plot_count INTEGER NOT NULL DEFAULT 0 CHECK (reported_plot_count >= 0),
             farm_count INTEGER NOT NULL DEFAULT 0 CHECK (farm_count >= 0),
             farmer_count INTEGER NOT NULL DEFAULT 0 CHECK (farmer_count >= 0),
             open_task_count INTEGER NOT NULL DEFAULT 0 CHECK (open_task_count >= 0),
@@ -1384,6 +1390,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
             photo_reference_count INTEGER NOT NULL DEFAULT 0 CHECK (photo_reference_count >= 0),
             attendance_present_days INTEGER NOT NULL DEFAULT 0 CHECK (attendance_present_days >= 0),
             reported_area_acres REAL CHECK (reported_area_acres IS NULL OR reported_area_acres >= 0),
+            latest_crop_stage TEXT,
+            latest_water_condition TEXT,
+            latest_kit_status TEXT,
+            latest_field_observed_at TEXT,
             latest_activity_at TEXT,
             latest_activity_kind TEXT NOT NULL DEFAULT 'unknown' CHECK (latest_activity_kind IN ('registration', 'visit', 'issue', 'work', 'location', 'photo', 'attendance', 'unknown')),
             enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),

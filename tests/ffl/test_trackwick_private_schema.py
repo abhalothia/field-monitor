@@ -7,6 +7,7 @@ CLASSIFICATION_MIGRATION = ROOT / "db" / "postgres" / "0023_agro_operating_class
 PLACE_SUMMARIES_MIGRATION = ROOT / "db" / "postgres" / "0024_agro_place_operating_summaries.sql"
 VOCABULARY_MIGRATION = ROOT / "db" / "postgres" / "0025_agro_operating_vocabulary_registry.sql"
 LANGUAGE_MIGRATION = ROOT / "db" / "postgres" / "0029_agro_operating_language_packs.sql"
+FIELD_CONTEXT_MIGRATION = ROOT / "db" / "postgres" / "0030_agro_field_context_enrichment.sql"
 
 
 def test_private_spatial_migration_defines_the_typed_trackwick_graph():
@@ -126,3 +127,29 @@ def test_operating_language_packs_are_private_and_review_first(ffl_db):
     assert {
         "operating_vocabulary_localizations", "operating_issue_group_proposals", "place_localizations",
     } <= relations
+
+
+def test_field_context_migration_is_private_and_never_claims_a_boundary(ffl_db):
+    sql = FIELD_CONTEXT_MIGRATION.read_text(encoding="utf-8")
+
+    for column in (
+        "reported_plot_count", "latest_crop_stage", "latest_water_condition",
+        "latest_kit_status", "latest_field_observed_at",
+    ):
+        assert "ADD COLUMN IF NOT EXISTS " + column in sql
+    assert "REVOKE ALL ON TABLE agro_entity_operating_snapshots" in sql
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE agro_entity_operating_snapshots" in sql
+    assert "predicted" in sql.lower()
+    assert "boundary" in sql.lower()
+    assert "provider_identifier" not in sql
+    assert "remote_url" not in sql
+
+    columns = {
+        row["name"] for row in ffl_db.execute(
+            "PRAGMA table_info(entity_operating_snapshots)"
+        ).fetchall()
+    }
+    assert {
+        "reported_plot_count", "latest_crop_stage", "latest_water_condition",
+        "latest_kit_status", "latest_field_observed_at",
+    } <= columns

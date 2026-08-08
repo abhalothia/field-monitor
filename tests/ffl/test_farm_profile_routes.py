@@ -160,12 +160,14 @@ def test_farm_directory_activity_filters_and_orders_are_deterministic():
         {"id": "older", "name": "Older Farm", "open_work_count": 4, "latest_update_at": (now - timedelta(days=31)).isoformat()},
         {"id": "current", "name": "Current Farm", "open_work_count": 1, "latest_update_at": (now - timedelta(hours=1)).isoformat()},
         {"id": "missing", "name": "Missing Farm", "open_work_count": 0, "latest_update_at": None},
+        {"id": "disease", "name": "Disease Farm", "open_work_count": 0, "latest_update_at": (now - timedelta(days=10)).isoformat(), "operating": {"metrics": {"disease_report_count": 1}}},
     ]
 
-    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "open_tasks")] == ["older", "current", "missing"]
-    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "recently_updated")] == ["current", "older", "missing"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "open_tasks")] == ["older", "current", "disease", "missing"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, set(), "recently_updated")] == ["current", "disease", "older", "missing"]
     assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, {"updated_week"}, "name")] == ["current"]
     assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, {"no_recent_update"}, "name")] == ["missing", "older"]
+    assert [item["id"] for item in farm_profiles._filter_and_order_farm_directory(items, {"disease_reported"}, "name")] == ["disease"]
 
 
 def test_field_worker_context_lists_safe_assignments(ffl_db, worker):

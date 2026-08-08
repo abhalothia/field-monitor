@@ -144,7 +144,7 @@ def list_entity_directory(
     activity_filters = set((activity or "all").split(","))
     if "all" in activity_filters:
         activity_filters = set()
-    if not activity_filters <= {"open_tasks", "updated_week", "updated_month", "no_recent_update"}:
+    if not activity_filters <= {"open_tasks", "disease_reported", "updated_week", "updated_month", "no_recent_update"}:
         raise ValueError("activity contains an unsupported filter")
     if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
         raise ValueError("order contains an unsupported value")
@@ -731,6 +731,9 @@ def _filter_and_order_farm_directory(
         age = now - updated_at if updated_at else float("inf")
         return (
             "open_tasks" in activity_filters and int(item.get("open_work_count") or 0) > 0
+        ) or (
+            "disease_reported" in activity_filters
+            and int(((item.get("operating") or {}).get("metrics") or {}).get("disease_report_count") or 0) > 0
         ) or (
             "updated_week" in activity_filters and age <= 7 * 86_400
         ) or (

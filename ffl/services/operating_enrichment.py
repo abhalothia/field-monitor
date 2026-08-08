@@ -17,7 +17,7 @@ from typing import Any, Mapping, Optional
 from ffl.services import operating_vocabulary
 
 
-ENRICHMENT_VERSION = "operating-v3"
+ENRICHMENT_VERSION = "operating-v4"
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
 _ENTITY_KINDS = {"reported_farm", "farmer", "field_worker"}
 _CROP_PROFILES = {"pb1", "1718", "mixed", "not_recorded"}
@@ -53,6 +53,7 @@ def refresh_source_snapshots(
         return 0
 
     classification_ready = classification_schema_available(conn)
+    field_context_ready = classification_ready and field_context_schema_available(conn)
     snapshots = _build_snapshots(conn, source_id)
     if not snapshots:
         return 0
@@ -62,8 +63,50 @@ def refresh_source_snapshots(
         _upsert_task_taxonomy(conn, source_id, now)
         if place_summary_schema_available(conn):
             _upsert_place_summaries(conn, source_id, snapshots, now)
-        rows = [_classified_snapshot_row(snapshot, source_id, source_run_id, now) for snapshot in snapshots]
+        rows = [
+            _field_context_snapshot_row(snapshot, source_id, source_run_id, now)
+            for snapshot in snapshots
+        ] if field_context_ready else [
+            _classified_snapshot_row(snapshot, source_id, source_run_id, now)
+            for snapshot in snapshots
+        ]
         conn.executemany(
+            """INSERT INTO entity_operating_snapshots (
+                   source_id, source_run_id, entity_kind, entity_id,
+                   place_key, linked_place_count, crop_profile,
+                   reported_plot_count, latest_crop_stage, latest_water_condition,
+                   latest_kit_status, latest_field_observed_at,
+                   farm_count, farmer_count, open_task_count, completed_work_count,
+                   visit_count, disease_report_count, pest_report_count,
+                   location_evidence_count, photo_reference_count,
+                   attendance_present_days, reported_area_acres,
+                   latest_activity_at, latest_activity_kind, enrichment_version, refreshed_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (source_id, entity_kind, entity_id) DO UPDATE SET
+                   source_run_id = excluded.source_run_id,
+                   place_key = excluded.place_key,
+                   linked_place_count = excluded.linked_place_count,
+                   crop_profile = excluded.crop_profile,
+                   reported_plot_count = excluded.reported_plot_count,
+                   latest_crop_stage = excluded.latest_crop_stage,
+                   latest_water_condition = excluded.latest_water_condition,
+                   latest_kit_status = excluded.latest_kit_status,
+                   latest_field_observed_at = excluded.latest_field_observed_at,
+                   farm_count = excluded.farm_count,
+                   farmer_count = excluded.farmer_count,
+                   open_task_count = excluded.open_task_count,
+                   completed_work_count = excluded.completed_work_count,
+                   visit_count = excluded.visit_count,
+                   disease_report_count = excluded.disease_report_count,
+                   pest_report_count = excluded.pest_report_count,
+                   location_evidence_count = excluded.location_evidence_count,
+                   photo_reference_count = excluded.photo_reference_count,
+                   attendance_present_days = excluded.attendance_present_days,
+                   reported_area_acres = excluded.reported_area_acres,
+                   latest_activity_at = excluded.latest_activity_at,
+                   latest_activity_kind = excluded.latest_activity_kind,
+                   enrichment_version = excluded.enrichment_version,
+                   refreshed_at = excluded.refreshed_at""" if field_context_ready else
             """INSERT INTO entity_operating_snapshots (
                    source_id, source_run_id, entity_kind, entity_id,
                    place_key, linked_place_count, crop_profile,
@@ -170,6 +213,24 @@ def classification_schema_available(conn) -> bool:
     return row is not None
 
 
+def field_context_schema_available(conn) -> bool:
+    """Whether the additive latest-field-context migration is ready for use."""
+    if getattr(conn, "dialect", "sqlite") == "postgres":
+        row = conn.execute(
+            """SELECT 1
+               FROM information_schema.columns
+               WHERE table_schema = current_schema()
+                 AND table_name = 'agro_entity_operating_snapshots'
+                 AND column_name = 'latest_field_observed_at'"""
+        ).fetchone()
+        return row is not None
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(entity_operating_snapshots)").fetchall()
+    }
+    return "latest_field_observed_at" in columns
+
+
 def place_summary_schema_available(conn) -> bool:
     """Whether private place rollups can be refreshed and read."""
     if getattr(conn, "dialect", "sqlite") == "postgres":
@@ -191,9 +252,13 @@ def snapshot_index_for_source(conn, source_id: str) -> dict[tuple[str, str], dic
     classification_columns = """
                   place_key, linked_place_count, crop_profile, latest_activity_kind,
     """ if classification_schema_available(conn) else ""
+    field_context_columns = """
+                  reported_plot_count, latest_crop_stage, latest_water_condition,
+                  latest_kit_status, latest_field_observed_at,
+    """ if field_context_schema_available(conn) else ""
     rows = conn.execute(
         """SELECT entity_kind, entity_id,
-               {classification_columns}
+               {classification_columns}{field_context_columns}
                   farm_count, farmer_count,
                   open_task_count, completed_work_count, visit_count,
                   disease_report_count, pest_report_count,
@@ -202,7 +267,8 @@ def snapshot_index_for_source(conn, source_id: str) -> dict[tuple[str, str], dic
                   latest_activity_at, refreshed_at
            FROM entity_operating_snapshots
            WHERE source_id = ? AND enrichment_version = ?""".format(
-            classification_columns=classification_columns
+            classification_columns=classification_columns,
+            field_context_columns=field_context_columns,
         ),
         (source_id, ENRICHMENT_VERSION),
     )
@@ -219,6 +285,7 @@ def public_snapshot(snapshot: Mapping[str, Any], *, now: Optional[datetime] = No
     # two database row facades before deriving browser-safe facts.
     snapshot = dict(snapshot)
     factual = {
+        "reported_plot_count": _integer(snapshot.get("reported_plot_count")),
         "farm_count": _integer(snapshot.get("farm_count")),
         "farmer_count": _integer(snapshot.get("farmer_count")),
         "open_task_count": _integer(snapshot.get("open_task_count")),
@@ -243,6 +310,7 @@ def public_snapshot(snapshot: Mapping[str, Any], *, now: Optional[datetime] = No
             "linked_place_count": _integer(snapshot.get("linked_place_count")),
             "latest_activity_kind": _activity_kind(snapshot.get("latest_activity_kind")),
             "coverage": _coverage_for_snapshot(snapshot),
+            "field_context": _field_context_for_snapshot(snapshot),
             "freshness": _freshness_for_snapshot(snapshot, now=now),
             "workload": _workload_for_snapshot(snapshot),
         }
@@ -317,6 +385,27 @@ def tags_for_snapshot(snapshot: Mapping[str, Any], *, now: Optional[datetime] = 
         elif age_days > 30:
             tags.append(_tag("earlier_activity", "Earlier activity", "neutral"))
 
+    field_context = _field_context_for_snapshot(snapshot)
+    if field_context["crop_stage"]:
+        tags.append(_tag(
+            "crop_stage_" + _normalised_key(field_context["crop_stage"]),
+            "Stage: " + field_context["crop_stage"], "current",
+        ))
+    elif field_context["water_condition"]:
+        tags.append(_tag(
+            "water_" + _normalised_key(field_context["water_condition"]),
+            "Water: " + field_context["water_condition"], "neutral",
+        ))
+    elif field_context["kit_status"]:
+        tags.append(_tag(
+            "kit_" + _normalised_key(field_context["kit_status"]),
+            "Kit: " + field_context["kit_status"].replace("_", " "), "neutral",
+        ))
+    if entity_kind == "reported_farm" and not _integer(snapshot.get("visit_count")):
+        tags.append(_tag("no_visit_recorded", "No visit recorded", "neutral"))
+    elif entity_kind == "reported_farm" and not field_context["observed_at"]:
+        tags.append(_tag("no_field_state_recorded", "No field state recorded", "neutral"))
+
     if entity_kind == "reported_farm" and _number(snapshot.get("reported_area_acres")) is not None:
         tags.append(_tag("area_recorded", "Area recorded", "neutral"))
     crop_profile = _crop_profile(snapshot.get("crop_profile"))
@@ -380,6 +469,41 @@ def _classified_snapshot_row(
         snapshot.get("place_key"),
         snapshot["linked_place_count"],
         _crop_profile(snapshot.get("crop_profile")),
+        snapshot["farm_count"],
+        snapshot["farmer_count"],
+        snapshot["open_task_count"],
+        snapshot["completed_work_count"],
+        snapshot["visit_count"],
+        snapshot["disease_report_count"],
+        snapshot["pest_report_count"],
+        snapshot["location_evidence_count"],
+        snapshot["photo_reference_count"],
+        snapshot["attendance_present_days"],
+        snapshot["reported_area_acres"],
+        snapshot["latest_activity_at"],
+        _activity_kind(snapshot.get("latest_activity_kind")),
+        ENRICHMENT_VERSION,
+        refreshed_at,
+    )
+
+
+def _field_context_snapshot_row(
+    snapshot: Mapping[str, Any], source_id: str, source_run_id: Optional[str], refreshed_at: str,
+) -> tuple[Any, ...]:
+    """Extend the classified cache row with the latest non-empty field record."""
+    return (
+        source_id,
+        source_run_id,
+        snapshot["entity_kind"],
+        snapshot["entity_id"],
+        snapshot.get("place_key"),
+        snapshot["linked_place_count"],
+        _crop_profile(snapshot.get("crop_profile")),
+        snapshot["reported_plot_count"],
+        snapshot.get("latest_crop_stage"),
+        snapshot.get("latest_water_condition"),
+        snapshot.get("latest_kit_status"),
+        snapshot.get("latest_field_observed_at"),
         snapshot["farm_count"],
         snapshot["farmer_count"],
         snapshot["open_task_count"],
@@ -619,14 +743,15 @@ def _build_snapshots(conn, source_id: str) -> list[dict[str, Any]]:
     ).fetchall()
     registrations = conn.execute(
         """SELECT id, task_id, farmer_party_id, village_name, block_name, district_name,
-                  reported_total_area_acres, reported_pb1_area_acres,
+                  reported_total_area_acres, reported_plot_count, reported_pb1_area_acres,
                   reported_1718_area_acres, first_seen_at, last_seen_at
            FROM trackwick_registrations
            WHERE source_id = ? AND data_quality_status = 'valid'""",
         (source_id,),
     ).fetchall()
     visits = conn.execute(
-        """SELECT task_id, observed_at FROM trackwick_visits
+        """SELECT task_id, observed_at, crop_stage, water_condition, kit_status
+           FROM trackwick_visits
            WHERE source_id = ? AND data_quality_status = 'valid'""",
         (source_id,),
     ).fetchall()
@@ -666,6 +791,18 @@ def _build_snapshots(conn, source_id: str) -> list[dict[str, Any]]:
     registration_by_task = {
         str(row["task_id"]): row for row in registrations if row["task_id"]
     }
+    if _task_plot_links_available(conn):
+        registrations_by_id = {str(row["id"]): row for row in registrations}
+        explicit_links = conn.execute(
+            """SELECT task_id, registration_id FROM trackwick_task_plot_links
+               WHERE source_id = ? AND association_kind = 'source_explicit'
+                 AND data_quality_status = 'valid'""",
+            (source_id,),
+        ).fetchall()
+        for link in explicit_links:
+            registration = registrations_by_id.get(str(link["registration_id"]))
+            if registration is not None:
+                registration_by_task[str(link["task_id"])] = registration
     party_kind_by_id = {str(row["id"]): str(row["party_kind"]) for row in parties}
     farmer_places: dict[str, set[str]] = defaultdict(set)
     farmer_crops: dict[str, set[str]] = defaultdict(set)
@@ -674,6 +811,7 @@ def _build_snapshots(conn, source_id: str) -> list[dict[str, Any]]:
         registration_id = str(registration["id"])
         farm = _empty_snapshot("reported_farm", registration_id)
         farm["reported_area_acres"] = _number(registration["reported_total_area_acres"])
+        farm["reported_plot_count"] = _integer(registration["reported_plot_count"])
         place = _place_from_registration(registration)
         if place is not None:
             farm["place_key"] = place["place_key"]
@@ -717,6 +855,8 @@ def _build_snapshots(conn, source_id: str) -> list[dict[str, Any]]:
         _add_registration_task_event(
             snapshots, registration_by_task, task, "visit_count", visit["observed_at"], "visit",
         )
+        _add_task_field_context(snapshots, task, visit)
+        _add_registration_field_context(snapshots, registration_by_task, task, visit)
 
     for finding in findings:
         task = task_by_id.get(str(finding["visit_task_id"]))
@@ -805,6 +945,20 @@ def _typed_graph_available(conn) -> bool:
         ).fetchone() is None:
             return False
     return True
+
+
+def _task_plot_links_available(conn) -> bool:
+    """Associations are optional: field facts never infer a farm relationship."""
+    if getattr(conn, "dialect", "sqlite") == "postgres":
+        row = conn.execute(
+            "SELECT to_regclass(?) AS relation_name", ("agro_trackwick_task_plot_links",)
+        ).fetchone()
+        return row is not None and row["relation_name"] is not None
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ("trackwick_task_plot_links",),
+    ).fetchone()
+    return row is not None
 
 
 def _place_from_registration(registration: Mapping[str, Any]) -> Optional[dict[str, Optional[str]]]:
@@ -904,6 +1058,18 @@ def _coverage_for_snapshot(snapshot: Mapping[str, Any]) -> dict[str, bool]:
         ) > 0,
         "area_recorded": _number(snapshot.get("reported_area_acres")) is not None,
         "crop_recorded": crop_profile != "not_recorded",
+        "plot_recorded": _integer(snapshot.get("reported_plot_count")) > 0,
+        "field_state_recorded": bool(_field_context_for_snapshot(snapshot)["observed_at"]),
+    }
+
+
+def _field_context_for_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Optional[str]]:
+    """Expose only the most-recent non-empty visit state, never a diagnosis."""
+    return {
+        "crop_stage": _field_value(snapshot.get("latest_crop_stage")),
+        "water_condition": _field_value(snapshot.get("latest_water_condition")),
+        "kit_status": _field_value(snapshot.get("latest_kit_status")),
+        "observed_at": _timestamp_text(snapshot.get("latest_field_observed_at")),
     }
 
 
@@ -947,6 +1113,7 @@ def _empty_snapshot(entity_kind: str, entity_id: str) -> dict[str, Any]:
         "place_key": None,
         "linked_place_count": 0,
         "crop_profile": "not_recorded",
+        "reported_plot_count": 0,
         "farm_count": 0,
         "farmer_count": 0,
         "open_task_count": 0,
@@ -958,6 +1125,10 @@ def _empty_snapshot(entity_kind: str, entity_id: str) -> dict[str, Any]:
         "photo_reference_count": 0,
         "attendance_present_days": 0,
         "reported_area_acres": None,
+        "latest_crop_stage": None,
+        "latest_water_condition": None,
+        "latest_kit_status": None,
+        "latest_field_observed_at": None,
         "latest_activity_at": None,
         "latest_activity_kind": "unknown",
         "_farmer_ids": set(),
@@ -1014,6 +1185,53 @@ def _add_registration_task_event(
     _observe(snapshot, observed_at, activity_kind)
 
 
+def _add_task_field_context(
+    snapshots: Mapping[tuple[str, str], dict[str, Any]],
+    task: Optional[Mapping[str, Any]],
+    visit: Mapping[str, Any],
+) -> None:
+    """Carry a visit's stated field context only to the task's named people."""
+    if task is None:
+        return
+    for entity_kind, party_key in (("farmer", "farmer_party_id"), ("field_worker", "field_worker_party_id")):
+        party_id = task[party_key]
+        snapshot = snapshots.get((entity_kind, str(party_id))) if party_id else None
+        if snapshot is not None:
+            _record_field_context(snapshot, visit)
+
+
+def _add_registration_field_context(
+    snapshots: Mapping[tuple[str, str], dict[str, Any]],
+    registrations_by_task: Mapping[str, Mapping[str, Any]],
+    task: Optional[Mapping[str, Any]],
+    visit: Mapping[str, Any],
+) -> None:
+    """Carry a visit state to a Farm only through its exact registration task."""
+    if task is None:
+        return
+    registration = registrations_by_task.get(str(task["id"]))
+    snapshot = snapshots.get(("reported_farm", str(registration["id"]))) if registration else None
+    if snapshot is not None:
+        _record_field_context(snapshot, visit)
+
+
+def _record_field_context(snapshot: dict[str, Any], visit: Mapping[str, Any]) -> None:
+    """Keep one coherent, latest visit record rather than mixing visit values."""
+    crop_stage = _field_value(visit["crop_stage"])
+    water_condition = _field_value(visit["water_condition"])
+    kit_status = _field_value(visit["kit_status"])
+    observed_at = _timestamp(visit["observed_at"])
+    if observed_at is None or not any((crop_stage, water_condition, kit_status)):
+        return
+    current = _timestamp(snapshot.get("latest_field_observed_at"))
+    if current is not None and current >= observed_at:
+        return
+    snapshot["latest_crop_stage"] = crop_stage
+    snapshot["latest_water_condition"] = water_condition
+    snapshot["latest_kit_status"] = kit_status
+    snapshot["latest_field_observed_at"] = observed_at.isoformat()
+
+
 def _observe(snapshot: dict[str, Any], value: Any, activity_kind: str = "unknown") -> None:
     candidate = _timestamp(value)
     current = _timestamp(snapshot.get("latest_activity_at"))
@@ -1043,6 +1261,21 @@ def _integer(value: Any) -> int:
 
 def _number(value: Any) -> Optional[float]:
     return None if value is None else float(value)
+
+
+def _field_value(value: Any) -> Optional[str]:
+    """Bound a source label before it becomes a compact browser-facing fact."""
+    if value is None:
+        return None
+    compact = " ".join(str(value).split())
+    if compact.casefold() in {"unknown", "not recorded", "n/a", "na", "none", "null"}:
+        return None
+    return compact[:80] or None
+
+
+def _timestamp_text(value: Any) -> Optional[str]:
+    timestamp = _timestamp(value)
+    return timestamp.isoformat() if timestamp is not None else None
 
 
 def _timestamp(value: Any) -> Optional[datetime]:

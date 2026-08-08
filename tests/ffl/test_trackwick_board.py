@@ -135,9 +135,9 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     ).fetchone()
     ffl_db.execute(
         """INSERT INTO trackwick_visits (
-            task_id, source_id, observed_at, kit_status, source_fingerprint, mapping_version,
+            task_id, source_id, observed_at, crop_stage, water_condition, kit_status, source_fingerprint, mapping_version,
             data_quality_status, first_seen_at, last_seen_at, created_at
-        ) VALUES (?, ?, ?, 'unknown', ?, ?, 'valid', ?, ?, ?)""",
+        ) VALUES (?, ?, ?, 'Tillering', 'Moist', 'taken', ?, ?, 'valid', ?, ?, ?)""",
         (
             visit_task["id"], source.id, "2026-08-03T15:30:00+05:30", "b" * 64,
             PRIVATE_EVIDENCE_MAPPING_VERSION, "2026-08-03T15:30:00+05:30",
@@ -286,6 +286,13 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert farm_snapshot["categories"]["crop_profile"] == "mixed"
     assert farm_snapshot["categories"]["linked_place_count"] == 1
     assert farm_snapshot["categories"]["latest_activity_kind"] == "location"
+    assert farmer_snapshot["categories"]["field_context"] == {
+        "crop_stage": "Tillering",
+        "water_condition": "Moist",
+        "kit_status": "taken",
+        "observed_at": "2026-08-03T15:30:00+05:30",
+    }
+    assert worker_snapshot["categories"]["field_context"] == farmer_snapshot["categories"]["field_context"]
     assert farm_snapshot["categories"]["coverage"] == {
         "location_recorded": True,
         "photo_recorded": False,
@@ -293,11 +300,14 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "issue_recorded": False,
         "area_recorded": True,
         "crop_recorded": True,
+        "plot_recorded": True,
+        "field_state_recorded": False,
     }
     assert farm_snapshot["categories"]["workload"] == "no_open_tasks"
     assert farmer_snapshot["categories"]["linked_place_count"] == 1
     assert worker_snapshot["categories"]["linked_place_count"] == 1
     assert "needs_attention" in {tag["key"] for tag in farmer_snapshot["tags"]}
+    assert "crop_stage_tillering" in {tag["key"] for tag in farmer_snapshot["tags"]}
     assert "crop_mixed" in {tag["key"] for tag in farm_snapshot["tags"]}
     assert ffl_db.execute(
         "SELECT COUNT(*) FROM place_catalog WHERE source_id = ?", (source.id,)
