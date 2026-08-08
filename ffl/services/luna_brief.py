@@ -116,7 +116,7 @@ def _response_text(payload: Any) -> str | None:
             value = payload.get(key)
             if isinstance(value, str):
                 return value
-        for key in ("outputs", "output", "content"):
+        for key in ("steps", "outputs", "output", "content"):
             value = payload.get(key)
             if isinstance(value, list):
                 for item in value:

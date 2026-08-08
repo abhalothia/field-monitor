@@ -30,7 +30,7 @@ def test_daily_field_read_uses_only_a_cached_aggregate_fact_pack(monkeypatch):
         return SimpleNamespace(
             raise_for_status=lambda: None,
             json=lambda: {
-                "outputs": [{"content": [{"type": "text", "text":
+                "steps": [{"type": "reasoning"}, {"type": "message", "content": [{"type": "text", "text":
                     '{"summary":"Four visits were filed for three farmers on the latest recorded field day.",'
                     '"attention":"One disease report and two open tasks need review."}'}]}]
             },
