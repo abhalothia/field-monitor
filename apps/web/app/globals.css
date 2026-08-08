@@ -313,6 +313,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-type-tabs button.active { background: var(--ink); color: #fffbed; }
 .map-controls .filter-menu { min-width: 0; }
 .map-controls .filter-menu summary { min-height: 46px; }
+.map-controls .filter-menu-options { width: min(260px, calc(100vw - 44px)); min-width: 0; }
+.map-controls .filter-menu-options label { display: flex; gap: 9px; }
+.map-controls .filter-menu-options input { flex: 0 0 auto; width: 18px; height: 18px; min-height: 18px; border: 0; padding: 0; }
 .map-summary { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 5px 9px; align-items: baseline; margin: 1px 0 0; color: var(--muted); font-size: .67rem; }
 .map-summary strong { color: var(--ink-soft); font-size: .72rem; }
 .map-controls { grid-column: 1 / -1; }
@@ -423,6 +426,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .directory-title { display: flex; align-items: center; gap: 10px; min-height: 46px; }
 .directory-title h1 { margin: 0; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2rem, 2.8vw, 2.7rem); font-weight: 400; letter-spacing: -.06em; line-height: .9; }
 .directory-title span { border-radius: 999px; background: var(--paddy); color: #315738; font-family: "DM Mono", monospace; font-size: .61rem; letter-spacing: .035em; padding: 5px 8px; white-space: nowrap; }
+.command-shell-fields .directory-title h1, .command-shell-farmers .directory-title h1 { display: none; }
 .directory-view-tabs { display: flex; min-height: 46px; align-items: stretch; overflow: hidden; border: 1px solid rgba(20, 61, 45, .22); border-radius: 999px; background: rgba(255, 251, 239, .52); }
 .directory-view-tabs button { min-width: 90px; border: 0; border-left: 1px solid rgba(20, 61, 45, .15); background: transparent; color: #637262; cursor: pointer; font-size: .76rem; font-weight: 800; padding: 0 16px; }
 .directory-view-tabs button:first-child { border-left: 0; }

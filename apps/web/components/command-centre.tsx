@@ -867,7 +867,7 @@ export function CommandCentre({ view }: { view: View }) {
       </header>
       {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load(true)} /> : null}
 
-      {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
+      {view === "home" || view === "map" || view === "fields" || view === "farmers" ? <section className={`command-intro ${view !== "home" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} /> : <h1>{headingFor(view, t)}</h1>}
