@@ -1146,8 +1146,13 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyS
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
     {mapHealth !== "ready" ? <CachedMapFallback points={visible} onSelect={select} /> : null}
     <div className="map-area-label"><strong>{area}</strong><span className="map-gesture-copy">Drag · scroll to zoom</span><span className="map-touch-copy">Drag · pinch to zoom</span></div>
+    {!preview ? <MapLegend /> : null}
     {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
   </div>;
+}
+
+function MapLegend() {
+  return <div className="map-legend" aria-label="Map marker legend"><span className="disease"><i />Disease reported</span><span className="task"><i />Open task</span><span className="current"><i />Recently checked</span><span className="earlier"><i />Earlier activity</span></div>;
 }
 
 function mapAreaLabel(points: MapPoint[]) {
@@ -1212,12 +1217,16 @@ function MapView({ state }: { state: State }) {
       return points.find((point) => point.subject.kind === "field_worker") || points[0] || null;
     });
   }, [points]);
+  const viewLabel = kind === "reported_farm" ? "farm" : kind === "field_worker" ? "worker" : kind === "farmer" ? "farmer" : "field";
+  const diseaseCount = points.filter((point) => point.has_disease).length;
+  const openTaskCount = points.filter((point) => point.subject.open_work > 0).length;
   return <section className={`map-workspace ${selected ? "map-workspace-selected" : ""}`}>
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
       <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Farms"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
       <MapTabs label="Activity date" value={days} onChange={setDays} options={[["7", "Last 7 days"], ["30", "Last 30 days"], ["all", "All history"]]} />
       <MultiFilter label="Show" values={focus} options={[["all", "All points"], ["disease", "Disease reported"], ["recent_checked", "Recently checked"], ["open_tasks", "Open tasks"]]} onChange={setFocus} />
+      <p className="map-summary" aria-live="polite"><strong>{count(points.length)} {viewLabel} {points.length === 1 ? "location" : "locations"}</strong>{diseaseCount || openTaskCount ? <span>{[diseaseCount ? `${count(diseaseCount)} disease-marked ${diseaseCount === 1 ? "location" : "locations"}` : null, openTaskCount ? `${count(openTaskCount)} ${openTaskCount === 1 ? "location" : "locations"} with open tasks` : null].filter(Boolean).join(" · ")}</span> : <span>No reported disease or open tasks</span>}</p>
     </div>
     <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}

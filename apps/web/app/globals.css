@@ -279,6 +279,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-area-label { position: absolute; z-index: 650; top: 15px; left: 17px; display: grid; gap: 3px; max-width: calc(100% - 34px); padding: 7px 9px; border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .84); color: var(--ink-soft); box-shadow: 0 5px 14px rgba(45, 55, 35, .06); }
 .map-area-label strong { color: var(--ink); font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .055em; text-transform: uppercase; }
 .map-area-label span { font-size: .62rem; line-height: 1.2; }
+.map-legend { position: absolute; z-index: 650; bottom: 15px; left: 17px; display: flex; flex-wrap: wrap; gap: 8px 10px; max-width: min(430px, calc(100% - 34px)); padding: 7px 9px; border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .84); box-shadow: 0 5px 14px rgba(45, 55, 35, .06); }
+.map-legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .53rem; letter-spacing: .025em; text-transform: uppercase; }
+.map-legend i { width: 8px; height: 8px; border: 1px solid; border-radius: 50%; background: currentColor; }
+.map-legend .disease { color: #a6574b; }.map-legend .task { color: #a67a2d; }.map-legend .current { color: #497054; }.map-legend .earlier { color: #879783; }
 .map-touch-copy { display: none; }
 .map-glance { display: grid; position: absolute; z-index: 700; right: 16px; bottom: 16px; width: min(310px, calc(100% - 32px)); border: 1px solid rgba(20, 61, 45, .25); background: rgba(255, 251, 239, .97); box-shadow: 0 16px 40px rgba(45, 55, 35, .18); padding: 16px; }
 .map-glance .eyebrow { margin: 0 28px 7px 0; }
@@ -299,6 +303,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-type-tabs button.active { background: var(--ink); color: #fffbed; }
 .map-controls .filter-menu { min-width: 0; }
 .map-controls .filter-menu summary { min-height: 46px; }
+.map-summary { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 5px 9px; align-items: baseline; margin: 1px 0 0; color: var(--muted); font-size: .67rem; }
+.map-summary strong { color: var(--ink-soft); font-size: .72rem; }
 .map-controls { grid-column: 1 / -1; }
 .map-content { min-width: 0; }
 .map-workspace-selected .map-content, .map-workspace-selected .map-canvas { display: flex; min-height: 0; }
