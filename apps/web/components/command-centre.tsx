@@ -93,6 +93,21 @@ type OperatingSnapshot = {
     refreshed_at?: string | null;
   };
   tags: OperatingTag[];
+  categories?: {
+    crop_profile: "pb1" | "1718" | "mixed" | "not_recorded";
+    linked_place_count: number;
+    latest_activity_kind: "registration" | "visit" | "issue" | "work" | "location" | "photo" | "attendance" | "unknown";
+    coverage: {
+      location_recorded: boolean;
+      photo_recorded: boolean;
+      visit_recorded: boolean;
+      issue_recorded: boolean;
+      area_recorded: boolean;
+      crop_recorded: boolean;
+    };
+    freshness: "updated_today" | "updated_this_week" | "updated_this_month" | "earlier_activity" | "no_activity_recorded";
+    workload: "no_open_tasks" | "one_to_two_open_tasks" | "three_or_more_open_tasks";
+  };
 };
 type TrackwickFarm = {
   id: string;
@@ -142,6 +157,22 @@ type TrackwickWork = {
   follow_up_at?: string | null;
   opened_at?: string | null;
 };
+type PlaceOperatingSummary = {
+  id: string;
+  place: string;
+  metrics: {
+    reported_farm_count: number;
+    farmer_count: number;
+    field_worker_count: number;
+    open_task_count: number;
+    visit_count: number;
+    issue_report_count: number;
+    location_evidence_count: number;
+    photo_reference_count: number;
+    latest_activity_at?: string | null;
+    refreshed_at?: string | null;
+  };
+};
 type TrackwickBoard = {
   source: { state: string; last_synced_at?: string | null };
   counts: {
@@ -161,7 +192,7 @@ type TrackwickBoard = {
   field_workers: TrackwickFieldWorker[];
   signals: TrackwickSignal[];
   inbox: TrackwickWork[];
-  map?: { points: Array<MapPoint>; total_points: number; truncated: boolean };
+  map?: { points: Array<MapPoint>; places?: PlaceOperatingSummary[]; total_points: number; truncated: boolean };
 };
 type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
 type MapPoint = {
@@ -172,6 +203,8 @@ type MapPoint = {
   confidence: string;
   observed_at: string;
   label: string;
+  has_disease?: boolean;
+  related_farm?: { id: string; name: string; place: string; farmer_name: string | null } | null;
   subject: { kind: MapSubjectKind; id: string | null; name: string; place: string | null; farmer_name: string | null; open_work: number; operating?: OperatingSnapshot };
 };
 type ReviewedFarmerCard = {
@@ -454,6 +487,7 @@ const EMPTY_STATE: State = {
 };
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
+const OPERATING_CACHE_TTL_MS = 5 * 60_000;
 const DIRECTORY_CACHE_PREFIX = "agro-ceo-farm-directory-v1:";
 const PROFILE_CACHE_PREFIX = "agro-ceo-profile-v1:";
 
@@ -590,6 +624,26 @@ function matchesActivityFilters(value: string | null | undefined, openWork: numb
     || filters.includes("no_recent_update") && age > 30 * 86_400_000;
 }
 
+function matchesRecordedEvidence(
+  snapshot: OperatingSnapshot | undefined,
+  filters: Array<"all" | "location" | "visit" | "photo" | "issue" | "crop">,
+) {
+  if (filters.includes("all")) return true;
+  const coverage = snapshot?.categories?.coverage || {
+    location_recorded: Boolean(snapshot?.metrics.location_evidence_count),
+    photo_recorded: Boolean(snapshot?.metrics.photo_reference_count),
+    visit_recorded: Boolean(snapshot?.metrics.visit_count),
+    issue_recorded: Boolean((snapshot?.metrics.disease_report_count || 0) + (snapshot?.metrics.pest_report_count || 0)),
+    area_recorded: snapshot?.metrics.reported_area_acres !== null && snapshot?.metrics.reported_area_acres !== undefined,
+    crop_recorded: false,
+  };
+  return filters.includes("location") && coverage.location_recorded
+    || filters.includes("visit") && coverage.visit_recorded
+    || filters.includes("photo") && coverage.photo_recorded
+    || filters.includes("issue") && coverage.issue_recorded
+    || filters.includes("crop") && coverage.crop_recorded;
+}
+
 function roleName(role: string) {
   return role.replaceAll("_", " ");
 }
@@ -606,6 +660,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const stateRef = useRef<State>(EMPTY_STATE);
+  const cachedStateRef = useRef<Partial<State> | null>(null);
   const loadRequest = useRef<Promise<void> | null>(null);
   const profileRequest = useRef(0);
   const profileOpener = useRef<string | null>(null);
@@ -617,6 +672,7 @@ export function CommandCentre({ view }: { view: View }) {
       if (!cached) return;
       const value = JSON.parse(cached) as Partial<State>;
       if (!value.session?.authenticated) return;
+      cachedStateRef.current = value;
       setState((current) => ({ ...current, ...value, session: { authenticated: true }, loading: false, error: null }));
     } catch { /* a bad local cache should never block the operating record */ }
   }, []);
@@ -625,18 +681,26 @@ export function CommandCentre({ view }: { view: View }) {
 
   useEffect(() => {
     if (state.session && !state.session.authenticated) {
+      cachedStateRef.current = null;
       try { window.sessionStorage.removeItem(OPERATING_CACHE_KEY); } catch { /* cache cleanup never blocks the record */ }
       return;
     }
     if (!state.session?.authenticated || !state.profile || !state.trackwick) return;
     try {
       const { session: _session, loading: _loading, error: _error, needsLaunchLogin: _needsLaunchLogin, ...cached } = state;
-      window.sessionStorage.setItem(OPERATING_CACHE_KEY, JSON.stringify({ ...cached, session: { authenticated: true } }));
+      const cacheValue = { ...cached, session: { authenticated: true } };
+      cachedStateRef.current = cacheValue;
+      window.sessionStorage.setItem(OPERATING_CACHE_KEY, JSON.stringify(cacheValue));
     } catch { /* cache is an enhancement, not a dependency */ }
   }, [state]);
 
-  const load = useCallback(() => {
+  const load = useCallback((force = false) => {
     if (loadRequest.current) return loadRequest.current;
+    const cached = cachedStateRef.current;
+    const cachedAt = cached?.updatedAt ? new Date(cached.updatedAt).valueOf() : 0;
+    if (!force && cached?.profile && cached?.trackwick && cachedAt > Date.now() - OPERATING_CACHE_TTL_MS) {
+      return Promise.resolve();
+    }
     const request = (async () => {
     setState((current) => ({ ...current, loading: current.profile === null, error: null }));
     const results = await Promise.allSettled([
@@ -771,7 +835,7 @@ export function CommandCentre({ view }: { view: View }) {
     setManagerBusy(true);
     try {
       await fetch("/api/v1/manager-session/logout", { method: "POST", credentials: "same-origin" });
-      await load();
+      await load(true);
     } finally {
       setManagerBusy(false);
     }
@@ -799,7 +863,7 @@ export function CommandCentre({ view }: { view: View }) {
           <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
         </div>
       </header>
-      {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load()} /> : null}
+      {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load(true)} /> : null}
 
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
@@ -813,7 +877,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
-      {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load()} /> : null}
+      {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load(true)} /> : null}
       {view === "settings" ? <SettingsView t={t} state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
       <nav className="mobile-nav" aria-label="Primary views">
         {NAV.filter((item) => item.view !== "settings").map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "active" : ""}>{t[item.view]}</Link>)}
@@ -867,7 +931,7 @@ function HomeView({ t, state }: { t: Translation; state: State }) {
   </section>;
 }
 
-function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void }) {
+function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyState }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void; emptyState?: { title: string; detail: string } }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
@@ -966,7 +1030,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
         const status = mapActivityStatus(point);
         const color = mapMarkerColor(status.tone);
         const marker = L.circleMarker([point.latitude, point.longitude], {
-          radius: active?.id === point.id ? 9 : status.tone === "attention" ? 7.2 : 5.8,
+          radius: active?.id === point.id ? 9 : status.tone === "disease" ? 7.2 : status.tone === "task" ? 6.6 : 5.8,
           color: color.stroke, weight: active?.id === point.id ? 2.8 : 1.35, fillColor: color.fill, fillOpacity: .97,
         }).bindTooltip(mapTooltip(point), { direction: "top", sticky: true, opacity: .98 });
         marker.on("click", () => select(point));
@@ -983,7 +1047,7 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect }: { po
     return () => { map.off("zoomend", render); };
   }, [active?.id, dataKey, mapReady, preview, select, visible]);
 
-  if (!visible.length) return <div className="operating-map map-empty"><strong>Map is preparing</strong><p>Location activity will appear here as the operating record arrives.</p></div>;
+  if (!visible.length) return <div className="operating-map map-empty"><strong>{emptyState?.title || "No saved location activity yet"}</strong><p>{emptyState?.detail || "Location activity will appear here after a field visit is recorded."}</p></div>;
   const area = mapAreaLabel(visible);
   return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
@@ -1032,7 +1096,8 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
 function MapView({ state }: { state: State }) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"all" | MapSubjectKind>("all");
-  const [days, setDays] = useState<"all" | "7" | "30">("all");
+  const [days, setDays] = useState<"all" | "7" | "30">("30");
+  const [focus, setFocus] = useState<Array<"all" | "disease" | "recent_checked" | "open_tasks">>(["all"]);
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const allPoints = state.trackwick?.map?.points || [];
   const mapIsPreparing = state.loading && !allPoints.length;
@@ -1040,12 +1105,14 @@ function MapView({ state }: { state: State }) {
     const minimum = days === "all" ? null : Date.now() - Number(days) * 86_400_000;
     const needle = query.trim().toLocaleLowerCase();
     return allPoints.filter((point) => {
-      if (kind !== "all" && point.subject.kind !== kind) return false;
+      if (kind === "reported_farm" && point.subject.kind !== kind && !point.related_farm) return false;
+      if (kind !== "all" && kind !== "reported_farm" && point.subject.kind !== kind) return false;
       if (minimum && new Date(point.observed_at).valueOf() < minimum) return false;
+      if (!matchesMapFocus(point, focus)) return false;
       if (!needle) return true;
       return [point.subject.name, point.subject.place, point.subject.farmer_name, point.label].filter(Boolean).some((value) => value!.toLocaleLowerCase().includes(needle));
     });
-  }, [allPoints, days, kind, query]);
+  }, [allPoints, days, focus, kind, query]);
   useEffect(() => {
     setSelected((current) => {
       if (current && points.some((point) => point.id === current.id)) return current;
@@ -1056,10 +1123,11 @@ function MapView({ state }: { state: State }) {
     <div className="map-controls" aria-label="Map filters">
       <label>Find<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Farmer, farm, village" /></label>
       <MapTabs label="View" value={kind} onChange={setKind} options={[["all", "Everything"], ["reported_farm", "Farms"], ["farmer", "Farmers"], ["field_worker", "Workers"]]} />
-      <MapTabs label="When" value={days} onChange={setDays} options={[["all", "All time"], ["7", "This week"], ["30", "This month"]]} />
+      <MapTabs label="Activity date" value={days} onChange={setDays} options={[["7", "Last 7 days"], ["30", "Last 30 days"], ["all", "All history"]]} />
+      <MultiFilter label="Show" values={focus} options={[["all", "All points"], ["disease", "Disease reported"], ["recent_checked", "Recently checked"], ["open_tasks", "Open tasks"]]} onChange={setFocus} />
     </div>
-    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Opening map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} />}</div></div>
-    {selected ? <MapInspector point={selected} state={state} close={() => setSelected(null)} /> : null}
+    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Opening map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
+    {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}
   </section>;
 }
 
@@ -1067,14 +1135,20 @@ function MapTabs<T extends string>({ label, value, onChange, options }: { label:
   return <div className="map-type-tabs" aria-label={label}><span>{label}</span><div>{options.map(([option, title]) => <button type="button" key={option} className={value === option ? "active" : ""} aria-pressed={value === option} onClick={() => onChange(option)}>{title}</button>)}</div></div>;
 }
 
-function MapInspector({ point, state, close }: { point: MapPoint; state: State; close: () => void }) {
-  const subject = point.subject;
+function MapInspector({ point, state, viewKind, close }: { point: MapPoint; state: State; viewKind: "all" | MapSubjectKind; close: () => void }) {
+  const relatedFarm = viewKind === "reported_farm" && point.subject.kind !== "reported_farm" ? point.related_farm : null;
+  const subject = relatedFarm ? { ...point.subject, kind: "reported_farm" as const, id: relatedFarm.id, name: relatedFarm.name, place: relatedFarm.place, farmer_name: relatedFarm.farmer_name } : point.subject;
   const status = mapActivityStatus(point);
   const metrics = subject.operating?.metrics;
-  const matchingActivity = (state.trackwick?.map?.points || []).filter((candidate) => candidate.subject.kind === subject.kind && candidate.subject.id === subject.id).sort((a, b) => new Date(b.observed_at).valueOf() - new Date(a.observed_at).valueOf());
+  const matchingActivity = (state.trackwick?.map?.points || []).filter((candidate) => subject.kind === "reported_farm"
+    ? candidate.subject.kind === "reported_farm" && candidate.subject.id === subject.id || candidate.related_farm?.id === subject.id
+    : candidate.subject.kind === subject.kind && candidate.subject.id === subject.id).sort((a, b) => new Date(b.observed_at).valueOf() - new Date(a.observed_at).valueOf());
   const farm = subject.kind === "reported_farm" ? state.trackwick?.farms.find((candidate) => candidate.id === subject.id) : null;
   const farmer = subject.kind === "farmer" ? state.trackwick?.farmers.find((candidate) => candidate.id === subject.id) : null;
   const worker = subject.kind === "field_worker" ? state.trackwick?.field_workers.find((candidate) => candidate.id === subject.id) : null;
+  const placeSummary = subject.place
+    ? (state.trackwick?.map?.places || []).find((place) => place.place === subject.place)
+    : null;
   const facts = subject.kind === "reported_farm"
     ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(metrics?.open_task_count ?? farm?.open_work ?? subject.open_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
     : subject.kind === "farmer"
@@ -1082,6 +1156,12 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
       : subject.kind === "field_worker"
         ? [["Farmers Assigned", count(metrics?.farmer_count ?? worker?.reported_farmer_reach)], ["Open Tasks", count(metrics?.open_task_count ?? worker?.open_work ?? subject.open_work)], ["Completed Work", count(metrics?.completed_work_count ?? worker?.completed_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
         : [["Place", subject.place || "—"], ["Open Tasks", count(subject.open_work)], ["Field Activity", count(matchingActivity.length)], ["Last Activity", dateTime(point.observed_at)]];
+  const placeFacts = placeSummary ? [
+    ["Farms here", count(placeSummary.metrics.reported_farm_count)],
+    ["Farmers here", count(placeSummary.metrics.farmer_count)],
+    ["Field workers", count(placeSummary.metrics.field_worker_count)],
+    ["Open farmer tasks", count(placeSummary.metrics.open_task_count)],
+  ] : [];
   return <aside className="map-inspector" aria-label="Selected map record">
     <div className="map-inspector-record">
       <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
@@ -1089,7 +1169,7 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
       <h2>{subject.name}</h2>
       <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}<span>{updatedAgo(point.observed_at)}</span></p>
       <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm registration" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span><OperatingTagChips snapshot={subject.operating} limit={2} /></div>
-      <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <dl>{[...facts, ...placeFacts].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
       {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
     </div>
@@ -1102,16 +1182,22 @@ function mapTooltip(point: MapPoint) {
   return `<strong>${label}</strong><br><span>${escapeMapText(detail)} · ${mapActivityStatus(point).label}</span>`;
 }
 
-type MapActivityTone = "attention" | "current" | "earlier";
+type MapActivityTone = "disease" | "task" | "current" | "earlier";
+
+function matchesMapFocus(point: MapPoint, focus: Array<"all" | "disease" | "recent_checked" | "open_tasks">) {
+  if (focus.includes("all")) return true;
+  const activityAge = Date.now() - new Date(point.observed_at).valueOf();
+  const openTasks = point.subject.open_work;
+  return focus.includes("disease") && Boolean(point.has_disease)
+    || focus.includes("recent_checked") && activityAge <= 7 * 86_400_000
+    || focus.includes("open_tasks") && openTasks > 0;
+}
 
 function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: string } {
-  const metrics = point.subject.operating?.metrics;
-  const openTasks = metrics?.open_task_count ?? point.subject.open_work;
-  if (openTasks > 0) return { tone: "attention", label: openTasks === 1 ? "1 open task" : `${openTasks} open tasks` };
-  if (metrics?.disease_report_count) return { tone: "attention", label: "Disease reported" };
-  if (metrics?.pest_report_count) return { tone: "attention", label: "Pest reported" };
-  const activityAt = metrics?.latest_activity_at || point.observed_at;
-  const age = Date.now() - new Date(activityAt).valueOf();
+  const openTasks = point.subject.open_work;
+  if (point.has_disease) return { tone: "disease", label: "Disease reported" };
+  if (openTasks > 0) return { tone: "task", label: openTasks === 1 ? "1 open task" : `${openTasks} open tasks` };
+  const age = Date.now() - new Date(point.observed_at).valueOf();
   if (age <= 7 * 86_400_000) return { tone: "current", label: "Updated this week" };
   if (age <= 30 * 86_400_000) return { tone: "current", label: "Updated this month" };
   return { tone: "earlier", label: "Earlier activity" };
@@ -1119,15 +1205,17 @@ function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: str
 
 function mapClusterStatus(points: MapPoint[]) {
   const statuses = points.map(mapActivityStatus);
-  const attention = statuses.filter((status) => status.tone === "attention").length;
+  const disease = statuses.filter((status) => status.tone === "disease").length;
+  const task = statuses.filter((status) => status.tone === "task").length;
   const current = statuses.filter((status) => status.tone === "current").length;
-  if (attention) return { tone: "attention" as const, label: `${count(attention)} need attention` };
+  if (disease) return { tone: "disease" as const, label: `${count(disease)} disease reports` };
+  if (task) return { tone: "task" as const, label: `${count(task)} open tasks` };
   if (current) return { tone: "current" as const, label: `${count(current)} updated recently` };
   return { tone: "earlier" as const, label: "Earlier activity" };
 }
 
 function mapMarkerColor(tone: MapActivityTone) {
-  return ({ attention: { stroke: "#a6574b", fill: "#f4d8d2" }, current: { stroke: "#497054", fill: "#dcebcf" }, earlier: { stroke: "#879783", fill: "#f3f5ed" } })[tone];
+  return ({ disease: { stroke: "#a6574b", fill: "#f4d8d2" }, task: { stroke: "#a67a2d", fill: "#f5e7bd" }, current: { stroke: "#497054", fill: "#dcebcf" }, earlier: { stroke: "#879783", fill: "#f3f5ed" } })[tone];
 }
 
 function escapeMapText(value: string) {
@@ -1744,12 +1832,14 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   const [visibleCount, setVisibleCount] = useState(100);
   const [query, setQuery] = useState("");
   const [work, setWork] = useState<Array<"all" | "open_tasks" | "no_open_tasks">>(["all"]);
+  const [recorded, setRecorded] = useState<Array<"all" | "location" | "visit" | "photo" | "issue" | "crop">>(["all"]);
   const [activity, setActivity] = useState<FarmActivityFilter[]>(["all"]);
   const [order, setOrder] = useState<"open_tasks" | "recently_updated" | "least_updated" | "name">("open_tasks");
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const nextPageRequested = useRef(false);
   const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase())
     && (work.includes("all") || work.includes("open_tasks") && person.open_work > 0 || work.includes("no_open_tasks") && person.open_work === 0)
+    && matchesRecordedEvidence(person.operating, recorded)
     && matchesActivityFilters(person.latest_activity_at, person.open_work, activity));
   const ordered = [...matched].sort((left, right) => order === "name"
     ? personName(left.name).localeCompare(personName(right.name))
@@ -1774,7 +1864,7 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
     observer.observe(target);
     return () => observer.disconnect();
   }, [visible.length, ordered.length]);
-  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Reported farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Reported registrations</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><OperatingTags snapshot={person.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <div className="directory-more" ref={loadMoreRef}><button type="button" className="quiet-button" onClick={loadNextPage}>Load more farmers</button></div> : null}</>;
+  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Recorded" values={recorded} options={[["all", "All records"], ["location", "Location"], ["visit", "Visit"], ["photo", "Photo"], ["issue", "Issue"], ["crop", "Crop"]]} onChange={(next) => { setRecorded(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Reported farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Reported registrations</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><OperatingTags snapshot={person.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <div className="directory-more" ref={loadMoreRef}><button type="button" className="quiet-button" onClick={loadNextPage}>Load more farmers</button></div> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {

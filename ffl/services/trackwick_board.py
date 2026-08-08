@@ -122,17 +122,31 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
     )
     worker_rows = _worker_rows(workers, tasks_by_worker, latest_worker_day)
     signal_rows = _reported_signal_rows(conn, source.id, party_by_id)
+    disease_task_ids = {
+        str(row["visit_task_id"])
+        for row in _rows(
+            conn,
+            """SELECT DISTINCT visit_task_id FROM trackwick_visit_findings
+               WHERE source_id = ? AND finding_kind = 'disease'
+                 AND data_quality_status = 'valid'""",
+            source.id,
+        )
+        if row["visit_task_id"]
+    }
     inbox_rows = _inbox_rows(tasks, party_by_id)
     operating_snapshots = operating_enrichment.snapshot_index_for_source(conn, source.id)
+    place_summaries = operating_enrichment.place_summaries_for_source(conn, source.id)
     _attach_operating_snapshot(farm_rows, "reported_farm", operating_snapshots)
     _attach_operating_snapshot(farmer_rows, "farmer", operating_snapshots)
     _attach_operating_snapshot(worker_rows, "field_worker", operating_snapshots)
     map_points, map_truncated = _map_points(
         locations,
         registrations,
+        _group_by(registrations, "farmer_party_id"),
         party_by_id,
         tasks,
         operating_snapshots,
+        disease_task_ids,
     )
     counts = {
         "farmers": len(farmers),
@@ -154,6 +168,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         "inbox": inbox_rows,
         "map": {
             "points": map_points,
+            "places": place_summaries,
             "total_source_points": len(locations),
             "truncated": map_truncated,
             "point_meaning": "Source evidence points, not farm boundaries or verified fields.",
@@ -189,6 +204,7 @@ def _empty_board(state: str) -> dict[str, Any]:
         "inbox": [],
         "map": {
             "points": [],
+            "places": [],
             "total_source_points": 0,
             "truncated": False,
             "point_meaning": "Source evidence points, not farm boundaries or verified fields.",
@@ -221,8 +237,9 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         } for row in board["inbox"]],
         "map": {
             "points": [{key: point.get(key) for key in (
-                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "subject",
+                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "has_disease", "related_farm", "subject",
             )} for point in board["map"]["points"]],
+            "places": board["map"].get("places", []),
             "total_points": board["map"]["total_source_points"],
             "truncated": board["map"]["truncated"],
         },
@@ -658,9 +675,11 @@ def _inbox_rows(tasks: Iterable[Mapping[str, Any]], parties: Mapping[str, Mappin
 def _map_points(
     locations: Iterable[Mapping[str, Any]],
     registrations: Iterable[Mapping[str, Any]],
+    registrations_by_farmer: Mapping[str, list[Mapping[str, Any]]],
     parties: Mapping[str, Mapping[str, Any]],
     tasks: Iterable[Mapping[str, Any]],
     operating_snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
+    disease_task_ids: set[str],
 ) -> tuple[list[dict[str, Any]], bool]:
     registration_by_id = {str(row["id"]): row for row in registrations}
     registrations_by_task = {
@@ -682,9 +701,18 @@ def _map_points(
         task = task_by_id.get(str(location["task_id"])) if location["task_id"] else None
         if registration is None and task is not None:
             registration = registrations_by_task.get(str(task["id"]))
+        related_registration = registration
+        if related_registration is None and task is not None and task["farmer_party_id"]:
+            # A field visit may carry a location while its registration did
+            # not. It can represent this reported Farm only when the source
+            # farmer has exactly one registration; otherwise the association
+            # remains ambiguous and the point stays a person/work activity.
+            candidates = registrations_by_farmer.get(str(task["farmer_party_id"]), [])
+            if len(candidates) == 1:
+                related_registration = candidates[0]
         farmer = None
-        if registration is not None and registration["farmer_party_id"]:
-            farmer = parties.get(str(registration["farmer_party_id"]))
+        if related_registration is not None and related_registration["farmer_party_id"]:
+            farmer = parties.get(str(related_registration["farmer_party_id"]))
         elif task is not None and task["farmer_party_id"]:
             farmer = parties.get(str(task["farmer_party_id"]))
         elif location["party_id"]:
@@ -698,11 +726,28 @@ def _map_points(
             "confidence": location["location_confidence"],
             "observed_at": location["observed_at"],
             "label": _point_label(registration, task, farmer),
+            "has_disease": bool(task is not None and str(task["id"]) in disease_task_ids),
+            "related_farm": _related_farm(related_registration, farmer),
             "subject": subject,
             "record_kind": "source_point",
             "is_boundary": False,
         })
     return points, len(seen) > _MAP_POINT_LIMIT
+
+
+def _related_farm(
+    registration: Optional[Mapping[str, Any]],
+    farmer: Optional[Mapping[str, Any]],
+) -> Optional[dict[str, Any]]:
+    if registration is None:
+        return None
+    place = _place(registration)
+    return {
+        "id": str(registration["id"]),
+        "name": place,
+        "place": place,
+        "farmer_name": farmer["display_name"] if farmer is not None else None,
+    }
 
 
 def _map_subject(
