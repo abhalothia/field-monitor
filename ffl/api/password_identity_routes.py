@@ -88,6 +88,7 @@ def password_login(payload: PasswordLoginRequest, request: Request) -> dict:
         request.session[SESSION_FLAG] = True
     return {
         "status": "authenticated",
+        "person_name": row["person_name"],
         "access_role": row["access_role"],
         "next_path": "/home" if is_manager else "/field-work" if row["access_role"] == "field_worker" else "/farmer",
         "expires_at": expires_at,

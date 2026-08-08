@@ -53,7 +53,7 @@ def test_named_password_identity_is_hashed_role_checked_and_opens_only_the_admin
 
     assert bad.status_code == 401
     assert signed_in.json() == {
-        "status": "authenticated", "access_role": "admin", "next_path": "/home", "expires_at": 29_800,
+        "status": "authenticated", "person_name": "Farm Manager", "access_role": "admin", "next_path": "/home", "expires_at": 29_800,
     }
     assert session.json()["person_name"] == "Farm Manager"
     assert session.json()["access_role"] == "admin"

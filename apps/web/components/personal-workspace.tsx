@@ -30,7 +30,12 @@ export function PersonalWorkspace({ expectedRole }: { expectedRole: Role }) {
     ]).then(async ([sessionResponse, overviewResponse]) => {
       if (!active) return;
       if (!sessionResponse.ok || !overviewResponse.ok) {
-        router.replace("/login");
+        if (sessionResponse.status === 401 || overviewResponse.status === 401) {
+          void fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+          router.replace(`/login?next=${expectedRole === "field_worker" ? "/field-work" : "/farmer"}&reason=session-expired`);
+          return;
+        }
+        setStatus("Your work is unavailable right now. Please try again shortly.");
         return;
       }
       const session = (await sessionResponse.json()) as Session;

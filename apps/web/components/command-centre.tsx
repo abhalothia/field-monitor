@@ -487,7 +487,6 @@ const EMPTY_STATE: State = {
 };
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
-const OPERATING_CACHE_TTL_MS = 5 * 60_000;
 const FIELD_WEATHER_CACHE_PREFIX = "agro-ceo-field-weather-v1:";
 const FIELD_WEATHER_CACHE_TTL_MS = 60 * 60_000;
 const DIRECTORY_CACHE_PREFIX = "agro-ceo-farm-directory-v1:";
@@ -502,6 +501,22 @@ function readSessionCache<T>(key: string): T | null {
 
 function writeSessionCache(key: string, value: unknown) {
   try { window.sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* caching never blocks the record */ }
+}
+
+function clearPrivateBrowserCache() {
+  try {
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index);
+      if (key === OPERATING_CACHE_KEY || key?.startsWith(DIRECTORY_CACHE_PREFIX) || key?.startsWith(PROFILE_CACHE_PREFIX)) {
+        window.sessionStorage.removeItem(key);
+      }
+    }
+  } catch { /* storage cleanup must never block a sign-out */ }
+}
+
+function endExpiredWorkspaceSession() {
+  clearPrivateBrowserCache();
+  void fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
 }
 
 type Translation = {
@@ -719,6 +734,7 @@ export function CommandCentre({ view }: { view: View }) {
     ));
     const status = rejected?.reason?.status;
     if (status === 401) {
+      endExpiredWorkspaceSession();
       setState((current) => ({ ...current, loading: false, needsLaunchLogin: true }));
       return;
     }
@@ -829,6 +845,7 @@ export function CommandCentre({ view }: { view: View }) {
   }
 
   const expireManagerSession = useCallback((launchLogin = false) => {
+    if (launchLogin) endExpiredWorkspaceSession();
     setState((current) => ({
       ...current,
       session: launchLogin ? null : { authenticated: false },
@@ -839,7 +856,8 @@ export function CommandCentre({ view }: { view: View }) {
   async function endManagerSession() {
     setManagerBusy(true);
     try {
-      await fetch("/api/v1/manager-session/logout", { method: "POST", credentials: "same-origin" });
+      clearPrivateBrowserCache();
+      await fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" });
       await load(true);
     } finally {
       setManagerBusy(false);
@@ -849,7 +867,7 @@ export function CommandCentre({ view }: { view: View }) {
   if (state.needsLaunchLogin) {
     return (
       <main className="session-wall">
-        <section className="session-wall-card"><p className="eyebrow">AGRO CEO</p><h1>This workspace is private.</h1><p>Sign in with the pilot password to read the live operating record.</p><Link href={`/login?next=/${view}`} className="primary-action">{t.signIn} <span aria-hidden="true">→</span></Link></section>
+        <section className="session-wall-card"><p className="eyebrow">AGRO CEO</p><h1>Your session ended.</h1><p>For your security, sign in again to continue where you left off.</p><Link href={`/login?next=/${view}&reason=session-expired`} className="primary-action">{t.signIn} <span aria-hidden="true">→</span></Link></section>
       </main>
     );
   }

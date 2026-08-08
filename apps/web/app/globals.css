@@ -48,6 +48,7 @@ h1, h2, h3, p { margin-top: 0; }
 label { color: var(--ink-soft); font-size: .72rem; font-weight: 800; }
 input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius: 2px; background: rgba(255, 253, 244, .7); color: var(--ink); padding: 10px 12px; }
 .auth-form .primary-action { width: fit-content; margin-top: 8px; }
+.auth-switch { margin-top: 18px; border-inline: 0; border-top: 0; background: transparent; cursor: pointer; font-family: inherit; }
 .form-error { color: #9d412b; font-size: .76rem; line-height: 1.4; }
 .hindi { margin: 40px 0 0; color: #617160; font-size: .75rem; }
 
