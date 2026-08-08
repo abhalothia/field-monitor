@@ -14,7 +14,7 @@ import json
 from typing import Any, Iterable, Mapping, Optional
 
 from ffl.persistence import repository
-from ffl.services import operating_enrichment
+from ffl.services import luna_brief, operating_enrichment
 from ffl.services.trackwick_ingest import SOURCE_KEY
 
 
@@ -259,6 +259,42 @@ def _empty_daily_brief() -> dict[str, Any]:
         "disease_reports": 0,
         "open_tasks": 0,
     }
+
+
+def _daily_brief_facts(
+    daily_brief: Mapping[str, Any],
+    counts: Mapping[str, Any],
+    signals: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build the anonymous, aggregate-only fact pack that may leave FFL."""
+    severity_counts = Counter(
+        str(signal.get("declared_severity") or "not_recorded")
+        for signal in signals
+        if signal.get("finding_kind") == "disease"
+    )
+    return {
+        "latest_record": {
+            key: daily_brief.get(key)
+            for key in ("as_of", "visits", "farmers_updated", "disease_reports", "open_tasks")
+        },
+        "operating_totals": {
+            key: int(counts.get(key, 0) or 0)
+            for key in ("farmers", "farm_candidates", "field_workers", "open_work", "reported_visits")
+        },
+        "reported_disease_severity": dict(sorted(severity_counts.items())),
+    }
+
+
+def daily_brief_reading_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str, Any] | None:
+    """Generate the optional read outside the initial board response.
+
+    Home can render the verified data immediately; the small model request then
+    happens independently and is served from its fact-fingerprint cache.
+    """
+    board = manager_board_for_source(conn, source_key=source_key)
+    return luna_brief.daily_field_read(
+        _daily_brief_facts(board["daily_brief"], board["counts"], board["signals"])
+    )
 
 
 def _daily_brief(conn, source_id: str, *, open_tasks: int) -> dict[str, Any]:

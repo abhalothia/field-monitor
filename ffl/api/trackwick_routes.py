@@ -80,6 +80,16 @@ def get_command_centre_board(request: Request, _manager_id: str = Depends(requir
     )
 
 
+@router.get("/daily-brief-reading")
+def get_daily_brief_reading(request: Request, _manager_id: str = Depends(require_operating_read)) -> dict:
+    """Return the optional AI wording without delaying the operating board."""
+    return {
+        "reading": trackwick_board.daily_brief_reading_for_source(
+            _connection(request), source_key=trackwick_ingest.SOURCE_KEY,
+        )
+    }
+
+
 @router.post("/refresh")
 def refresh_trackwick_source(
     request: Request,

@@ -195,6 +195,7 @@ type TrackwickBoard = {
   daily_brief?: { as_of: string | null; visits: number; farmers_updated: number; disease_reports: number; open_tasks: number };
   map?: { points: Array<MapPoint>; places?: PlaceOperatingSummary[]; total_points: number; truncated: boolean };
 };
+type DailyBriefReading = { summary: string; attention: string; model: string };
 type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
 type MapPoint = {
   id: string;
@@ -680,6 +681,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
+  const [dailyBriefReading, setDailyBriefReading] = useState<DailyBriefReading | null>(null);
   const stateRef = useRef<State>(EMPTY_STATE);
   const cachedStateRef = useRef<Partial<State> | null>(null);
   const loadRequest = useRef<Promise<void> | null>(null);
@@ -701,6 +703,21 @@ export function CommandCentre({ view }: { view: View }) {
   }, []);
 
   useEffect(() => { stateRef.current = state; }, [state]);
+
+  const dailyBriefKey = state.trackwick?.daily_brief
+    ? [state.trackwick.daily_brief.as_of, state.trackwick.daily_brief.visits, state.trackwick.daily_brief.farmers_updated, state.trackwick.daily_brief.disease_reports, state.trackwick.daily_brief.open_tasks].join(":")
+    : "";
+  useEffect(() => {
+    if (!state.session?.authenticated || !dailyBriefKey) {
+      setDailyBriefReading(null);
+      return;
+    }
+    let active = true;
+    void readJson<{ reading: DailyBriefReading | null }>("/api/v1/trackwick/daily-brief-reading")
+      .then(({ value }) => { if (active) setDailyBriefReading(value.reading); })
+      .catch(() => { if (active) setDailyBriefReading(null); });
+    return () => { active = false; };
+  }, [dailyBriefKey, state.session?.authenticated]);
 
   useEffect(() => {
     if (state.session && !state.session.authenticated) {
@@ -930,7 +947,7 @@ export function CommandCentre({ view }: { view: View }) {
       </section> : null}
 
       {state.error && view !== "home" ? <div className="honest-notice honest-notice-action" role="status"><span>{state.error}</span><button type="button" onClick={() => void load(true)}>Try again</button></div> : state.stale ? <div className="honest-notice honest-notice-stale honest-notice-action" role="status"><span>Showing your last saved view while we reconnect.</span><button type="button" onClick={() => void load(true)}>Refresh</button></div> : null}
-      {view === "home" ? <HomeView t={t} state={state} retry={() => void load(true)} /> : null}
+      {view === "home" ? <HomeView t={t} state={state} retry={() => void load(true)} reading={dailyBriefReading} /> : null}
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
@@ -1041,7 +1058,7 @@ function languageFarmHeading(t: Translation) {
   return t.farm === "Farm" ? "Farms" : t.farm;
 }
 
-function HomeView({ t, state, retry }: { t: Translation; state: State; retry: () => void }) {
+function HomeView({ t, state, retry, reading }: { t: Translation; state: State; retry: () => void; reading: DailyBriefReading | null }) {
   const isFirstLoad = state.loading && state.updatedAt === null && !state.trackwick;
   if (isFirstLoad) return <HomeLoadingState />;
   if (state.error && !state.trackwick) return <HomeUnavailableState retry={retry} />;
@@ -1069,12 +1086,12 @@ function HomeView({ t, state, retry }: { t: Translation; state: State; retry: ()
       : nextMove ? actionLine(nextMove) : history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages.` : "Saved field activity will appear here when available.";
   const mapIsPreparing = state.loading && !mapPoints.length;
   return <section className="single-surface home-map-stage">
-    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><DailyBrief brief={trackwick?.daily_brief} />{hasBoard ? <div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div> : null}<Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
+    <div className="home-map-copy"><p className="eyebrow">Fortune Farms</p><h2>{title}</h2><p>{detail}</p><DailyBrief brief={trackwick?.daily_brief} reading={reading} />{hasBoard ? <div className="home-map-metrics"><span><strong>{count(locationCount)}</strong> locations</span><span><strong>{count(trackwick?.counts.farmers)}</strong> farmers</span><span><strong>{count(trackwick?.counts.field_workers)}</strong> field workers</span></div> : null}<Link href="/map" className="primary-action">Open map <span aria-hidden="true">→</span></Link></div>
     {mapIsPreparing ? <MapLoadingState label="Loading field activity" /> : <OperatingMap points={mapPoints} preview />}
   </section>;
 }
 
-function DailyBrief({ brief }: { brief?: TrackwickBoard["daily_brief"] }) {
+function DailyBrief({ brief, reading }: { brief?: TrackwickBoard["daily_brief"]; reading: DailyBriefReading | null }) {
   if (!brief?.as_of) return null;
   const day = brief.as_of;
   const items = [
@@ -1086,6 +1103,7 @@ function DailyBrief({ brief }: { brief?: TrackwickBoard["daily_brief"] }) {
   return <section className="daily-brief" aria-label="Daily field brief">
     <div><p className="eyebrow">Daily brief</p><span>Latest field record · {new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(`${day}T12:00:00+05:30`))}</span></div>
     <div className="daily-brief-items">{items.map((item) => <Link href={item.href} key={item.label}><strong>{count(item.value)}</strong><span>{item.label}</span></Link>)}</div>
+    {reading ? <div className="daily-brief-reading"><span>Field read</span><p>{reading.summary}</p><p>{reading.attention}</p></div> : null}
   </section>;
 }
 

@@ -293,6 +293,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .daily-brief-items a:hover strong, .daily-brief-items a:hover span { text-decoration: underline; text-underline-offset: 3px; }
 .daily-brief-items strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.42rem; font-weight: 400; letter-spacing: -.04em; line-height: 1; }
 .daily-brief-items span { color: var(--muted); font-size: .62rem; }
+.daily-brief-reading { border-left: 2px solid rgba(20, 61, 45, .36); display: grid; gap: 5px; margin-top: 15px; padding-left: 10px; }
+.daily-brief-reading > span { color: var(--muted); font-family: "DM Mono", monospace; font-size: .53rem; letter-spacing: .05em; text-transform: uppercase; }
+.daily-brief-reading p { color: var(--ink-soft); font-size: .7rem; line-height: 1.45; margin: 0; }
 .home-map-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; border-top: 1px solid rgba(20, 61, 45, .16); margin: 26px 0 4px; padding-top: 13px; }
 .home-map-metrics span { display: grid; gap: 4px; color: var(--muted); font-family: "DM Mono", monospace; font-size: .52rem; letter-spacing: .04em; text-transform: uppercase; }
 .home-map-metrics strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.52rem; font-weight: 400; letter-spacing: -.045em; text-transform: none; }
