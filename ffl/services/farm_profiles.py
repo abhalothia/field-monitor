@@ -148,12 +148,17 @@ def list_entity_directory(
         raise ValueError("activity contains an unsupported filter")
     if order not in {"open_tasks", "recently_updated", "least_updated", "name"}:
         raise ValueError("order contains an unsupported value")
+    # Fortune's live source cache can be available before the reviewed Farm
+    # Truth tables are provisioned.  The directory must still be able to show
+    # reported candidates in that state; do not let an optional reviewed layer
+    # turn an all-records read into a server error.
+    reviewed_farms_available = source_relation_exists(conn, "farms")
     if kind == "farm" and (states != {"reviewed"} or activity_filters or order != "open_tasks"):
         # These filters need one ordering across reviewed Farms and reported
         # candidates. Assemble safe DTOs first; pagination happens afterwards.
         reviewed = _reviewed_farm_directory(
             conn, query, crop, bounds, _FARM_DIRECTORY_ASSEMBLY_LIMIT,
-        ) if "reviewed" in states else []
+        ) if "reviewed" in states and reviewed_farms_available else []
         reported = _reported_farm_directory(
             conn, query, crop, bounds, _FARM_DIRECTORY_ASSEMBLY_LIMIT,
         ) if "reported" in states else []
@@ -167,6 +172,8 @@ def list_entity_directory(
         return []
 
     if kind == "farm":
+        if not reviewed_farms_available:
+            return []
         items = _reviewed_farm_directory(conn, query, crop, bounds, limit, offset)
     elif kind == "field":
         predicates = ["farm_fields.status = 'active'", "farms.status = 'active'"]

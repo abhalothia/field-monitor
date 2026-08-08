@@ -416,7 +416,11 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
     ffl_db.execute("DROP TABLE trackwick_tasks")
     ffl_db.commit()
 
-    before = ffl_db.execute("SELECT count(id) AS count FROM farms").fetchone()["count"]
+    # The TrackWick cache can be live before the reviewed Farm Truth schema is
+    # provisioned.  The all-records directory must gracefully keep serving the
+    # reported candidate list in that deployment shape.
+    ffl_db.execute("DROP TABLE farms")
+    ffl_db.commit()
     reported = farm_profiles.list_entity_directory(
         ffl_db, "farm", state="reported", query="Dargava",
     )
@@ -424,7 +428,6 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
         ffl_db, "farm", state="all", query="Dargava",
     )
     canonical = farm_profiles.list_entity_directory(ffl_db, "farm")
-    after = ffl_db.execute("SELECT count(id) AS count FROM farms").fetchone()["count"]
     with TestClient(app) as client:
         headers = {"X-FFL-Manager-Token": "manager-secret"}
         reported_response = client.get(
@@ -432,7 +435,6 @@ def test_reported_directory_uses_source_registrations_without_promoting_farms(
         )
         canonical_response = client.get("/api/v1/farms", headers=headers)
 
-    assert before == after == 0
     assert canonical == []
     assert reported == [{
         "state": "reported",
