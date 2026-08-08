@@ -160,6 +160,25 @@ def test_postgres_connection_preserves_repository_row_contract_without_a_network
     assert isinstance(row["reported_area_bigha"], float)
 
 
+def test_postgres_outbox_reservation_translation_is_private_and_not_sqlite_specific():
+    from ffl.persistence.database import PostgresConnection
+
+    raw = _FakeRawConnection()
+    cursor = PostgresConnection(raw).execute(
+        """INSERT OR IGNORE INTO communication_outbox
+           (id, interaction_run_id, legacy_prompt_id, provider_message_id, status, policy_code, created_at, updated_at)
+           VALUES (?, ?, ?, NULL, 'pending', NULL, ?, ?)""",
+        ("outbox-1", "interaction-1", None, "2026-08-08T00:00:00+00:00", "2026-08-08T00:00:00+00:00"),
+    )
+
+    statement, _params = raw.calls[0]
+    assert cursor.rowcount == 1
+    assert "INSERT INTO agro_communication_outbox" in statement
+    assert "INSERT OR IGNORE" not in statement
+    assert "SELECT changes()" not in statement
+    assert "ON CONFLICT DO NOTHING" in statement
+
+
 def test_postgres_batch_writes_translate_conflict_safe_repository_sql_without_a_network_call():
     from ffl.persistence.database import PostgresConnection
 

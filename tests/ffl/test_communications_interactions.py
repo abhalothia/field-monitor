@@ -22,6 +22,7 @@ from ffl.persistence.database import translate_sqlite_sql
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0021_agro_communications_control_plane.sql"
+OUTBOX_MIGRATION = ROOT / "db" / "postgres" / "0026_agro_communication_outbox.sql"
 
 
 @pytest.fixture
@@ -237,10 +238,13 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     for table in (
         "agro_communication_interaction_runs",
         "agro_communication_interaction_dispatches",
-        "agro_communication_outbox",
     ):
         assert "CREATE TABLE IF NOT EXISTS " + table in sql
         assert "REVOKE ALL ON TABLE " + table + " FROM PUBLIC" in sql
+    outbox_sql = OUTBOX_MIGRATION.read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS agro_communication_outbox" in outbox_sql
+    assert "REVOKE ALL ON TABLE agro_communication_outbox FROM PUBLIC" in outbox_sql
+    assert "agro_idx_communication_outbox_status" in outbox_sql
     assert "context_token_hash TEXT NOT NULL UNIQUE" in sql
     assert "context_token TEXT" not in sql
     assert "(provider, provider_message_id)" in sql

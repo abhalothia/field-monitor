@@ -1074,13 +1074,15 @@ def create_outbox_entry(
     here.
     """
     identifier, now = _identity()
-    conn.execute(
+    cursor = conn.execute(
         """INSERT OR IGNORE INTO communication_outbox
            (id, interaction_run_id, legacy_prompt_id, provider_message_id, status, policy_code, created_at, updated_at)
            VALUES (?, ?, ?, NULL, 'pending', NULL, ?, ?)""",
         (identifier, interaction_run_id, legacy_prompt_id, now, now),
     )
-    created = conn.execute("SELECT changes() AS count").fetchone()["count"] == 1
+    # Both sqlite3 and the private Postgres cursor expose the affected row
+    # count. Do not use SQLite's SELECT changes(), which is not portable.
+    created = cursor.rowcount == 1
     conn.commit()
     entry = outbox_entry(conn, interaction_run_id)
     if entry is None:
