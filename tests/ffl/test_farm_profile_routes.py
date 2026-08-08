@@ -822,12 +822,12 @@ def test_command_centre_has_on_demand_profiles_and_muted_whatsapp_status():
     assert 'readJson<ReportedFarmProfile>("/api/v1/reported-farm-profiles/" + id)' in source
     assert "WhatsApp updates" in source
     assert "Coming soon" in source
-    assert "disabled-connection" in source
+    assert "settings-coming-soon" in source
     assert "canOpenProfiles={Boolean(state.session?.authenticated)}" in source
     assert 'className="profile-locked" href="/login">Sign in to open' in source
     assert "directoryOpener.current = openerId" in source
     assert "document.getElementById(openerId)?.focus()" in source
-    assert '<div className="disabled-connection" aria-disabled="true">' in source
+    assert '<section className="settings-coming-soon" aria-disabled="true">' in source
 
 
 def test_command_centre_uses_farm_first_entity_profiles():
@@ -863,8 +863,8 @@ def test_command_centre_renders_safe_entity_context_and_reported_disease_event()
     assert 'readJson<TrackwickBoard>("/api/v1/trackwick/command-centre-board")' in source
     assert '"/api/v1/trackwick/board"' not in source
     assert "reviewed_farms" in source
-    assert 'session: { authenticated: false }' in source
-    assert '<a href="/manager">Re-authenticate in Farm Truth</a>' in source
+    assert 'setState({ ...EMPTY_STATE, session: { authenticated: false }, loading: false, needsLaunchLogin: true });' in source
+    assert 'Re-authenticate in Farm Truth' in source
     assert "Disease &amp; pest" in source
     assert "Filter field issues" in source
     assert "PersonContextPanel" in source
@@ -916,7 +916,7 @@ def test_command_centre_uses_authenticated_cache_and_directory_skeleton_before_s
     source = Path("apps/web/components/command-centre.tsx").read_text()
 
     assert "if (!value.session?.authenticated) return;" in source
-    assert 'session: { authenticated: true }, loading: false, error: null' in source
+    assert 'session: null, loading: false, error: null' in source
     assert "if (!state.session?.authenticated || !state.profile || !state.trackwick) return;" in source
     assert 'function DirectoryLoadingState({ label }: { label: string })' in source
     assert '!accessResolved\n      ? <DirectoryLoadingState label="Opening farms" />' in source
@@ -929,9 +929,24 @@ def test_command_centre_revalidates_saved_data_without_blank_workspace_states():
     assert 'window.addEventListener("focus", revalidate);' in source
     assert 'window.addEventListener("online", revalidate);' in source
     assert 'document.addEventListener("visibilitychange", revalidate);' in source
-    assert "Showing saved data while we reconnect." in source
+    assert "Showing your last saved view while we reconnect." in source
     assert 'function MapLoadingState({ label }: { label: string })' in source
-    assert '<MapLoadingState label="Opening the field map" />' in source
+    assert '<MapLoadingState label="Loading field activity" />' in source
+    assert '<MapLoadingState label="Loading map" />' in source
+
+
+def test_command_centre_has_working_notification_and_account_menus_without_settings_noise():
+    source = Path("apps/web/components/command-centre.tsx").read_text()
+
+    assert "function NotificationDropdown" in source
+    assert 'id="notification-panel"' in source
+    assert 'aria-controls="notification-panel"' in source
+    assert 'fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" })' in source
+    assert '"Log out"' in source
+    assert 'className="settings-account-card"' in source
+    assert "Purchase history" not in source
+    assert "Field updates" not in source
+    assert "open={open}" in source
 
 
 def test_farmer_profile_requires_an_active_reviewed_grower_relationship(ffl_db, users, crop_allocation):

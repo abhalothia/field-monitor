@@ -676,6 +676,7 @@ export function CommandCentre({ view }: { view: View }) {
   const [state, setState] = useState<State>(EMPTY_STATE);
   const [managerBusy, setManagerBusy] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileSelection, setProfileSelection] = useState<ProfileSelection | null>(null);
   const stateRef = useRef<State>(EMPTY_STATE);
@@ -683,6 +684,7 @@ export function CommandCentre({ view }: { view: View }) {
   const loadRequest = useRef<Promise<void> | null>(null);
   const profileRequest = useRef(0);
   const profileOpener = useRef<string | null>(null);
+  const commandToolsRef = useRef<HTMLDivElement>(null);
   const t = WORDS[language];
 
   useEffect(() => {
@@ -797,12 +799,35 @@ export function CommandCentre({ view }: { view: View }) {
 
   useEffect(() => {
     function openSearch(event: KeyboardEvent) {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      if (!(event.metaKey || event.ctrlKey) || !["f", "k"].includes(event.key.toLowerCase())) return;
       event.preventDefault();
+      setNotificationMenuOpen(false);
+      setProfileMenuOpen(false);
       setSearchOpen(true);
     }
     window.addEventListener("keydown", openSearch);
     return () => window.removeEventListener("keydown", openSearch);
+  }, []);
+
+  useEffect(() => {
+    function dismissMenus(event: PointerEvent) {
+      if (!commandToolsRef.current?.contains(event.target as Node)) {
+        setNotificationMenuOpen(false);
+        setProfileMenuOpen(false);
+      }
+    }
+    function dismissWithEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setNotificationMenuOpen(false);
+      setProfileMenuOpen(false);
+      setSearchOpen(false);
+    }
+    document.addEventListener("pointerdown", dismissMenus);
+    window.addEventListener("keydown", dismissWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissMenus);
+      window.removeEventListener("keydown", dismissWithEscape);
+    };
   }, []);
 
   async function openPersonProfile(
@@ -857,12 +882,20 @@ export function CommandCentre({ view }: { view: View }) {
     setManagerBusy(true);
     try {
       clearPrivateBrowserCache();
-      await fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" });
-      await load(true);
+      const response = await fetch("/api/v1/launch/logout", { method: "POST", credentials: "same-origin" });
+      if (!response.ok) throw new Error("Could not sign out.");
+      setNotificationMenuOpen(false);
+      setProfileMenuOpen(false);
+      // A logout must never leave the previous private board on screen.
+      setState({ ...EMPTY_STATE, session: { authenticated: false }, loading: false, needsLaunchLogin: true });
+    } catch {
+      setState((current) => ({ ...current, error: "We could not sign you out. Check your connection and try again." }));
     } finally {
       setManagerBusy(false);
     }
   }
+
+  const notificationItems = (state.agents?.agents || []).filter((agent) => agent.count > 0).slice(0, 4);
 
   if (state.needsLaunchLogin) {
     return (
@@ -879,11 +912,11 @@ export function CommandCentre({ view }: { view: View }) {
         <nav className="command-nav" aria-label="AGRO CEO views">
           {NAV.map((item) => <Link key={item.view} href={item.href} aria-current={item.view === view ? "page" : undefined} className={item.view === view ? "nav-link active" : "nav-link"}>{t[item.view]}</Link>)}
         </nav>
-        <div className="command-tools">
+        <div className="command-tools" ref={commandToolsRef}>
           <button type="button" className="tool-icon language-toggle" onClick={() => setLanguage((current) => current === "en" ? "hi" : "en")} aria-label="Switch interface language">{language === "en" ? t.hindi : t.english}</button>
-          <button type="button" className="tool-icon" onClick={() => setSearchOpen(true)} aria-label="Search farms, farmers, and workers" title="Search (⌘F)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg></button>
-          <button type="button" className="tool-icon" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg></button>
-          <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div className="profile-dropdown"><strong>Fortune Farms</strong><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link></div> : null}</div>
+          <button type="button" className="tool-icon" onClick={() => { setNotificationMenuOpen(false); setProfileMenuOpen(false); setSearchOpen(true); }} aria-label="Search farms, farmers, and workers" title="Search (⌘F)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.2 4.2" /></svg></button>
+          <div className="notification-menu"><button type="button" className="tool-icon notification-toggle" onClick={() => { setNotificationMenuOpen((current) => !current); setProfileMenuOpen(false); }} aria-expanded={notificationMenuOpen} aria-controls="notification-panel" aria-label={notificationItems.length ? `Notifications: ${notificationItems.length} items need attention` : "Notifications"} title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>{notificationItems.length ? <span className="notification-dot" aria-hidden="true" /> : null}</button>{notificationMenuOpen ? <NotificationDropdown items={notificationItems} close={() => setNotificationMenuOpen(false)} /> : null}</div>
+          <div className="profile-menu"><button type="button" className="profile-avatar" onClick={() => { setProfileMenuOpen((current) => !current); setNotificationMenuOpen(false); }} aria-expanded={profileMenuOpen} aria-controls="profile-panel" aria-label="Fortune Farms menu"><img src="/favicon.png" alt="" /></button>{profileMenuOpen ? <div id="profile-panel" className="profile-dropdown"><div className="menu-heading"><strong>Fortune Farms</strong><span>Signed in</span></div><Link href="/settings" onClick={() => setProfileMenuOpen(false)}>Settings</Link><button type="button" onClick={() => void endManagerSession()} disabled={managerBusy}>{managerBusy ? "Logging out…" : "Log out"}</button></div> : null}</div>
         </div>
       </header>
       {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load(true)} /> : null}
@@ -895,7 +928,7 @@ export function CommandCentre({ view }: { view: View }) {
         </div>
       </section> : null}
 
-      {state.error && view !== "home" ? <p className="honest-notice" role="status">{state.error}</p> : state.stale ? <p className="honest-notice honest-notice-stale" role="status">Showing saved data while we reconnect.</p> : null}
+      {state.error && view !== "home" ? <div className="honest-notice honest-notice-action" role="status"><span>{state.error}</span><button type="button" onClick={() => void load(true)}>Try again</button></div> : state.stale ? <div className="honest-notice honest-notice-stale honest-notice-action" role="status"><span>Showing your last saved view while we reconnect.</span><button type="button" onClick={() => void load(true)}>Refresh</button></div> : null}
       {view === "home" ? <HomeView t={t} state={state} retry={() => void load(true)} /> : null}
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
@@ -2140,6 +2173,18 @@ function AgentIcon({ id }: { id: string }) {
   return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 19V8l6-4 6 4v11" /><path d="M9 19v-5h6v5M4 19h16" /></svg></span>;
 }
 
+function NotificationDropdown({ items, close }: { items: OperatingAgent[]; close: () => void }) {
+  return <section id="notification-panel" className="notification-dropdown" aria-label="Notifications">
+    <div className="menu-heading"><strong>Notifications</strong><span>{items.length ? `${items.length} active` : "All clear"}</span></div>
+    {items.length ? <div className="notification-list">{items.map((item) => <Link href="/actions" key={item.id} onClick={close}>
+      <AgentIcon id={item.id} />
+      <span><strong>{item.name}</strong><small>{item.summary}</small></span>
+      <b>{count(item.count)}</b>
+    </Link>)}</div> : <p className="notification-empty">Nothing needs attention right now.</p>}
+    <Link className="notification-footer" href="/actions" onClick={close}>Open agents <span aria-hidden="true">→</span></Link>
+  </section>;
+}
+
 function CustomAgentEditor({ agent, reload }: { agent: CustomAgent; reload: () => void }) {
   const [name, setName] = useState(agent.name);
   const [instruction, setInstruction] = useState(agent.instruction);
@@ -2236,24 +2281,14 @@ function SettingsView({ state, managerBusy, logout }: {
   state: State; managerBusy: boolean; logout: () => Promise<void>;
 }) {
   const session = state.session;
-  const history = state.procurementHistory?.summary;
-  const trackwick = state.trackwick;
-  const trackwickStatus = trackwick?.source.state === "succeeded"
-    ? `Updated ${dateTime(trackwick.source.last_synced_at)}.`
-    : "No field updates yet.";
   return <section className="directory-workspace settings-workspace">
     <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Settings</h1></div></div>
-    <div className="settings-rows">
-      <div><strong>People</strong><span>{session?.authenticated ? "Manage named ID access below." : "Use your admin ID to manage access."}</span></div>
-      <div><strong>Purchase history</strong><span>{history ? `${count(history.coverage.quantity_qtl)} qtl across ${count(history.coverage.villages)} villages, ${history.coverage.months.join(" · ")}. Historical context only.` : "No reviewed purchase history yet."}</span></div>
-      <div><strong>Field updates</strong><span>{trackwickStatus}</span></div>
-      <div className="disabled-connection" aria-disabled="true"><strong>WhatsApp updates <em>Coming soon</em></strong><span>Named requests and reviewable evidence will arrive here after the separate launch gate. WhatsApp never decides or closes work.</span></div>
-    </div>
-    {session?.authenticated ? <><PasswordChanger /><AccountManager /></> : <p className="empty-copy">Sign in with a named admin account to manage people and connections.</p>}
-    <div className="settings-actions">
-      {session?.authenticated ? <a className="text-link" href="/manager">Open Farm Truth <span aria-hidden="true">→</span></a> : null}
-      <button className="quiet-button" type="button" disabled={managerBusy} onClick={() => void logout()}>{managerBusy ? "Signing out…" : "Sign out"}</button>
-    </div>
+    <section className="settings-account-card">
+      <div><p className="eyebrow">Account</p><h2>Fortune Farms</h2><p>Private workspace</p></div>
+      <div className="settings-account-actions"><span className="settings-session-status">Signed in</span><button className="quiet-button settings-logout" type="button" disabled={managerBusy} onClick={() => void logout()}>{managerBusy ? "Logging out…" : "Log out"}</button></div>
+    </section>
+    {session?.authenticated ? <div className="settings-options"><PasswordChanger /><AccountManager /></div> : null}
+    <section className="settings-coming-soon" aria-disabled="true"><div><strong>WhatsApp updates</strong><em>Coming soon</em></div><span>Updates will appear here when they are ready.</span></section>
   </section>;
 }
 
@@ -2292,6 +2327,7 @@ function PasswordChanger() {
 
 function AccountManager() {
   const [accounts, setAccounts] = useState<PasswordIdentitySummary[] | null>(null);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
@@ -2306,7 +2342,10 @@ function AccountManager() {
     setAccounts(payload.items);
   }, []);
 
-  useEffect(() => { void loadAccounts().catch((error: unknown) => setStatus(error instanceof Error ? error.message : "Accounts could not be read.")); }, [loadAccounts]);
+  useEffect(() => {
+    if (!open || accounts) return;
+    void loadAccounts().catch((error: unknown) => setStatus(error instanceof Error ? error.message : "Accounts could not be read."));
+  }, [accounts, loadAccounts, open]);
 
   async function submitAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2334,18 +2373,18 @@ function AccountManager() {
     }
   }
 
-  return <details className="account-manager">
+  return <details className="account-manager" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary>Manage named sign-ins</summary>
-    <p className="surface-copy">Create access only for people you have confirmed.</p>
-    <form className="account-form" onSubmit={submitAccount}>
-      <label htmlFor="account-name">Name<input id="account-name" value={name} onChange={(event) => setName(event.target.value)} required /></label>
-      <label htmlFor="account-id">Login ID<input id="account-id" value={loginId} onChange={(event) => setLoginId(event.target.value)} placeholder="e.g. ravi.grower" autoCapitalize="none" required /></label>
-      <label htmlFor="account-role">Access<select id="account-role" value={role} onChange={(event) => setRole(event.target.value as PasswordIdentitySummary["access_role"])}><option value="field_worker">Field worker</option><option value="farmer">Farmer</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
-      <label htmlFor="account-password">Temporary password<input id="account-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required /></label>
-      <button className="primary-action" disabled={busy}>{busy ? "Creating…" : "Create sign-in"} <span aria-hidden="true">→</span></button>
-    </form>
-    {status ? <p className="form-error" role="status">{status}</p> : null}
-    {accounts ? <ul className="account-list">{accounts.map((account) => <li key={account.id}><span>{account.person_name}</span><span>{account.login_id}</span><span>{account.access_role.replaceAll("_", " ")}</span></li>)}</ul> : <p className="empty-copy">Reading named accounts…</p>}
+    {open ? <><p className="surface-copy">Create access only for people you have confirmed.</p>
+      <form className="account-form" onSubmit={submitAccount}>
+        <label htmlFor="account-name">Name<input id="account-name" value={name} onChange={(event) => setName(event.target.value)} required /></label>
+        <label htmlFor="account-id">Login ID<input id="account-id" value={loginId} onChange={(event) => setLoginId(event.target.value)} placeholder="e.g. ravi.grower" autoCapitalize="none" required /></label>
+        <label htmlFor="account-role">Access<select id="account-role" value={role} onChange={(event) => setRole(event.target.value as PasswordIdentitySummary["access_role"])}><option value="field_worker">Field worker</option><option value="farmer">Farmer</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
+        <label htmlFor="account-password">Temporary password<input id="account-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required /></label>
+        <button className="primary-action" disabled={busy}>{busy ? "Creating…" : "Create sign-in"} <span aria-hidden="true">→</span></button>
+      </form>
+      {status ? <p className="form-error" role="status">{status}</p> : null}
+      {accounts ? <ul className="account-list">{accounts.map((account) => <li key={account.id}><span>{account.person_name}</span><span>{account.login_id}</span><span>{account.access_role.replaceAll("_", " ")}</span></li>)}</ul> : <p className="empty-copy">Reading named accounts…</p>}</> : null}
   </details>;
 }
 
