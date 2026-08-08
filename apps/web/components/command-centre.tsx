@@ -829,7 +829,7 @@ function headingFor(view: View, t: Translation) {
 function commandSearchItems(state: State): CommandSearchItem[] {
   const all: CommandSearchItem[] = [
     ...(state.trackwick?.farms || []).map((farm) => ({ id: farm.id, kind: "farm" as const, name: farm.place, detail: farm.farmer_name, href: `/farms?reported_farm=${encodeURIComponent(farm.id)}` })),
-    ...(state.trackwick?.farmers || []).map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: personName(farmer.name), detail: `${count(farmer.farm_candidates)} farms · ${count(farmer.open_work)} open tasks`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
+    ...(state.trackwick?.farmers || []).map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: personName(farmer.name), detail: `${count(farmer.farm_candidates)} reported registrations · ${count(farmer.open_work)} open tasks`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
     ...(state.trackwick?.field_workers || []).map((worker) => ({ id: worker.id, kind: "field_worker" as const, name: worker.name, detail: `${count(worker.reported_farmer_reach)} farmers assigned · ${count(worker.open_work)} open tasks`, href: `/farmers?worker=${encodeURIComponent(worker.id)}` })),
     ...state.canonicalFarmers.map((farmer) => ({ id: farmer.id, kind: "farmer" as const, name: farmer.name, detail: `${count(farmer.assignment_count)} farms`, href: `/farmers?person=${encodeURIComponent(farmer.id)}` })),
   ];
@@ -1078,17 +1078,17 @@ function MapInspector({ point, state, close }: { point: MapPoint; state: State; 
   const facts = subject.kind === "reported_farm"
     ? [["Farmer", farm?.farmer_name || subject.farmer_name || "—"], ["Plots", count(farm?.reported_plot_count ?? undefined)], ["Open Tasks", count(metrics?.open_task_count ?? farm?.open_work ?? subject.open_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
     : subject.kind === "farmer"
-      ? [["Farms", count(metrics?.farm_count ?? farmer?.farm_candidates)], ["Open Tasks", count(metrics?.open_task_count ?? farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(metrics?.photo_reference_count ?? farmer?.crop_photo_references)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
+      ? [["Reported registrations", count(metrics?.farm_count ?? farmer?.farm_candidates)], ["Open Tasks", count(metrics?.open_task_count ?? farmer?.open_work ?? subject.open_work)], ["Photo Evidence", count(metrics?.photo_reference_count ?? farmer?.crop_photo_references)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
       : subject.kind === "field_worker"
         ? [["Farmers Assigned", count(metrics?.farmer_count ?? worker?.reported_farmer_reach)], ["Open Tasks", count(metrics?.open_task_count ?? worker?.open_work ?? subject.open_work)], ["Completed Work", count(metrics?.completed_work_count ?? worker?.completed_work)], ["Field Activity", count(metrics?.location_evidence_count ?? matchingActivity.length)]]
         : [["Place", subject.place || "—"], ["Open Tasks", count(subject.open_work)], ["Field Activity", count(matchingActivity.length)], ["Last Activity", dateTime(point.observed_at)]];
   return <aside className="map-inspector" aria-label="Selected map record">
     <div className="map-inspector-record">
       <button type="button" className="map-glance-close" onClick={close} aria-label="Close selected record">×</button>
-      <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</p>
+      <p className="eyebrow">{subject.kind === "reported_farm" ? "Farm registration" : subject.kind.replaceAll("_", " ")}</p>
       <h2>{subject.name}</h2>
       <p className="map-inspector-place">{[subject.place, subject.farmer_name].filter(Boolean).join(" · ") || "Field activity location"}<span>{updatedAgo(point.observed_at)}</span></p>
-      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span><OperatingTagChips snapshot={subject.operating} limit={2} /></div>
+      <div className="map-record-tags"><span>{subject.kind === "reported_farm" ? "Farm registration" : subject.kind.replaceAll("_", " ")}</span><span className={status.tone}>{status.label}</span><OperatingTagChips snapshot={subject.operating} limit={2} /></div>
       <dl>{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <section className="map-inspector-history"><p className="eyebrow">Recent activity</p>{matchingActivity.slice(0, 4).map((activity) => <div key={activity.id}><strong>{activity.subject.place || activity.subject.farmer_name || "Field activity"}</strong><span>{dateTime(activity.observed_at)}</span></div>)}</section>
       {mapProfileHref(subject) ? <Link href={mapProfileHref(subject)!} className="primary-action">Open full profile <span aria-hidden="true">→</span></Link> : null}
@@ -1223,8 +1223,8 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
   const [draftFilters, setDraftFilters] = useState<DirectoryFilters>(EMPTY_DIRECTORY_FILTERS);
   const [filtersReady, setFiltersReady] = useState(false);
   const [directoryPage, setDirectoryPage] = useState(0);
-  const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null; stale: boolean }>({
-    items: [], loading: false, error: null, stale: false,
+  const [directory, setDirectory] = useState<{ items: FarmDirectory; loading: boolean; error: string | null; stale: boolean; hasMore: boolean }>({
+    items: [], loading: false, error: null, stale: false, hasMore: true,
   });
   const [panel, setPanel] = useState<ContextPanel | null>(null);
   const directoryRequest = useRef(0);
@@ -1234,6 +1234,8 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
   const pendingManagerExpiryFocus = useRef(false);
   const initialFarmRequest = useRef<string | null>(null);
   const initialReportedFarmRequest = useRef<string | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const nextPageRequested = useRef(false);
 
   useEffect(() => {
     function syncFromUrl() {
@@ -1264,7 +1266,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
 
   useEffect(() => {
     if (!filtersReady || !accessResolved || !canOpenProfiles) {
-      if (filtersReady && accessResolved) setDirectory({ items: [], loading: false, error: null, stale: false });
+      if (filtersReady && accessResolved) setDirectory({ items: [], loading: false, error: null, stale: false, hasMore: false });
       return;
     }
     const request = ++directoryRequest.current;
@@ -1277,24 +1279,48 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
       const saved = window.sessionStorage.getItem(cacheKey);
       cached = saved ? JSON.parse(saved) as FarmDirectory : null;
     } catch { /* a bad local cache is discarded by the next successful read */ }
-    setDirectory((current) => ({ items: cached || current.items, loading: true, error: null, stale: Boolean(current.items.length) }));
+    setDirectory((current) => ({
+      items: directoryPage === 0 && cached ? cached : current.items,
+      loading: true,
+      error: null,
+      stale: Boolean(current.items.length),
+      hasMore: current.hasMore,
+    }));
     void readJson<FarmDirectory>("/api/v1/farms?" + params)
       .then(({ value }) => {
         if (request === directoryRequest.current) {
+          nextPageRequested.current = false;
           setDirectory((current) => {
             const items = directoryPage ? [...current.items, ...value] : value;
-            try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* cache is optional */ }
-            return { items, loading: false, error: null, stale: false };
+            try { window.sessionStorage.setItem(cacheKey, JSON.stringify(value)); } catch { /* cache is optional */ }
+            return { items, loading: false, error: null, stale: false, hasMore: value.length === FARM_DIRECTORY_PAGE_SIZE };
           });
         }
       })
       .catch((error: unknown) => {
         if (request !== directoryRequest.current) return;
+        nextPageRequested.current = false;
         const message = profileReadError(error);
         if (message === "Manager access expired.") expireManagerSession();
-        setDirectory((current) => ({ items: current.items, loading: false, error: current.items.length ? null : message, stale: Boolean(current.items.length) }));
+        setDirectory((current) => ({ items: current.items, loading: false, error: current.items.length ? null : message, stale: Boolean(current.items.length), hasMore: false }));
       });
   }, [accessResolved, canOpenProfiles, directoryPage, expireManagerSession, filters, filtersReady]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || directory.loading || !directory.hasMore || !canOpenProfiles) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadNextPage();
+    }, { rootMargin: "480px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canOpenProfiles, directory.hasMore, directory.loading]);
+
+  function loadNextPage() {
+    if (nextPageRequested.current || directory.loading || !directory.hasMore) return;
+    nextPageRequested.current = true;
+    setDirectoryPage((current) => current + 1);
+  }
 
   useEffect(() => {
     const expired = managerAccessWasEnabled.current && !canOpenProfiles;
@@ -1462,10 +1488,9 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
     />;
   }
 
-  const reportedTotal = filters.state.includes("all") || filters.state.includes("reported") ? state.trackwick?.counts.farm_candidates : undefined;
-  const canLoadMore = Boolean(reportedTotal && directory.items.length < reportedTotal);
+  const canLoadMore = directory.hasMore;
   return <section className="directory-workspace farm-directory">
-    <div className="directory-toolbar directory-toolbar-controls"><div className="directory-title"><h1>Farms</h1><span>{reportedTotal ? `${count(directory.items.length)} of ${count(reportedTotal)}` : count(directory.items.length)}</span></div><MultiFilter label="Status" values={filters.state} options={[["all", "All farms"], ["reported", "To review"], ["reviewed", "Active"]]} onChange={(state) => updateDirectoryFilters({ state })} /><MultiFilter label="Activity" values={filters.activity} options={[["all", "All activity"], ["open_tasks", "Open tasks"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(activity) => updateDirectoryFilters({ activity })} /><SortMenu value={filters.order} onChange={(order) => updateDirectoryFilters({ order })} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} /><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
+    <div className="directory-toolbar directory-toolbar-controls"><div className="directory-title"><h1>Farms</h1><span>{count(directory.items.length)} loaded</span></div><MultiFilter label="Status" values={filters.state} options={[["all", "All records"], ["reported", "Registrations to review"], ["reviewed", "Reviewed farms"]]} onChange={(state) => updateDirectoryFilters({ state })} /><MultiFilter label="Activity" values={filters.activity} options={[["all", "All activity"], ["open_tasks", "Open tasks"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(activity) => updateDirectoryFilters({ activity })} /><SortMenu value={filters.order} onChange={(order) => updateDirectoryFilters({ order })} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} /><label className="directory-find"><span className="sr-only">Find farms</span><input type="search" maxLength={80} value={draftFilters.query} onChange={(event) => setDraftFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Find farm, farmer, or village" /></label></div>
     {!accessResolved
       ? <DirectoryLoadingState label="Opening farms" />
       : !canOpenProfiles
@@ -1475,7 +1500,7 @@ function FieldsView({ t, state, canOpenProfiles, accessResolved, expireManagerSe
         : directory.items.length
           ? <><div className="farm-card-grid">{directory.items.map((farm) => farm.state === "reported"
             ? <button id={`reported-farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card reported-candidate-card" key={farm.id} onClick={(event) => void openReportedFarm(farm.destination.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm to review</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.reported_farmer_name}</p><div className="entity-card-metrics"><span><strong>{count(farm.reported_plot_count || undefined)}</strong> Plots</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><OperatingTags snapshot={farm.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>
-            : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Farm</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.crops.join(" · ") || "No active crop recorded"}</p><div className="entity-card-metrics"><span><strong>{count(farm.field_count)}</strong> Fields</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>)}</div>{canLoadMore ? <button className="quiet-button directory-more" type="button" onClick={() => setDirectoryPage((current) => current + 1)} disabled={directory.loading}>Show {count(Math.min(FARM_DIRECTORY_PAGE_SIZE, reportedTotal! - directory.items.length))} more ({count(reportedTotal! - directory.items.length)} remaining)</button> : null}</>
+            : <button id={`farm-directory-${farm.id}`} type="button" className="farm-directory-card directory-card-button compact-entity-card" key={farm.id} onClick={(event) => void openFarm(farm.id, event.currentTarget.id)}><span className="person-initial farm-initial">{farm.name.slice(0, 1).toUpperCase()}</span><div className="farm-card-summary"><p className="entity-card-type">Reviewed farm</p><h3>{farm.name}</h3><p className="farm-card-context">{farm.crops.join(" · ") || "No active crop recorded"}</p><div className="entity-card-metrics"><span><strong>{farm.field_count ? count(farm.field_count) : "—"}</strong> {farm.field_count ? "Fields" : "Field setup pending"}</span><span className={farm.open_work_count ? "attention" : undefined}><strong>{count(farm.open_work_count)}</strong> Open Tasks</span></div><p className="entity-card-updated">{updatedAgo(farm.latest_update_at)}</p></div></button>)}</div>{canLoadMore ? <div className="directory-more" ref={loadMoreRef}><button className="quiet-button" type="button" onClick={loadNextPage} disabled={directory.loading}>{directory.loading ? "Loading farms…" : "Load more farms"}</button></div> : null}</>
         : directory.error
           ? <p className="profile-message profile-error" role="alert">{directory.error} <a href="/manager">Re-authenticate in Farm Truth</a></p>
           : <EmptyState title="No farms match these filters." detail="Try another view or search." />}
@@ -1590,7 +1615,7 @@ function FarmRecordPanel({ record, openField, openPerson }: {
         <h3>Now</h3>
         <div className="profile-summary-line"><span>{count(record.now.open_work_count)} open work</span><span>{updatedAgo(record.now.latest_update_at)}</span></div>
         <div className="entity-chip-list" aria-label="Fields">
-          {record.now.fields.length ? record.now.fields.map((field) => <button id={`farm-field-${record.id}-${field.id}`} className="entity-chip entity-chip-link" type="button" key={field.id} onClick={(event) => openField(field.id, event.currentTarget.id)}>{field.name} <span aria-hidden="true">→</span></button>) : <span className="empty-copy">No reviewed Fields</span>}
+          {record.now.fields.length ? record.now.fields.map((field) => <button id={`farm-field-${record.id}-${field.id}`} className="entity-chip entity-chip-link" type="button" key={field.id} onClick={(event) => openField(field.id, event.currentTarget.id)}>{field.name} <span aria-hidden="true">→</span></button>) : <span className="empty-copy">Field setup pending</span>}
         </div>
       </section>
       <section>
@@ -1701,9 +1726,13 @@ function FarmersView({ farmers, readiness, trackwick, canOpenProfiles, accessRes
     void openProfile(farmerId || workerId!, farmerId ? "farmer" : "field_worker", "reported", "map-profile-link");
   }, [canOpenProfiles, openProfile]);
   if (selection) return <ProfileReading selection={selection} close={closeProfile} />;
+  const farmerCount = farmers.length + sourceFarmers.length;
   return <section className="directory-workspace people-workspace">
-    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Farmers</h1><span>{count(farmers.length || sourceFarmers.length)}</span></div></div>
-    {!accessResolved ? <DirectoryLoadingState label="Opening farmers" /> : farmers.length ? <div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Farms</span></div></div></button>)}</div> : sourceFarmers.length ? <ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /> : <p className="empty-copy">No farmers yet.</p>}
+    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Farmers</h1><span>{count(farmerCount)}</span></div></div>
+    {!accessResolved ? <DirectoryLoadingState label="Opening farmers" /> : farmerCount ? <div className="farmer-directory-sections">
+      {farmers.length ? <section><div className="surface-heading"><div><p className="eyebrow">Reviewed operating record</p><h2>Reviewed farmers</h2></div><span className="count-badge">{count(farmers.length)}</span></div><div className="people-list source-card-grid">{farmers.map((person) => <button id={`profile-reviewed-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reviewed", event.currentTarget.id)}><span className="person-initial">{person.name.slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="entity-card-type">Reviewed farmer</p><h3>{person.name}</h3><div className="entity-card-metrics"><span><strong>{count(person.assignment_count)}</strong> Reviewed Farms</span></div></div></button>)}</div></section> : null}
+      {sourceFarmers.length ? <section><div className="surface-heading"><div><p className="eyebrow">Reported source context</p><h2>Reported farmers</h2></div><span className="count-badge">{count(sourceFarmers.length)}</span></div><ReportedFarmers farmers={sourceFarmers} canOpenProfiles={canOpenProfiles} openProfile={openProfile} /></section> : null}
+    </div> : <p className="empty-copy">No farmers yet.</p>}
   </section>;
 }
 
@@ -1717,6 +1746,8 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
   const [work, setWork] = useState<Array<"all" | "open_tasks" | "no_open_tasks">>(["all"]);
   const [activity, setActivity] = useState<FarmActivityFilter[]>(["all"]);
   const [order, setOrder] = useState<"open_tasks" | "recently_updated" | "least_updated" | "name">("open_tasks");
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const nextPageRequested = useRef(false);
   const matched = farmers.filter((person) => `${person.name} ${personName(person.name)}`.toLowerCase().includes(query.trim().toLowerCase())
     && (work.includes("all") || work.includes("open_tasks") && person.open_work > 0 || work.includes("no_open_tasks") && person.open_work === 0)
     && matchesActivityFilters(person.latest_activity_at, person.open_work, activity));
@@ -1728,7 +1759,22 @@ function ReportedFarmers({ farmers, canOpenProfiles, openProfile }: {
         ? activityTimestamp(left.latest_activity_at) - activityTimestamp(right.latest_activity_at) || personName(left.name).localeCompare(personName(right.name))
         : right.open_work - left.open_work || activityTimestamp(right.latest_activity_at) - activityTimestamp(left.latest_activity_at) || personName(left.name).localeCompare(personName(right.name)));
   const visible = ordered.slice(0, visibleCount);
-  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Farms</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><OperatingTags snapshot={person.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <button type="button" className="quiet-button directory-more" onClick={() => setVisibleCount((current) => current + 100)}>Show more ({count(ordered.length - visible.length)} remaining)</button> : null}</>;
+  function loadNextPage() {
+    if (nextPageRequested.current || visible.length >= ordered.length) return;
+    nextPageRequested.current = true;
+    setVisibleCount((current) => current + 100);
+  }
+  useEffect(() => {
+    nextPageRequested.current = false;
+    const target = loadMoreRef.current;
+    if (!target || visible.length >= ordered.length) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadNextPage();
+    }, { rootMargin: "480px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [visible.length, ordered.length]);
+  return <><div className="directory-secondary-toolbar directory-secondary-toolbar-filters"><MultiFilter label="Work" values={work} options={[["all", "All farmers"], ["open_tasks", "Open tasks"], ["no_open_tasks", "No open tasks"]]} onChange={(next) => { setWork(next); setVisibleCount(100); }} /><MultiFilter label="Activity" values={activity} options={[["all", "All activity"], ["updated_week", "Updated this week"], ["updated_month", "Updated this month"], ["no_recent_update", "No recent update"]]} onChange={(next) => { setActivity(next); setVisibleCount(100); }} /><SortMenu value={order} options={[["open_tasks", "Open tasks"], ["recently_updated", "Recently updated"], ["least_updated", "Least updated"], ["name", "Name"]]} onChange={(next) => { setOrder(next); setVisibleCount(100); }} /><label className="directory-find"><span className="sr-only">Find farmers</span><input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(100); }} placeholder="Find farmer" /></label></div><div className="people-list source-card-grid">{visible.map((person) => <button id={`profile-reported-farmer-${person.id}`} type="button" className="person-row compact-entity-card" key={person.id} onClick={(event) => void openProfile(person.id, "farmer", "reported", event.currentTarget.id)}><span className="person-initial">{personName(person.name).slice(0, 1).toUpperCase()}</span><div className="person-summary"><p className="person-code">{personCode(person.name)}</p><p className="entity-card-type">Reported farmer</p><h3>{personName(person.name)}</h3><div className="entity-card-metrics"><span><strong>{count(person.farm_candidates)}</strong> Reported registrations</span><span className={person.open_work ? "attention" : undefined}><strong>{count(person.open_work)}</strong> Open Tasks</span></div><OperatingTags snapshot={person.operating} limit={2} /><p className="entity-card-updated">{updatedAgo(person.latest_activity_at)}</p></div></button>)}</div>{visible.length < ordered.length ? <div className="directory-more" ref={loadMoreRef}><button type="button" className="quiet-button" onClick={loadNextPage}>Load more farmers</button></div> : null}</>;
 }
 
 function ProfileControl({ canOpenProfiles, controlId, label, text, open }: {
@@ -1789,7 +1835,7 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
       </dl>;
     }
     return <dl className="profile-facts">
-      <div><dt>Farms</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
+      <div><dt>Reported registrations</dt><dd>{count(profile.reported?.farm_candidates)}</dd></div>
       <div><dt>Area</dt><dd>{profile.reported?.reported_area_acres == null ? "—" : `${profile.reported.reported_area_acres} acres`}</dd></div>
       <div><dt>Open tasks</dt><dd>{count(profile.reported?.open_work)}</dd></div>
       <div><dt>Latest activity</dt><dd>{updatedAgo(profile.reported?.latest_activity_at)}</dd></div>

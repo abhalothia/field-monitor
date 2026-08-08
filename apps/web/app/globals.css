@@ -413,7 +413,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .sort-menu .filter-menu-options { right: 0; left: auto; }
 .people-toolbar { grid-template-columns: 1fr; }
 .farm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
-.farm-directory-card { display: grid; min-width: 0; min-height: 170px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); padding: 17px; }
+.farm-directory-card { display: grid; min-width: 0; min-height: 170px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); content-visibility: auto; contain-intrinsic-size: auto 170px; padding: 17px; }
 .directory-card-button { width: 100%; color: inherit; cursor: pointer; font: inherit; text-align: left; }
 .directory-card-button:hover, .directory-card-button:focus-visible, .compact-entity-card:hover, .compact-entity-card:focus-visible { border-color: rgba(20, 61, 45, .55); background: rgba(220, 231, 211, .48); transform: translateY(-1px); }
 .farm-initial { flex: 0 0 auto; }
@@ -422,7 +422,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .farm-card-context { overflow: hidden; color: var(--muted); font-size: .67rem; line-height: 1.35; margin: 7px 0 0; text-overflow: ellipsis; white-space: nowrap; }
 
 .source-card-grid { grid-template-columns: repeat(auto-fill, minmax(278px, 1fr)); gap: 14px; max-width: none !important; }
-.source-card-grid .person-row { display: grid; width: 100%; min-height: 158px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); color: inherit; font: inherit; padding: 17px; text-align: left; }
+.source-card-grid .person-row { display: grid; width: 100%; min-height: 158px; grid-template-columns: auto minmax(0, 1fr); align-content: start; gap: 13px; border: 1px solid rgba(20, 61, 45, .2); background: linear-gradient(145deg, rgba(255, 252, 240, .88), rgba(236, 241, 224, .56)); color: inherit; content-visibility: auto; contain-intrinsic-size: auto 158px; font: inherit; padding: 17px; text-align: left; }
 .source-card-grid .person-row:first-child { padding-top: 17px; }
 .compact-entity-card { cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease; }
 .entity-card-type { color: #6e806b !important; font-family: "DM Mono", monospace; font-size: .56rem !important; letter-spacing: .06em; margin: 0 0 7px !important; text-transform: uppercase; }
@@ -433,6 +433,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .entity-card-metrics .attention { color: #855346; }
 .entity-card-metrics .attention strong { color: #934c41; }
 .entity-card-updated { color: #788673 !important; font-size: .61rem !important; line-height: 1.35; margin: 13px 0 0 !important; }
+.farmer-directory-sections { display: grid; gap: 30px; }
 .operating-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
 .operating-tag { border-radius: 999px; background: rgba(20, 61, 45, .08); color: #61735e; font-family: "DM Mono", monospace; font-size: .5rem; font-weight: 700; letter-spacing: .035em; line-height: 1; padding: 5px 6px; text-transform: uppercase; }
 .operating-tag.attention { background: #f4d8d2; color: #7d3e35; }
