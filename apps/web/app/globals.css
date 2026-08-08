@@ -337,10 +337,19 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .map-area-label { position: absolute; z-index: 650; top: 15px; left: 17px; display: grid; gap: 3px; max-width: calc(100% - 34px); padding: 7px 9px; border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .84); color: var(--ink-soft); box-shadow: 0 5px 14px rgba(45, 55, 35, .06); }
 .map-area-label strong { color: var(--ink); font-family: "DM Mono", monospace; font-size: .57rem; letter-spacing: .055em; text-transform: uppercase; }
 .map-area-label span { font-size: .62rem; line-height: 1.2; }
+.map-mode-switcher { position: absolute; z-index: 650; top: 15px; right: 17px; display: grid; gap: 5px; max-width: calc(100% - 34px); padding: 7px 9px; border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .9); box-shadow: 0 5px 14px rgba(45, 55, 35, .06); }
+.map-mode-switcher > span { color: #71806d; font-family: "DM Mono", monospace; font-size: .53rem; letter-spacing: .05em; text-transform: uppercase; }
+.map-mode-switcher > div { display: flex; }
+.map-mode-switcher a { border: 1px solid rgba(20, 61, 45, .2); border-right: 0; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .58rem; letter-spacing: .015em; line-height: 1; padding: 7px 8px; text-decoration: none; }
+.map-mode-switcher a:last-child { border-right: 1px solid rgba(20, 61, 45, .2); }
+.map-mode-switcher a.active { background: var(--ink); border-color: var(--ink); color: #fffaf0; }
+.map-mode-switcher a:focus-visible { outline: 2px solid #a67a2d; outline-offset: 2px; }
 .map-legend { position: absolute; z-index: 650; bottom: 15px; left: 17px; display: flex; flex-wrap: wrap; gap: 8px 10px; max-width: min(430px, calc(100% - 34px)); padding: 7px 9px; border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .84); box-shadow: 0 5px 14px rgba(45, 55, 35, .06); }
 .map-legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .53rem; letter-spacing: .025em; text-transform: uppercase; }
 .map-legend i { width: 8px; height: 8px; border: 1px solid; border-radius: 50%; background: currentColor; }
 .map-legend .disease { color: #a6574b; }.map-legend .task { color: #a67a2d; }.map-legend .current { color: #497054; }.map-legend .earlier { color: #879783; }
+.map-legend .map-size-copy { color: #71806d; text-transform: none; }
+.map-mode-empty { position: absolute; z-index: 650; top: 94px; left: 50%; max-width: min(280px, calc(100% - 34px)); transform: translateX(-50%); border: 1px solid rgba(20, 61, 45, .16); background: rgba(255, 251, 239, .92); color: var(--ink-soft); font-size: .68rem; padding: 9px 12px; text-align: center; }
 .map-touch-copy { display: none; }
 .map-glance { display: grid; position: absolute; z-index: 700; right: 16px; bottom: 16px; width: min(310px, calc(100% - 32px)); border: 1px solid rgba(20, 61, 45, .25); background: rgba(255, 251, 239, .97); box-shadow: 0 16px 40px rgba(45, 55, 35, .18); padding: 16px; }
 .map-glance .eyebrow { margin: 0 28px 7px 0; }

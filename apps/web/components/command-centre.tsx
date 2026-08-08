@@ -237,6 +237,8 @@ type MapPoint = {
   observed_at: string;
   label: string;
   has_disease?: boolean;
+  input_kinds?: Array<"pesticide" | "fertilizer">;
+  input_approval?: boolean | null;
   related_farm?: { id: string; name: string; place: string; farmer_name: string | null } | null;
   subject: { kind: MapSubjectKind; id: string | null; name: string; place: string | null; farmer_name: string | null; open_work: number; operating?: OperatingSnapshot };
 };
@@ -1154,7 +1156,9 @@ function HomeUnavailableState({ retry }: { retry: () => void }) {
   </section>;
 }
 
-function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyState, clearFilters }: { points: MapPoint[]; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void; emptyState?: { title: string; detail: string }; clearFilters?: () => void }) {
+type MapMode = "disease" | "active" | "compliance";
+
+function OperatingMap({ points, mode = "disease", preview = false, selectedPoint, onSelect, emptyState, clearFilters }: { points: MapPoint[]; mode?: MapMode; preview?: boolean; selectedPoint?: MapPoint | null; onSelect?: (point: MapPoint | null) => void; emptyState?: { title: string; detail: string }; clearFilters?: () => void }) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
@@ -1164,8 +1168,9 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyS
   const [mapReady, setMapReady] = useState(false);
   const [mapHealth, setMapHealth] = useState<"loading" | "ready" | "cached">("loading");
   const visible = useMemo(() => preview ? points.slice(0, 700) : points, [points, preview]);
+  const modePoints = useMemo(() => mapPointsForMode(visible, mode), [mode, visible]);
   const hasMapPoints = visible.length > 0;
-  const dataKey = `${preview}:${visible.length}:${visible[0]?.id || ""}:${visible.at(-1)?.id || ""}`;
+  const dataKey = `${preview}:${mode}:${modePoints.length}:${modePoints[0]?.id || ""}:${modePoints.at(-1)?.id || ""}`;
 
   const select = useCallback((point: MapPoint | null) => {
     setActive(point);
@@ -1234,33 +1239,33 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyS
     const layer = markerLayerRef.current;
     if (!L || !map || !layer) return;
     layer.clearLayers();
-    if (!visible.length) return;
+    if (!modePoints.length) return;
     const render = () => {
       layer.clearLayers();
-      for (const group of mapClusters(visible, map.getZoom())) {
+      for (const group of mapClusters(modePoints, map.getZoom())) {
         if (group.points.length > 1) {
-          const status = mapClusterStatus(group.points);
+          const status = mapClusterStatus(group.points, mode);
           const color = mapMarkerColor(status.tone);
           const marker = L.circleMarker([group.latitude, group.longitude], {
-            radius: Math.min(22, 6 + Math.sqrt(group.points.length) * 1.25),
+            radius: clusterMarkerRadius(group.points, mode),
             color: color.stroke, weight: 1.5, fillColor: color.fill, fillOpacity: .96,
-          }).bindTooltip(`${count(group.points.length)} field activities · ${status.label}`, { direction: "top", sticky: true });
+          }).bindTooltip(`${count(group.points.length)} ${mapModeNoun(mode)} nearby · ${status.label}`, { direction: "top", sticky: true });
           marker.on("click", () => map.setView([group.latitude, group.longitude], Math.min(map.getZoom() + 2, 16)));
           marker.addTo(layer);
           continue;
         }
         const point = group.points[0];
-        const status = mapActivityStatus(point);
+        const status = mapActivityStatus(point, mode);
         const color = mapMarkerColor(status.tone);
         const marker = L.circleMarker([point.latitude, point.longitude], {
-          radius: active?.id === point.id ? 9 : status.tone === "disease" ? 7.2 : status.tone === "task" ? 6.6 : 5.8,
+          radius: active?.id === point.id ? 10 : pointMarkerRadius(point, mode),
           color: color.stroke, weight: active?.id === point.id ? 2.8 : 1.35, fillColor: color.fill, fillOpacity: .97,
-        }).bindTooltip(mapTooltip(point), { direction: "top", sticky: true, opacity: .98 });
+        }).bindTooltip(mapTooltip(point, mode), { direction: "top", sticky: true, opacity: .98 });
         marker.on("click", () => select(point));
         marker.addTo(layer);
       }
     };
-    const bounds = L.latLngBounds(visible.map((point) => [point.latitude, point.longitude] as [number, number]));
+    const bounds = L.latLngBounds(modePoints.map((point) => [point.latitude, point.longitude] as [number, number]));
     if (bounds.isValid() && fittedDataRef.current !== dataKey) {
       fittedDataRef.current = dataKey;
       map.fitBounds(bounds.pad(preview ? .18 : .1), { maxZoom: preview ? 11 : 13, animate: false });
@@ -1268,21 +1273,27 @@ function OperatingMap({ points, preview = false, selectedPoint, onSelect, emptyS
     render();
     map.on("zoomend", render);
     return () => { map.off("zoomend", render); };
-  }, [active?.id, dataKey, mapReady, preview, select, visible]);
+  }, [active?.id, dataKey, mapReady, mode, modePoints, preview, select]);
 
   if (!visible.length) return <div className="operating-map map-empty"><strong>{emptyState?.title || "No saved location activity yet"}</strong><p>{emptyState?.detail || "Location activity will appear here after a field visit is recorded."}</p>{clearFilters ? <button type="button" className="quiet-button" onClick={clearFilters}>Clear filters</button> : null}</div>;
   const area = mapAreaLabel(visible);
   return <div className={`operating-map ${preview ? "operating-map-preview" : ""}`} aria-label="Field activity map">
     <div className="leaflet-map" ref={mapElement} aria-hidden={mapHealth !== "ready"} />
-    {mapHealth !== "ready" ? <CachedMapFallback points={visible} onSelect={select} /> : null}
+    {mapHealth !== "ready" && modePoints.length ? <CachedMapFallback points={modePoints} mode={mode} onSelect={select} /> : null}
     <div className="map-area-label"><strong>{area}</strong><span className="map-gesture-copy">Drag · scroll to zoom</span><span className="map-touch-copy">Drag · pinch to zoom</span></div>
-    {!preview ? <MapLegend /> : null}
+    {!preview ? <><MapModeSwitcher mode={mode} /><MapLegend mode={mode} />{!modePoints.length ? <div className="map-mode-empty">No {mapModeNoun(mode)} in this filtered view.</div> : null}</> : null}
     {preview && active ? <MapGlance point={active} close={() => select(null)} /> : null}
   </div>;
 }
 
-function MapLegend() {
-  return <div className="map-legend" aria-label="Map marker legend"><span className="disease"><i />Disease reported</span><span className="task"><i />Open task</span><span className="current"><i />Recently checked</span><span className="earlier"><i />Earlier activity</span></div>;
+function MapModeSwitcher({ mode }: { mode: MapMode }) {
+  return <nav className="map-mode-switcher" aria-label="Map lens"><span>Show</span><div>{(["disease", "active", "compliance"] as const).map((item) => <Link key={item} href={`/map?lens=${item}`} className={mode === item ? "active" : undefined} aria-current={mode === item ? "page" : undefined}>{item === "disease" ? "Disease" : item === "active" ? "Active" : "Compliance"}</Link>)}</div></nav>;
+}
+
+function MapLegend({ mode }: { mode: MapMode }) {
+  if (mode === "disease") return <div className="map-legend" aria-label="Disease map legend"><span className="disease"><i />Disease reported</span><span className="map-size-copy">Circle size = reports nearby</span></div>;
+  if (mode === "active") return <div className="map-legend" aria-label="Active map legend"><span className="task"><i />Open task</span><span className="current"><i />Recently checked</span><span className="map-size-copy">Circle size = active workload nearby</span></div>;
+  return <div className="map-legend" aria-label="Compliance map legend"><span className="task"><i />Approval pending</span><span className="map-size-copy">Circle size = fertilizer/pesticide records nearby</span></div>;
 }
 
 function mapAreaLabel(points: MapPoint[]) {
@@ -1294,7 +1305,7 @@ function mapAreaLabel(points: MapPoint[]) {
   return [...frequency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Field area";
 }
 
-function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect: (point: MapPoint) => void }) {
+function CachedMapFallback({ points, mode, onSelect }: { points: MapPoint[]; mode: MapMode; onSelect: (point: MapPoint) => void }) {
   const groups = useMemo(() => mapClusters(points.slice(0, 900), 9), [points]);
   const extent = useMemo(() => {
     const latitudes = points.map((point) => point.latitude);
@@ -1311,8 +1322,8 @@ function CachedMapFallback({ points, onSelect }: { points: MapPoint[]; onSelect:
         const x = 60 + ((group.longitude - extent.minLng) / extent.lngSpan) * 880;
         const y = 590 - ((group.latitude - extent.minLat) / extent.latSpan) * 530;
         const first = group.points[0];
-        const radius = Math.min(18, 5 + Math.log2(group.points.length + 1) * 3);
-        const status = mapClusterStatus(group.points);
+        const radius = clusterMarkerRadius(group.points, mode);
+        const status = mapClusterStatus(group.points, mode);
         return <g key={`${group.latitude}:${group.longitude}:${index}`} className={`cached-map-point ${status.tone}`} role="button" tabIndex={0} aria-label={`${first.subject.name}, ${count(group.points.length)} activities, ${status.label}`} onClick={() => onSelect(first)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(first); } }}>
           <title>{`${first.subject.name} · ${count(group.points.length)} activities`}</title><circle cx={x} cy={y} r={radius} /><circle cx={x} cy={y} r="2.4" className="cached-map-point-core" />
         </g>;
@@ -1334,6 +1345,10 @@ function MapView({ state }: { state: State }) {
     return value === "disease" || value === "recent_checked" || value === "open_tasks" ? [value] : ["all"];
   });
   const [exactDate, setExactDate] = useState(() => mapQuery().get("date") || "");
+  const mode: MapMode = (() => {
+    const value = mapQuery().get("lens");
+    return value === "active" || value === "compliance" ? value : "disease";
+  })();
   const [selected, setSelected] = useState<MapPoint | null>(null);
   const allPoints = state.trackwick?.map?.points || [];
   const mapIsPreparing = state.loading && !allPoints.length;
@@ -1370,7 +1385,7 @@ function MapView({ state }: { state: State }) {
       <p className="map-summary" aria-live="polite"><strong>{count(points.length)} {viewLabel} {points.length === 1 ? "location" : "locations"}</strong>{diseaseCount || openTaskCount ? <span>{[diseaseCount ? `${count(diseaseCount)} disease-marked ${diseaseCount === 1 ? "location" : "locations"}` : null, openTaskCount ? `${count(openTaskCount)} ${openTaskCount === 1 ? "location" : "locations"} with open tasks` : null].filter(Boolean).join(" · ")}</span> : <span>No reported disease or open tasks</span>}</p>
     </div>
     {exactDate ? <p className="map-date-filter">Showing activity recorded on {new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(`${exactDate}T12:00:00+05:30`))}<button type="button" onClick={() => setExactDate("")}>Clear day</button></p> : null}
-    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} selectedPoint={selected} onSelect={setSelected} clearFilters={allPoints.length && hasActiveFilters ? clearFilters : undefined} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
+    <div className="map-content"><div className="map-canvas">{mapIsPreparing ? <MapLoadingState label="Loading map" /> : <OperatingMap points={points} mode={mode} selectedPoint={selected} onSelect={setSelected} clearFilters={allPoints.length && hasActiveFilters ? clearFilters : undefined} emptyState={allPoints.length ? { title: "No locations match this view", detail: "Try a broader activity window, another record type, or clear the map filters." } : { title: "No saved location activity yet", detail: "Location activity will appear here after a field visit is recorded." }} />}</div></div>
     {selected ? <MapInspector point={selected} state={state} viewKind={kind} close={() => setSelected(null)} /> : null}
   </section>;
 }
@@ -1420,10 +1435,10 @@ function MapInspector({ point, state, viewKind, close }: { point: MapPoint; stat
   </aside>;
 }
 
-function mapTooltip(point: MapPoint) {
+function mapTooltip(point: MapPoint, mode: MapMode = "disease") {
   const label = escapeMapText(point.subject.name || point.label);
   const detail = point.subject.place || point.subject.farmer_name || dateTime(point.observed_at);
-  return `<strong>${label}</strong><br><span>${escapeMapText(detail)} · ${mapActivityStatus(point).label}</span>`;
+  return `<strong>${label}</strong><br><span>${escapeMapText(detail)} · ${mapActivityStatus(point, mode).label}</span>`;
 }
 
 type MapActivityTone = "disease" | "task" | "current" | "earlier";
@@ -1437,7 +1452,13 @@ function matchesMapFocus(point: MapPoint, focus: Array<"all" | "disease" | "rece
     || focus.includes("open_tasks") && openTasks > 0;
 }
 
-function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: string } {
+function mapActivityStatus(point: MapPoint, mode?: MapMode): { tone: MapActivityTone; label: string } {
+  if (mode === "disease") return { tone: "disease", label: "Disease reported" };
+  if (mode === "compliance") {
+    if (point.input_approval === true) return { tone: "current", label: "Approved input record" };
+    if (point.input_approval === false) return { tone: "disease", label: "Input not approved" };
+    return { tone: "task", label: "Input approval pending" };
+  }
   const openTasks = point.subject.open_work;
   if (point.has_disease) return { tone: "disease", label: "Disease reported" };
   if (openTasks > 0) return { tone: "task", label: openTasks === 1 ? "1 open task" : `${openTasks} open tasks` };
@@ -1447,8 +1468,8 @@ function mapActivityStatus(point: MapPoint): { tone: MapActivityTone; label: str
   return { tone: "earlier", label: "Earlier activity" };
 }
 
-function mapClusterStatus(points: MapPoint[]) {
-  const statuses = points.map(mapActivityStatus);
+function mapClusterStatus(points: MapPoint[], mode?: MapMode) {
+  const statuses = points.map((point) => mapActivityStatus(point, mode));
   const disease = statuses.filter((status) => status.tone === "disease").length;
   const task = statuses.filter((status) => status.tone === "task").length;
   const current = statuses.filter((status) => status.tone === "current").length;
@@ -1456,6 +1477,31 @@ function mapClusterStatus(points: MapPoint[]) {
   if (task) return { tone: "task" as const, label: `${count(task)} open tasks` };
   if (current) return { tone: "current" as const, label: `${count(current)} updated recently` };
   return { tone: "earlier" as const, label: "Earlier activity" };
+}
+
+function mapPointsForMode(points: MapPoint[], mode: MapMode) {
+  if (mode === "disease") return points.filter((point) => point.has_disease);
+  if (mode === "active") return points.filter((point) => point.subject.open_work > 0 || Date.now() - new Date(point.observed_at).valueOf() <= 7 * 86_400_000);
+  return points.filter((point) => Boolean(point.input_kinds?.length));
+}
+
+function mapModeNoun(mode: MapMode) {
+  return mode === "disease" ? "disease reports" : mode === "active" ? "active records" : "input records";
+}
+
+function pointMarkerRadius(point: MapPoint, mode: MapMode) {
+  if (mode === "active") return Math.min(10, 5.5 + Math.max(0, point.subject.open_work) * 1.35);
+  if (mode === "compliance") return Math.min(10, 5.5 + (point.input_kinds?.length || 1) * 1.4);
+  return 7.2;
+}
+
+function clusterMarkerRadius(points: MapPoint[], mode: MapMode) {
+  const magnitude = mode === "active"
+    ? points.reduce((total, point) => total + Math.max(1, point.subject.open_work), 0)
+    : mode === "compliance"
+      ? points.reduce((total, point) => total + (point.input_kinds?.length || 1), 0)
+      : points.length;
+  return Math.min(24, 6 + Math.sqrt(magnitude) * 2);
 }
 
 function mapMarkerColor(tone: MapActivityTone) {

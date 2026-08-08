@@ -133,7 +133,7 @@ def test_command_centre_board_is_manager_only_and_literal_safe(tmp_path):
         "points": [{
             "id": "task_id:route-task", "latitude": 27.95, "longitude": 78.27,
             "kind": "visit_location", "confidence": "declared", "observed_at": now,
-            "label": "Field observation", "has_disease": False, "related_farm": None,
+            "label": "Field observation", "has_disease": False, "input_kinds": [], "input_approval": None, "related_farm": None,
             "subject": {"kind": "farmer", "id": "route-farmer", "name": "Ramesh Kumar", "place": None, "farmer_name": "Ramesh Kumar", "open_work": 1},
         }], "places": [], "total_points": 1, "truncated": False,
     }

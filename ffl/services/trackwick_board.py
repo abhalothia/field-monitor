@@ -133,6 +133,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         )
         if row["visit_task_id"]
     }
+    input_kinds_by_task = _input_kinds_by_task(conn, source.id)
     inbox_rows = _inbox_rows(tasks, party_by_id)
     operating_snapshots = operating_enrichment.snapshot_index_for_source(conn, source.id)
     place_summaries = operating_enrichment.place_summaries_for_source(conn, source.id)
@@ -147,6 +148,7 @@ def manager_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> dict[str,
         tasks,
         operating_snapshots,
         disease_task_ids,
+        input_kinds_by_task,
     )
     counts = {
         "farmers": len(farmers),
@@ -241,7 +243,7 @@ def command_centre_board_for_source(conn, *, source_key: str = SOURCE_KEY) -> di
         "daily_brief": board["daily_brief"],
         "map": {
             "points": [{key: point.get(key) for key in (
-                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "has_disease", "related_farm", "subject",
+                "id", "latitude", "longitude", "kind", "confidence", "observed_at", "label", "has_disease", "input_kinds", "input_approval", "related_farm", "subject",
             )} for point in board["map"]["points"]],
             "places": board["map"].get("places", []),
             "total_points": board["map"]["total_source_points"],
@@ -776,6 +778,7 @@ def _map_points(
     tasks: Iterable[Mapping[str, Any]],
     operating_snapshots: Mapping[tuple[str, str], Mapping[str, Any]],
     disease_task_ids: set[str],
+    input_kinds_by_task: Mapping[str, list[str]],
 ) -> tuple[list[dict[str, Any]], bool]:
     registration_by_id = {str(row["id"]): row for row in registrations}
     registrations_by_task = {
@@ -823,12 +826,31 @@ def _map_points(
             "observed_at": location["observed_at"],
             "label": _point_label(registration, task, farmer),
             "has_disease": bool(task is not None and str(task["id"]) in disease_task_ids),
+            # Source data records fertilizer/pesticide events, but has no
+            # approval verdict yet. Expose that gap explicitly so reported
+            # use is never presented as a compliance conclusion.
+            "input_kinds": input_kinds_by_task.get(str(task["id"]), []) if task is not None else [],
+            "input_approval": None,
             "related_farm": _related_farm(related_registration, farmer),
             "subject": subject,
             "record_kind": "source_point",
             "is_boundary": False,
         })
     return points, len(seen) > _MAP_POINT_LIMIT
+
+
+def _input_kinds_by_task(conn, source_id: str) -> dict[str, list[str]]:
+    rows = conn.execute(
+        """SELECT visit_task_id, input_kind
+           FROM trackwick_crop_inputs
+           WHERE source_id = ? AND data_quality_status = 'valid'
+           GROUP BY visit_task_id, input_kind""",
+        (source_id,),
+    ).fetchall()
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        result.setdefault(str(row["visit_task_id"]), []).append(str(row["input_kind"]))
+    return result
 
 
 def _related_farm(
