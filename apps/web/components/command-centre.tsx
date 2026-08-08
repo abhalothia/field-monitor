@@ -488,6 +488,8 @@ const EMPTY_STATE: State = {
 
 const OPERATING_CACHE_KEY = "agro-ceo-operating-record-v1";
 const OPERATING_CACHE_TTL_MS = 5 * 60_000;
+const FIELD_WEATHER_CACHE_PREFIX = "agro-ceo-field-weather-v1:";
+const FIELD_WEATHER_CACHE_TTL_MS = 60 * 60_000;
 const DIRECTORY_CACHE_PREFIX = "agro-ceo-farm-directory-v1:";
 const PROFILE_CACHE_PREFIX = "agro-ceo-profile-v1:";
 
@@ -868,7 +870,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "home" || view === "map" ? <section className={`command-intro ${view === "map" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
-          <h1>{headingFor(view, t)}</h1>
+          {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} /> : <h1>{headingFor(view, t)}</h1>}
         </div>
       </section> : null}
 
@@ -888,6 +890,71 @@ export function CommandCentre({ view }: { view: View }) {
 
 function headingFor(view: View, t: Translation) {
   return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+}
+
+type FieldWeather = { temperature: number; code: number; fetchedAt: number };
+
+function FieldMoment({ points }: { points: MapPoint[] }) {
+  const [now, setNow] = useState<Date | null>(null);
+  const [weather, setWeather] = useState<FieldWeather | null>(null);
+  const fieldLocation = useMemo(() => {
+    if (!points.length) return null;
+    const latitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
+    const longitude = points.reduce((total, point) => total + point.longitude, 0) / points.length;
+    return { latitude, longitude, label: mapAreaLabel(points) };
+  }, [points]);
+
+  useEffect(() => {
+    const updateClock = () => setNow(new Date());
+    updateClock();
+    const interval = window.setInterval(updateClock, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!fieldLocation) return;
+    const cacheKey = `${FIELD_WEATHER_CACHE_PREFIX}${fieldLocation.latitude.toFixed(1)}:${fieldLocation.longitude.toFixed(1)}`;
+    const cached = readSessionCache<FieldWeather>(cacheKey);
+    if (cached && cached.fetchedAt > Date.now() - FIELD_WEATHER_CACHE_TTL_MS) {
+      setWeather(cached);
+      return;
+    }
+    let active = true;
+    const params = new URLSearchParams({
+      latitude: fieldLocation.latitude.toFixed(4),
+      longitude: fieldLocation.longitude.toFixed(4),
+      current: "temperature_2m,weather_code",
+      timezone: "auto",
+    });
+    void fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ current?: { temperature_2m?: number; weather_code?: number } }> : null)
+      .then((payload) => {
+        const current = payload?.current;
+        if (!active || typeof current?.temperature_2m !== "number" || typeof current.weather_code !== "number") return;
+        const next = { temperature: current.temperature_2m, code: current.weather_code, fetchedAt: Date.now() };
+        writeSessionCache(cacheKey, next);
+        setWeather(next);
+      }).catch(() => { /* weather is useful context, never a blocker */ });
+    return () => { active = false; };
+  }, [fieldLocation]);
+
+  const date = now ? new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(now) : "Field briefing";
+  const time = now ? new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata", timeZoneName: "short" }).format(now) : "";
+  const weatherLine = weather ? `${Math.round(weather.temperature)}°C · ${weatherLabel(weather.code)}` : "Weather updating";
+  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p>{fieldLocation ? `${fieldLocation.label} · ${weatherLine}` : weatherLine}</p></div>;
+}
+
+function weatherLabel(code: number) {
+  if (code === 0) return "Clear";
+  if (code <= 2) return "Partly cloudy";
+  if (code === 3) return "Overcast";
+  if (code <= 48) return "Foggy";
+  if (code <= 57) return "Drizzle";
+  if (code <= 67) return "Rain";
+  if (code <= 77) return "Snow showers";
+  if (code <= 82) return "Rain showers";
+  if (code <= 86) return "Snow showers";
+  return "Thunderstorms";
 }
 
 function commandSearchItems(state: State): CommandSearchItem[] {

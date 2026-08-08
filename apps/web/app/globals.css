@@ -90,6 +90,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .command-intro { display: flex; align-items: end; justify-content: space-between; gap: 26px; padding: 28px 0 18px; }
 .command-intro .eyebrow { margin-bottom: 9px; }
 .command-intro h1 { margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.6rem, 4.6vw, 4.3rem); font-weight: 400; letter-spacing: -.065em; line-height: .9; }
+.field-moment { display: grid; gap: 10px; }
+.field-moment h1 { max-width: 20ch; }
+.field-moment h1 span { color: var(--ink-soft); font-size: .6em; letter-spacing: -.045em; white-space: nowrap; }
+.field-moment p { margin: 0; color: #4e6755; font-size: .75rem; font-weight: 750; }
 .command-intro > p { margin: 0 0 4px; color: var(--muted); font-size: .67rem; }
 .command-intro-compact { padding: 18px 0 12px; }
 .command-intro-compact .eyebrow { display: none; }
