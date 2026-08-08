@@ -310,7 +310,7 @@ def _daily_brief(conn, source_id: str, *, open_tasks: int) -> dict[str, Any]:
     if not source_relation_exists(conn, "trackwick_visits") or not source_relation_exists(conn, "trackwick_tasks"):
         return empty
     latest = conn.execute(
-        """SELECT max(substr(observed_at, 1, 10)) AS observed_on
+        """SELECT max(date(observed_at)) AS observed_on
            FROM trackwick_visits
            WHERE source_id = ? AND data_quality_status = 'valid'""",
         (source_id,),
@@ -322,7 +322,7 @@ def _daily_brief(conn, source_id: str, *, open_tasks: int) -> dict[str, Any]:
            FROM trackwick_visits AS visit
            JOIN trackwick_tasks AS task ON task.id = visit.task_id
            WHERE visit.source_id = ? AND visit.data_quality_status = 'valid'
-             AND task.data_quality_status = 'valid' AND substr(visit.observed_at, 1, 10) = ?""",
+             AND task.data_quality_status = 'valid' AND date(visit.observed_at) = ?""",
         (source_id, latest),
     ).fetchone()
     disease_reports = 0
@@ -330,7 +330,7 @@ def _daily_brief(conn, source_id: str, *, open_tasks: int) -> dict[str, Any]:
         finding = conn.execute(
             """SELECT count(*) AS total FROM trackwick_visit_findings
                WHERE source_id = ? AND finding_kind = 'disease' AND data_quality_status = 'valid'
-                 AND substr(observed_at, 1, 10) = ?""",
+                 AND date(observed_at) = ?""",
             (source_id, latest),
         ).fetchone()
         disease_reports = int(finding["total"] or 0)
