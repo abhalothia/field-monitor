@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one bounded, reviewable Luna vocabulary pass against the private DB.
+"""Run one bounded, reviewable Gemini vocabulary pass against the private DB.
 
 Normal imports already discover source vocabulary.  This command is the only
 path that can call a model, and it stores suggestions rather than changing
@@ -34,8 +34,8 @@ def _database_url() -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true", help="Call Luna and save reviewable suggestions")
-    parser.add_argument("--limit", type=int, default=80, help="Maximum unresolved terms to consider (1-80)")
+    parser.add_argument("--apply", action="store_true", help="Call Gemini and save reviewable suggestions")
+    parser.add_argument("--limit", type=int, default=8, help="Maximum unresolved terms to consider (1-8)")
     args = parser.parse_args()
     try:
         target = database_target(database_url=_database_url())

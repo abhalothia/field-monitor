@@ -15,7 +15,7 @@ import json
 import re
 from typing import Any, Mapping, Optional, Sequence
 
-from ffl.services import openai_responses
+from ffl.services import gemini_structured
 
 
 VOCABULARY_VERSION = "vocabulary-v1"
@@ -25,7 +25,7 @@ _KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
 _EMAIL_PATTERN = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
 _URL_PATTERN = re.compile(r"\b(?:https?://|www\.)", re.IGNORECASE)
 _LONG_NUMBER_PATTERN = re.compile(r"\d[\d\s().-]{5,}\d")
-_OPENAI_BATCH_SIZE = 80
+_MODEL_BATCH_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -134,11 +134,11 @@ def refresh_source_vocabulary(
     return len(terms)
 
 
-def pending_terms_for_source(conn, source_id: str, *, limit: int = _OPENAI_BATCH_SIZE) -> list[VocabularyTerm]:
+def pending_terms_for_source(conn, source_id: str, *, limit: int = _MODEL_BATCH_SIZE) -> list[VocabularyTerm]:
     """Return only unresolved, non-identity vocabulary for a deliberate pass."""
     if not vocabulary_schema_available(conn):
         return []
-    limit = max(1, min(int(limit), _OPENAI_BATCH_SIZE))
+    limit = max(1, min(int(limit), _MODEL_BATCH_SIZE))
     # Fetch a small safety buffer: some raw terms are retained for audit but
     # intentionally unsuitable for a model (for example, a pasted phone
     # number).  They remain pending for an accountable manual review.
@@ -163,10 +163,10 @@ def suggest_pending_terms(
     conn,
     source_id: str,
     *,
-    limit: int = _OPENAI_BATCH_SIZE,
+    limit: int = _MODEL_BATCH_SIZE,
     commit: bool = True,
 ) -> dict[str, Any]:
-    """Ask Luna once for suggestions, never auto-publishing semantic mappings.
+    """Ask Gemini once for suggestions, never auto-publishing semantic mappings.
 
     The model receives short source phrases plus their already-known kind.  It
     never receives farmer names, identifiers, contacts, coordinates, media, or
@@ -176,7 +176,7 @@ def suggest_pending_terms(
     candidates = pending_terms_for_source(conn, source_id, limit=limit)
     if not candidates:
         return {"state": "nothing_pending", "considered": 0, "suggested": 0, "model": None}
-    payload, model = openai_responses.structured_output(
+    payload, model = gemini_structured.structured_output(
         prompt=_classification_prompt(candidates),
         schema_name="operating_vocabulary_suggestions",
         schema=_classification_schema(),

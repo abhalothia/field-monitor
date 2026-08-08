@@ -62,7 +62,7 @@ def _seed_vocabulary_source(conn, owner):
 def test_discovery_is_deterministic_and_never_calls_a_model(ffl_db, owner, monkeypatch):
     source = _seed_vocabulary_source(ffl_db, owner)
     monkeypatch.setattr(
-        operating_vocabulary.openai_responses,
+        operating_vocabulary.gemini_structured,
         "structured_output",
         lambda **_: (_ for _ in ()).throw(AssertionError("source refresh must not call a model")),
     )
@@ -90,7 +90,7 @@ def test_discovery_is_deterministic_and_never_calls_a_model(ffl_db, owner, monke
     }
 
 
-def test_luna_only_stores_reviewable_suggestions(ffl_db, owner, monkeypatch):
+def test_gemini_only_stores_reviewable_suggestions(ffl_db, owner, monkeypatch):
     source = _seed_vocabulary_source(ffl_db, owner)
     operating_vocabulary.refresh_source_vocabulary(ffl_db, source.id)
     calls = []
@@ -100,9 +100,9 @@ def test_luna_only_stores_reviewable_suggestions(ffl_db, owner, monkeypatch):
         return ({"items": [{
             "id": "0", "outcome": "suggest", "normalized_key": "brand-x-20-ec",
             "display_label": "Brand X 20 EC", "confidence": 0.91,
-        }]}, "gpt-5.6-luna")
+        }]}, "gemini-3.5-flash-lite")
 
-    monkeypatch.setattr(operating_vocabulary.openai_responses, "structured_output", fake_structured_output)
+    monkeypatch.setattr(operating_vocabulary.gemini_structured, "structured_output", fake_structured_output)
     result = operating_vocabulary.suggest_pending_terms(ffl_db, source.id, limit=1)
     term = operating_vocabulary.pending_terms_for_source(ffl_db, source.id, limit=10)[0]
     stored = ffl_db.execute(
@@ -112,12 +112,12 @@ def test_luna_only_stores_reviewable_suggestions(ffl_db, owner, monkeypatch):
         (source.id,),
     ).fetchone()
 
-    assert result == {"state": "suggested", "considered": 1, "suggested": 1, "model": "gpt-5.6-luna"}
+    assert result == {"state": "suggested", "considered": 1, "suggested": 1, "model": "gemini-3.5-flash-lite"}
     assert calls[0]["schema_name"] == "operating_vocabulary_suggestions"
     assert "Bacterial Leaf Blight" not in calls[0]["prompt"]
     assert dict(stored) == {
         "mapping_state": "suggested", "mapping_method": "ai", "normalized_key": "brand-x-20-ec",
-        "display_label": "Brand X 20 EC", "classifier_model": "gpt-5.6-luna",
+        "display_label": "Brand X 20 EC", "classifier_model": "gemini-3.5-flash-lite",
     }
     assert term.vocabulary_kind == "reported_issue"
 
@@ -126,12 +126,12 @@ def test_invalid_model_result_is_not_saved_and_a_manual_review_is_versioned(ffl_
     source = _seed_vocabulary_source(ffl_db, owner)
     operating_vocabulary.refresh_source_vocabulary(ffl_db, source.id)
     monkeypatch.setattr(
-        operating_vocabulary.openai_responses,
+        operating_vocabulary.gemini_structured,
         "structured_output",
         lambda **_: ({"items": [{
             "id": "999", "outcome": "suggest", "normalized_key": "invented",
             "display_label": "Invented diagnosis", "confidence": 1,
-        }]}, "gpt-5.6-luna"),
+        }]}, "gemini-3.5-flash-lite"),
     )
 
     assert operating_vocabulary.suggest_pending_terms(ffl_db, source.id, limit=1)["state"] == "no_safe_suggestions"

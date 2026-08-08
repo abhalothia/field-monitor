@@ -17,6 +17,8 @@ from typing import Any, Mapping
 
 import httpx
 
+from ffl.services import gemini_structured
+
 
 MODEL = "gemini-3.5-flash-lite"
 _API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
@@ -93,11 +95,11 @@ FACT PACK:
         payload = response.json()
     except (httpx.HTTPError, ValueError, TypeError):
         return None
-    text = _response_text(payload)
+    text = gemini_structured.response_text(payload)
     if not text:
         return None
     try:
-        decoded = json.loads(_strip_code_fence(text))
+        decoded = json.loads(gemini_structured.strip_code_fence(text))
     except json.JSONDecodeError:
         return None
     if not isinstance(decoded, Mapping):
@@ -107,39 +109,6 @@ FACT PACK:
     if not summary or not attention:
         return None
     return {"summary": summary, "attention": attention, "model": MODEL}
-
-
-def _response_text(payload: Any) -> str | None:
-    """Read text from either the REST interaction envelope or SDK-style output."""
-    if isinstance(payload, Mapping):
-        for key in ("output_text", "outputText", "text"):
-            value = payload.get(key)
-            if isinstance(value, str):
-                return value
-        for key in ("steps", "outputs", "output", "content"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                for item in value:
-                    found = _response_text(item)
-                    if found:
-                        return found
-            elif isinstance(value, Mapping):
-                found = _response_text(value)
-                if found:
-                    return found
-    elif isinstance(payload, list):
-        for item in payload:
-            found = _response_text(item)
-            if found:
-                return found
-    return None
-
-
-def _strip_code_fence(value: str) -> str:
-    stripped = value.strip()
-    if stripped.startswith("```") and stripped.endswith("```"):
-        return stripped.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    return stripped
 
 
 def _safe_sentence(value: Any, limit: int) -> str | None:

@@ -64,8 +64,7 @@ labels, source-reported issues, and crop-product spellings. Imports discover
 terms automatically without calling a model. After applying the migration with
 the direct migration connection, run `scripts/enrich_operating_vocabulary.py`
 to populate the dictionary. A deliberate `--apply` run can ask the configured
-server-only Luna model for bounded spelling/casing/translation suggestions. In
-Vercel, the deployed API uses its short-lived OIDC identity through AI Gateway;
-for a local run provide `OPENAI_API_KEY` or `AI_GATEWAY_API_KEY`. Those
-suggestions remain `suggested` until reviewed and never change facts, boundaries,
-identities, or browser-visible filters on their own.
+server-only Gemini Flash-Lite model for bounded spelling/casing/translation
+suggestions. It uses `GEMINI_API_KEY` and remains optional. Those suggestions
+remain `suggested` until reviewed and never change facts, boundaries, identities,
+or browser-visible filters on their own.
