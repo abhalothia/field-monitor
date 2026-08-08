@@ -1,12 +1,22 @@
 """Focused dispatch tests for the policy-controlled communications outbox."""
 
 from datetime import datetime, timezone
+import hashlib
 import json
+import sqlite3
+import threading
 
 import pytest
 
 from ffl.communications.fake import FakeLoopMessageProvider
-from ffl.communications.outbox import dispatch_ready_interaction
+from ffl.communications.interactions import context_token_for_run, find_interaction_for_dispatch_callback
+from ffl.communications.outbox import (
+    _valid_parameters,
+    dispatch_due_workflows,
+    dispatch_ready_interaction,
+    reconcile_outbox_messages,
+)
+from ffl.communications.ports import MessageStatus, SendResult
 from ffl.communications.persistence import (
     create_communication_profile,
     create_communications_schema,
@@ -131,4 +141,123 @@ def test_ambiguous_dispatch_is_unknown_and_never_retries(dispatch_context):
     )
 
     assert first.status == second.status == "unknown"
+    assert len(provider.sent) == 1
+
+
+def test_scheduler_regenerates_the_interaction_context_token_after_restart(dispatch_context):
+    provider = FakeLoopMessageProvider()
+    provider.ambiguous_after_accept = True
+
+    result = dispatch_due_workflows(
+        dispatch_context.conn, provider, datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc),
+    )
+
+    assert result[0].status == "unknown"
+    stored = dispatch_context.conn.execute(
+        "SELECT context_token_hash FROM communication_interaction_runs WHERE id = ?",
+        (dispatch_context.run.interaction_run_id,),
+    ).fetchone()
+    assert hashlib.sha256(provider.sent[0]["passthrough"].encode("utf-8")).hexdigest() == stored["context_token_hash"]
+    assert provider.sent[0]["passthrough"] not in json.dumps(
+        dict(dispatch_context.conn.execute("SELECT * FROM communication_outbox").fetchone()), sort_keys=True,
+    )
+    recovered = find_interaction_for_dispatch_callback(
+        dispatch_context.conn, provider.name, dispatch_context.endpoint["id"], None,
+        provider.sent[0]["passthrough"],
+    )
+    assert recovered is not None and recovered.id == dispatch_context.run.interaction_run_id
+
+
+def test_template_parameters_are_strictly_empty():
+    assert _valid_parameters({})
+    assert not _valid_parameters({"farm": "North Block"})
+
+
+def test_context_token_key_is_required(monkeypatch):
+    monkeypatch.delenv("FFL_COMMUNICATION_CONTEXT_TOKEN_KEY")
+    with pytest.raises(ValueError, match="CONTEXT_TOKEN_KEY"):
+        context_token_for_run("interaction-run-1")
+
+
+@pytest.mark.parametrize("provider_status, expected", (("unknown", "unknown"), ("failed", "failed")))
+def test_provider_returned_terminal_status_is_not_marked_dispatched(dispatch_context, provider_status, expected):
+    class TerminalStatusProvider(FakeLoopMessageProvider):
+        def send_template(self, *args, **kwargs):
+            accepted = super().send_template(*args, **kwargs)
+            return SendResult(accepted.provider_message_id, provider_status)
+
+    result = dispatch_ready_interaction(
+        dispatch_context.conn, TerminalStatusProvider(), dispatch_context.run.interaction_run_id,
+        datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc), context_token=dispatch_context.run.context_token,
+    )
+
+    outbox = dispatch_context.conn.execute("SELECT status, provider_message_id FROM communication_outbox").fetchone()
+    assert result.status == outbox["status"] == expected
+    assert outbox["provider_message_id"] == "fake-message-1"
+
+
+def test_provider_returned_unknown_with_message_id_is_reconcilable(dispatch_context):
+    class UnknownProvider(FakeLoopMessageProvider):
+        def send_template(self, *args, **kwargs):
+            accepted = super().send_template(*args, **kwargs)
+            return SendResult(accepted.provider_message_id, "unknown")
+
+    provider = UnknownProvider()
+    result = dispatch_ready_interaction(
+        dispatch_context.conn, provider, dispatch_context.run.interaction_run_id,
+        datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc), context_token=dispatch_context.run.context_token,
+    )
+    provider.statuses[result.provider_message_id] = MessageStatus(result.provider_message_id, "delivered")
+
+    assert result.status == "unknown"
+    assert reconcile_outbox_messages(dispatch_context.conn, provider) == 1
+    assert dispatch_context.conn.execute("SELECT status FROM communication_outbox").fetchone()["status"] == "dispatched"
+    assert len(provider.sent) == 1
+
+
+def test_atomic_claim_allows_only_one_connection_to_dispatch(dispatch_context, tmp_path):
+    path = tmp_path / "outbox-race.db"
+    first = sqlite3.connect(path, check_same_thread=False)
+    dispatch_context.conn.backup(first)
+    first.row_factory = sqlite3.Row
+    second = sqlite3.connect(path, check_same_thread=False)
+    second.row_factory = sqlite3.Row
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingProvider(FakeLoopMessageProvider):
+        def send_template(self, *args, **kwargs):
+            result = super().send_template(*args, **kwargs)
+            started.set()
+            assert release.wait(timeout=5)
+            return result
+
+    provider = BlockingProvider()
+    now = datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc)
+    outcomes = {}
+
+    def dispatch_first():
+        outcomes["first"] = dispatch_ready_interaction(
+            first, provider, dispatch_context.run.interaction_run_id, now,
+            context_token=dispatch_context.run.context_token,
+        )
+
+    try:
+        first_thread = threading.Thread(target=dispatch_first)
+        first_thread.start()
+        assert started.wait(timeout=5)
+        second_result = dispatch_ready_interaction(
+            second, provider, dispatch_context.run.interaction_run_id, now,
+            context_token=dispatch_context.run.context_token,
+        )
+        release.set()
+        first_thread.join(timeout=5)
+    finally:
+        release.set()
+        first.close()
+        second.close()
+
+    assert not first_thread.is_alive()
+    assert outcomes["first"].status == "dispatched"
+    assert second_result.status == "dispatching"
     assert len(provider.sent) == 1

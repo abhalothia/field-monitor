@@ -100,6 +100,22 @@ def send_work_prompt(
         raise ValueError("work prompt consent is not active")
     if conn.execute("SELECT 1 FROM people WHERE id = ?", (initiated_by_person_id,)).fetchone() is None:
         raise ValueError("prompt initiator does not exist")
+    profiles = conn.execute(
+        """SELECT profile.id
+           FROM communication_profiles profile
+           JOIN communication_endpoint_verifications verification
+             ON verification.profile_id = profile.id AND verification.endpoint_id = ?
+            AND verification.status = 'active'
+           JOIN customer_portals portal ON portal.id = profile.portal_id AND portal.status = 'active'
+           JOIN portal_memberships membership
+             ON membership.portal_id = profile.portal_id AND membership.person_id = profile.person_id
+            AND membership.membership_status = 'active'
+           WHERE profile.person_id = ? AND profile.status = 'active'
+           LIMIT 2""",
+        (endpoint_id, endpoint["person_id"]),
+    ).fetchall()
+    if len(profiles) != 1:
+        raise ValueError("work prompt requires one active verified communication profile")
 
     prompt, created = persistence.create_prompt(
         conn, work.id, work.allocation_id, endpoint_id, template_id, initiated_by_person_id, idempotency_key
@@ -108,7 +124,7 @@ def send_work_prompt(
     if interaction is None:
         interaction = create_interaction_run(
             conn,
-            None,
+            profiles[0]["id"],
             endpoint_id,
             allocation_id=work.allocation_id,
             work_item_id=work.id,

@@ -1073,22 +1073,19 @@ def create_outbox_entry(
     tokens are assembled transiently at dispatch time and are never retained
     here.
     """
-    existing = conn.execute(
-        "SELECT * FROM communication_outbox WHERE interaction_run_id = ?", (interaction_run_id,),
-    ).fetchone()
-    if existing is not None:
-        return dict(existing), False
     identifier, now = _identity()
     conn.execute(
-        """INSERT INTO communication_outbox
+        """INSERT OR IGNORE INTO communication_outbox
            (id, interaction_run_id, legacy_prompt_id, provider_message_id, status, policy_code, created_at, updated_at)
            VALUES (?, ?, ?, NULL, 'pending', NULL, ?, ?)""",
         (identifier, interaction_run_id, legacy_prompt_id, now, now),
     )
+    created = conn.execute("SELECT changes() AS count").fetchone()["count"] == 1
     conn.commit()
-    return dict(conn.execute(
-        "SELECT * FROM communication_outbox WHERE id = ?", (identifier,),
-    ).fetchone()), True
+    entry = outbox_entry(conn, interaction_run_id)
+    if entry is None:
+        raise RuntimeError("communication outbox entry was not created")
+    return entry, created
 
 
 def outbox_entry(conn: sqlite3.Connection, interaction_run_id: str) -> Optional[Dict[str, Any]]:
@@ -1137,6 +1134,18 @@ def update_outbox_entry(
     if updated is None:
         raise RuntimeError("communication outbox entry disappeared")
     return updated
+
+
+def claim_outbox_dispatch(conn: sqlite3.Connection, interaction_run_id: str) -> bool:
+    """Atomically claim a pending send; only the successful worker may call out."""
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        """UPDATE communication_outbox SET status = 'dispatching', updated_at = ?
+           WHERE interaction_run_id = ? AND status = 'pending'""",
+        (now, interaction_run_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
 
 
 def outbox_requiring_reconciliation(conn: sqlite3.Connection) -> List[Dict[str, Any]]:

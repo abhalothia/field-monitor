@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hmac
 import json
-import secrets
 from typing import Any, Dict, Optional, Tuple, Union
 
 from ffl.communications import persistence
 from ffl.communications.identity import resolve_communication_endpoint
 from ffl.communications.interactions import (
+    context_token_digest,
+    context_token_for_run,
     interaction_run,
     record_interaction_dispatch,
     update_interaction_dispatch_status,
@@ -164,10 +166,21 @@ def _dispatch_interaction(
         _sync_legacy_prompt(conn, persisted, "failed")
         return DispatchResult(run.id, "suppressed", reason=policy["code"])
 
-    # The durable transition precedes the provider call.  A crash from here on
-    # leaves an unknown logical action, never a retryable pending one.
-    persistence.update_outbox_entry(conn, run.id, "dispatching")
-    outbound_token = context_token or secrets.token_urlsafe(32)
+    try:
+        outbound_token = _context_token_for_dispatch(
+            run.id, endpoint["context_token_hash"], context_token,
+        )
+    except ValueError:
+        persisted = persistence.update_outbox_entry(conn, run.id, "suppressed", policy_code="context_token_invalid")
+        _sync_legacy_prompt(conn, persisted, "failed")
+        return DispatchResult(run.id, "suppressed", reason=persisted["policy_code"])
+    # The conditional update is the durable worker claim. A losing worker
+    # returns the established lifecycle and never reaches provider.send_template.
+    if not persistence.claim_outbox_dispatch(conn, run.id):
+        current = persistence.outbox_entry(conn, run.id)
+        if current is None:
+            raise RuntimeError("claimed communication outbox entry disappeared")
+        return DispatchResult(run.id, current["status"], current["provider_message_id"], current["policy_code"])
     try:
         sent = provider.send_template(
             endpoint["address"], provider.sender_id, template["provider_template_id"],
@@ -195,6 +208,18 @@ def _dispatch_interaction(
 
     dispatch_status = sent.status if sent.status in {"accepted", "scheduled", "delivered", "failed", "unknown"} else "accepted"
     record_interaction_dispatch(conn, run.id, sent.provider_message_id, status=dispatch_status)
+    if dispatch_status == "unknown":
+        persisted = persistence.update_outbox_entry(
+            conn, run.id, "unknown", provider_message_id=sent.provider_message_id,
+        )
+        _sync_legacy_prompt(conn, persisted, "unknown")
+        return DispatchResult(run.id, "unknown", sent.provider_message_id)
+    if dispatch_status == "failed":
+        persisted = persistence.update_outbox_entry(
+            conn, run.id, "failed", provider_message_id=sent.provider_message_id,
+        )
+        _sync_legacy_prompt(conn, persisted, "failed")
+        return DispatchResult(run.id, "failed", sent.provider_message_id)
     persisted = persistence.update_outbox_entry(
         conn, run.id, "dispatched", provider_message_id=sent.provider_message_id,
     )
@@ -232,11 +257,10 @@ def _dispatch_details(conn, provider: CommunicationsProvider, run_id: str, now: 
     if not _valid_parameters(parameters):
         return None
     if row["profile_id"] is None:
-        # This one compatibility bridge serves pre-profile work prompts. New
-        # workflow traffic must take the full current-state Task 3 policy path.
-        allowed = persistence.has_active_consent(conn, row["endpoint_id"], template["purpose"])
-        return {"allowed": allowed, "code": "allowed" if allowed else "consent_not_active"}, template, row, parameters
-    if row["workflow_status"] != "published" or row["workflow_purpose"] != template["purpose"]:
+        return {"allowed": False, "code": "profile_not_active"}, template, row, parameters
+    if row["workflow_version_id"] is not None and (
+        row["workflow_status"] != "published" or row["workflow_purpose"] != template["purpose"]
+    ):
         return {"allowed": False, "code": "workflow_not_published"}, template, row, parameters
     if row["profile_locale"] != template["locale"]:
         return {"allowed": False, "code": "locale_mismatch"}, template, row, parameters
@@ -252,8 +276,12 @@ def _dispatch_details(conn, provider: CommunicationsProvider, run_id: str, now: 
         (row["profile_id"], row["endpoint_id"], template["purpose"]),
     ).fetchall()
     quiet_hours = _quiet_hours(row["quiet_hours_json"])
-    sent = persistence.workflow_dispatch_count(
-        conn, row["profile_id"], row["workflow_version_id"], row["weekly_window"],
+    sent = (
+        persistence.workflow_dispatch_count(
+            conn, row["profile_id"], row["workflow_version_id"], row["weekly_window"],
+        )
+        if row["workflow_version_id"] is not None and row["weekly_window"] is not None
+        else 0
     )
     last_code = "consent_not_active"
     for consent in consents:
@@ -284,10 +312,20 @@ def _valid_parameters(parameters: Dict[str, str]) -> bool:
     # This task has no parameterized-template capture.  An explicit empty map
     # is the only approved parameter set until a later schema authorizes named
     # values and their permitted source fields.
-    return isinstance(parameters, dict) and all(
-        isinstance(key, str) and isinstance(value, str) and key and len(key) <= 80 and len(value) <= 500
-        for key, value in parameters.items()
-    )
+    return isinstance(parameters, dict) and parameters == {}
+
+
+def _context_token_for_dispatch(
+    interaction_run_id: str, expected_digest: str, supplied: Optional[str],
+) -> str:
+    regenerated = context_token_for_run(interaction_run_id)
+    if context_token_digest(regenerated) != expected_digest:
+        raise ValueError("context token key does not match the interaction capture")
+    if supplied is not None and (
+        not isinstance(supplied, str) or not hmac.compare_digest(supplied, regenerated)
+    ):
+        raise ValueError("supplied context token does not match the interaction capture")
+    return regenerated
 
 
 def _quiet_hours(value: Optional[str]) -> Optional[Tuple[str, str]]:

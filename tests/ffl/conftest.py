@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from ffl.persistence.database import open_connection
@@ -9,6 +11,12 @@ from ffl.persistence.repository import (
     create_season,
 )
 from ffl.persistence.schema import create_schema
+
+
+os.environ.setdefault(
+    "FFL_COMMUNICATION_CONTEXT_TOKEN_KEY",
+    "test-only-communications-context-key-32b",
+)
 
 
 @pytest.fixture

@@ -10,10 +10,12 @@ SHA-256 digest.  Inbound correlation never falls back to endpoint history or an
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import base64
 from datetime import datetime, timezone
+import hmac
 import hashlib
 import json
-import secrets
+import os
 import sqlite3
 import uuid
 from typing import Optional, Sequence, Tuple, Union
@@ -130,7 +132,7 @@ def create_interaction_run(
     )
 
     identifier = str(uuid.uuid4())
-    raw_token = secrets.token_urlsafe(32)
+    raw_token = context_token_for_run(identifier)
     token_hash = _token_hash(raw_token)
     created_at = created.isoformat()
     expires_at_utc = expiry.isoformat()
@@ -537,6 +539,25 @@ def context_token_digest(raw_token: str) -> str:
     if not isinstance(raw_token, str) or not raw_token or len(raw_token) > 1024:
         raise ValueError("context token is invalid")
     return _token_hash(raw_token)
+
+
+def context_token_for_run(interaction_run_id: str) -> str:
+    """Regenerate an opaque 256-bit token without storing it anywhere.
+
+    The interaction ID is immutable and the HMAC key is private server
+    configuration. A process restart can therefore recover the exact token,
+    while the database continues to retain only its SHA-256 digest.
+    """
+    interaction_run_id = _required_identifier(interaction_run_id, "interaction_run_id")
+    configured = os.environ.get("FFL_COMMUNICATION_CONTEXT_TOKEN_KEY")
+    if not isinstance(configured, str) or len(configured.encode("utf-8")) < 32:
+        raise ValueError("FFL_COMMUNICATION_CONTEXT_TOKEN_KEY must be configured with at least 32 bytes")
+    digest = hmac.new(
+        configured.encode("utf-8"),
+        b"ffl-communication-context-v1:" + interaction_run_id.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _correlation_token_hash(

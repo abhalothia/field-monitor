@@ -131,6 +131,21 @@ CREATE TABLE IF NOT EXISTS agro_communication_interaction_dispatches (
     UNIQUE (provider, provider_message_id)
 );
 
+-- The outbox is private lifecycle state only. It never stores contacts,
+-- provider payloads, template parameters, or raw opaque context tokens.
+CREATE TABLE IF NOT EXISTS agro_communication_outbox (
+    id TEXT PRIMARY KEY,
+    interaction_run_id TEXT NOT NULL UNIQUE REFERENCES agro_communication_interaction_runs(id),
+    legacy_prompt_id TEXT REFERENCES agro_communication_prompts(id),
+    provider_message_id TEXT UNIQUE,
+    status TEXT NOT NULL CHECK (status IN (
+        'pending', 'dispatching', 'dispatched', 'suppressed', 'failed', 'unknown'
+    )),
+    policy_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
 -- A stable workflow identity has immutable, independently publishable
 -- versions. Audience and trigger payloads are typed descriptors, not SQL or
 -- CRM query text. A run records the weekly idempotency dimension separately
@@ -219,6 +234,8 @@ CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_runs_campaign
     ON agro_communication_interaction_runs (campaign_snapshot_id);
 CREATE INDEX IF NOT EXISTS agro_idx_communication_interaction_dispatches_message
     ON agro_communication_interaction_dispatches (provider, provider_message_id);
+CREATE INDEX IF NOT EXISTS agro_idx_communication_outbox_status
+    ON agro_communication_outbox (status, updated_at);
 CREATE INDEX IF NOT EXISTS agro_idx_communication_workflow_versions_workflow_status
     ON agro_communication_workflow_versions (workflow_id, status, version);
 CREATE INDEX IF NOT EXISTS agro_idx_communication_workflow_runs_version_window
@@ -381,6 +398,7 @@ REVOKE ALL ON TABLE agro_communication_scoped_consents FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_scoped_consent_events FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_interaction_runs FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_interaction_dispatches FROM PUBLIC;
+REVOKE ALL ON TABLE agro_communication_outbox FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_workflows FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_workflow_versions FROM PUBLIC;
 REVOKE ALL ON TABLE agro_communication_workflow_runs FROM PUBLIC;

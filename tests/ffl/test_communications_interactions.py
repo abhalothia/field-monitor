@@ -237,6 +237,7 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     for table in (
         "agro_communication_interaction_runs",
         "agro_communication_interaction_dispatches",
+        "agro_communication_outbox",
     ):
         assert "CREATE TABLE IF NOT EXISTS " + table in sql
         assert "REVOKE ALL ON TABLE " + table + " FROM PUBLIC" in sql
@@ -249,3 +250,6 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     assert translate_sqlite_sql(
         "SELECT * FROM communication_interaction_runs WHERE endpoint_id = ?"
     ) == "SELECT * FROM agro_communication_interaction_runs WHERE endpoint_id = %s"
+    assert translate_sqlite_sql(
+        "SELECT * FROM communication_outbox WHERE status = ?"
+    ) == "SELECT * FROM agro_communication_outbox WHERE status = %s"

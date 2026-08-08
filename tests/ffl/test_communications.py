@@ -30,14 +30,50 @@ def _setup(tmp_path: Path):
     with TestClient(app, headers={"X-FFL-Manager-Token": "test-manager-token"}) as client:
         seed = seed_pilot(app.state.conn)
         app.state.manager_person_id = seed["manager_id"]
+        now = "2026-08-07T12:00:00+00:00"
+        app.state.conn.execute(
+            "INSERT INTO customer_portals VALUES (?, ?, ?, ?, 'active', ?)",
+            ("legacy-prompt-portal", "legacy-prompt-portal", "Legacy Prompt Portal", "legacy.example.test", now),
+        )
+        for person_id, suffix, role in (
+            (seed["manager_id"], "manager", "admin"),
+            (seed["operator_id"], "operator", "field_worker"),
+        ):
+            app.state.conn.execute(
+                """INSERT INTO portal_identities
+                   (id, person_id, phone_e164, auth_subject, identity_status, invited_at, verified_at, last_authenticated_at, created_at)
+                   VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, ?)""",
+                ("legacy-" + suffix + "-identity", person_id,
+                 "+91980000000" + ("1" if suffix == "manager" else "2"),
+                 "legacy-" + suffix, now, now, now),
+            )
+            app.state.conn.execute(
+                """INSERT INTO portal_memberships
+                   (id, portal_id, person_id, identity_id, portal_role, membership_status, invited_at, activated_at, created_at)
+                   VALUES (?, 'legacy-prompt-portal', ?, ?, ?, 'active', ?, ?, ?)""",
+                ("legacy-" + suffix + "-membership", person_id,
+                 "legacy-" + suffix + "-identity", role, now, now, now),
+            )
+        repository.create_person_operating_relationship(
+            app.state.conn, seed["operator_id"], "crop_allocation", seed["allocation_id"], "field_operator",
+            "2026-06-01", provenance="reviewed legacy prompt coverage",
+        )
+        app.state.conn.commit()
         work = create_work_item(
             app.state.conn, seed["allocation_id"], "WhatsApp irrigation check", seed["operator_id"],
             "2026-07-10T09:00:00+00:00", initial_status="planned",
         )
-        endpoint = persistence.create_endpoint(
-            app.state.conn, seed["operator_id"], "loopmessage", "+15550000001", "hi-IN"
+        profile = persistence.create_communication_profile(
+            app.state.conn, "legacy-prompt-portal", seed["operator_id"], "hi-IN", "Asia/Kolkata",
+        )
+        endpoint = persistence.verify_endpoint(
+            app.state.conn, profile["id"], "loopmessage", "+15550000001", "reviewed roster", seed["manager_id"],
         )
         consent = persistence.set_consent(app.state.conn, endpoint["id"], "work_prompt", True, "signed field pilot")
+        persistence.set_scoped_consent(
+            app.state.conn, profile["id"], endpoint["id"], "work_prompt", "crop_allocation", seed["allocation_id"],
+            True, "signed field pilot", seed["manager_id"],
+        )
         template = persistence.create_template(
             app.state.conn, "irrigation_check", 1, "hi-IN", "work_prompt",
             "FFL: सिंचाई जांच / Inspect irrigation. Reply REPORT_DEVIATION if needed.", seed["manager_id"],
@@ -189,6 +225,25 @@ def test_invalid_signature_opt_out_and_delivery_failure_remain_visible(tmp_path)
         assert suppressed.status_code == 422
         assert "consent" in suppressed.json()["detail"]
         assert len(provider.sent) == 1
+
+
+def test_legacy_work_prompt_rechecks_scoped_policy_before_provider_call(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        conn.execute(
+            "UPDATE communication_scoped_consents SET status = 'revoked', revoked_at = ? WHERE endpoint_id = ?",
+            ("2026-08-10T03:00:00+00:00", endpoint["id"]),
+        )
+        conn.commit()
+
+        response = client.post(
+            "/api/v1/work-items/{}/communication-prompts".format(work.id),
+            json={"endpoint_id": endpoint["id"], "template_id": template["id"],
+                  "idempotency_key": "scoped-revoked:" + work.id},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["status"] == "failed"
+        assert provider.sent == []
 
 
 def test_ambiguous_context_requires_review_and_signal_acceptance_uses_canonical_record(tmp_path):
