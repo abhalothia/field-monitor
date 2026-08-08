@@ -184,6 +184,66 @@ def test_workflow_frequency_cap_is_rechecked_as_weekly_runs_are_created(workflow
     assert len(runs) == 1
 
 
+def test_workflow_run_conflict_rolls_back_its_interaction_and_retry_creates_one(workflow_context):
+    version = publish_workflow_version(
+        workflow_context.conn, _draft(workflow_context, frequency_cap=1).id,
+    )
+    before = workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_interaction_runs",
+    ).fetchone()["count"]
+    workflow_context.conn.execute(
+        """CREATE TRIGGER workflow_run_conflict_for_test
+           BEFORE INSERT ON communication_workflow_runs
+           BEGIN
+               SELECT RAISE(ABORT, 'UNIQUE constraint failed: communication_workflow_runs.profile_id');
+           END""",
+    )
+    workflow_context.conn.commit()
+
+    assert create_workflow_runs(
+        workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00",
+        now="2026-08-10T04:00:00+00:00",
+    ) == ()
+    assert workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_interaction_runs",
+    ).fetchone()["count"] == before
+    assert workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_workflow_runs",
+    ).fetchone()["count"] == 0
+
+    workflow_context.conn.execute("DROP TRIGGER workflow_run_conflict_for_test")
+    workflow_context.conn.commit()
+    runs = create_workflow_runs(
+        workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00",
+        now="2026-08-10T04:00:00+00:00",
+    )
+
+    assert len(runs) == 1
+    assert workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_workflow_runs",
+    ).fetchone()["count"] == 1
+
+
+def test_workflow_run_uses_supplied_now_for_interaction_and_workflow_timestamps(workflow_context):
+    version = publish_workflow_version(
+        workflow_context.conn, _draft(workflow_context, frequency_cap=1).id,
+    )
+    now = "2026-08-11T05:30:00+00:00"
+    runs = create_workflow_runs(
+        workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00", now=now,
+    )
+    workflow_run = workflow_context.conn.execute(
+        "SELECT * FROM communication_workflow_runs WHERE id = ?", (runs[0].id,),
+    ).fetchone()
+    interaction = workflow_context.conn.execute(
+        "SELECT * FROM communication_interaction_runs WHERE id = ?", (runs[0].interaction_run_id,),
+    ).fetchone()
+
+    assert workflow_run["created_at"] == now
+    assert interaction["created_at"] == now
+    assert interaction["expires_at"] == "2026-08-14T05:30:00+00:00"
+
+
 def test_postgres_workflow_relations_are_private_and_translate(workflow_context):
     sql = MIGRATION.read_text(encoding="utf-8")
     for table in ("agro_communication_workflows", "agro_communication_workflow_versions", "agro_communication_workflow_runs"):

@@ -17,7 +17,7 @@ import uuid
 from typing import Any, Mapping, Optional, Sequence, Tuple, Union
 
 from ffl.communications.identity import resolve_communication_endpoint
-from ffl.communications.interactions import InteractionRun, create_interaction_run
+from ffl.communications.interactions import create_interaction_run
 from ffl.communications.policy import may_dispatch
 
 
@@ -303,34 +303,37 @@ def create_workflow_runs(
     """
     version = workflow_version(conn, workflow_version_id)
     due = _instant(due_at, "due_at")
-    if now is not None:
-        _instant(now, "now")
+    created_at = _instant(now, "now") if now is not None else datetime.now(timezone.utc)
     weekly_window = _weekly_window(due)
-    expiry = due + timedelta(hours=version.response_deadline_hours)
+    expiry = created_at + timedelta(hours=version.response_deadline_hours)
     created = []
     for target in eligible_workflow_targets(conn, version.id, due_at=due):
-        sent = conn.execute(
-            """SELECT COUNT(*) AS count FROM communication_workflow_runs
-               WHERE profile_id = ? AND workflow_version_id = ? AND weekly_window = ?""",
-            (target.profile_id, version.id, weekly_window),
-        ).fetchone()["count"]
-        if version.frequency_cap is not None and int(sent) >= version.frequency_cap:
-            continue
-        existing = conn.execute(
-            """SELECT 1 FROM communication_workflow_runs
-               WHERE profile_id = ? AND allocation_id = ? AND workflow_version_id = ? AND weekly_window = ?""",
-            (target.profile_id, target.allocation_id, version.id, weekly_window),
-        ).fetchone()
-        if existing is not None:
-            continue
-        interaction = create_interaction_run(
-            conn, target.profile_id, target.endpoint_id, allocation_id=target.allocation_id,
-            workflow_version_id=version.id, expected_intents=version.expected_intents,
-            expires_at=expiry,
-        )
-        workflow_run_id = str(uuid.uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
         try:
+            # The interaction and its unique weekly run are one transaction.
+            # A competing scheduler can win the uniqueness race, but it cannot
+            # leave this transaction's ready interaction behind.
+            conn.execute("BEGIN IMMEDIATE")
+            sent = conn.execute(
+                """SELECT COUNT(*) AS count FROM communication_workflow_runs
+                   WHERE profile_id = ? AND workflow_version_id = ? AND weekly_window = ?""",
+                (target.profile_id, version.id, weekly_window),
+            ).fetchone()["count"]
+            existing = conn.execute(
+                """SELECT 1 FROM communication_workflow_runs
+                   WHERE profile_id = ? AND allocation_id = ? AND workflow_version_id = ? AND weekly_window = ?""",
+                (target.profile_id, target.allocation_id, version.id, weekly_window),
+            ).fetchone()
+            if existing is not None or (
+                version.frequency_cap is not None and int(sent) >= version.frequency_cap
+            ):
+                conn.rollback()
+                continue
+            interaction = create_interaction_run(
+                conn, target.profile_id, target.endpoint_id, allocation_id=target.allocation_id,
+                workflow_version_id=version.id, expected_intents=version.expected_intents,
+                expires_at=expiry, created_at=created_at, commit=False,
+            )
+            workflow_run_id = str(uuid.uuid4())
             conn.execute(
                 """INSERT INTO communication_workflow_runs
                    (id, profile_id, endpoint_id, allocation_id, workflow_version_id,
@@ -338,7 +341,7 @@ def create_workflow_runs(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     workflow_run_id, target.profile_id, target.endpoint_id, target.allocation_id,
-                    version.id, interaction.id, weekly_window, created_at,
+                    version.id, interaction.id, weekly_window, created_at.isoformat(),
                 ),
             )
             conn.commit()
@@ -348,6 +351,9 @@ def create_workflow_runs(
             # created the logical weekly run. Its token is intentionally never
             # recoverable here.
             continue
+        except Exception:
+            conn.rollback()
+            raise
         created.append(WorkflowRun(
             id=workflow_run_id, profile_id=target.profile_id, endpoint_id=target.endpoint_id,
             allocation_id=target.allocation_id, workflow_version_id=version.id,

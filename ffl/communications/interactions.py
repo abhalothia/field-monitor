@@ -65,6 +65,8 @@ def create_interaction_run(
     legacy_prompt_id: Optional[str] = None,
     expected_intents: Sequence[str],
     expires_at: Union[datetime, str],
+    created_at: Optional[Union[datetime, str]] = None,
+    commit: bool = True,
 ) -> InteractionRun:
     """Create one immutable context capture and issue its raw token once.
 
@@ -83,7 +85,13 @@ def create_interaction_run(
     campaign_snapshot_id = _optional_identifier(campaign_snapshot_id, "campaign_snapshot_id")
     legacy_prompt_id = _optional_identifier(legacy_prompt_id, "legacy_prompt_id")
     intents = _expected_intents(expected_intents)
-    created = datetime.now(timezone.utc)
+    if not isinstance(commit, bool):
+        raise ValueError("interaction commit mode is invalid")
+    created = (
+        _utc_instant(created_at, "created_at")
+        if created_at is not None
+        else datetime.now(timezone.utc)
+    )
     expiry = _utc_instant(expires_at, "expires_at")
     if expiry <= created:
         raise ValueError("interaction expiry must be after creation")
@@ -149,7 +157,8 @@ def create_interaction_run(
             expires_at_utc,
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     row = conn.execute(
         "SELECT * FROM communication_interaction_runs WHERE id = ?", (identifier,),
     ).fetchone()
