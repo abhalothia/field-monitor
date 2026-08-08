@@ -12,11 +12,11 @@ import hmac
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from ffl.communications.auth import require_manager, require_operating_read
 from ffl.persistence import repository
-from ffl.services import trackolap_metrics, trackwick_board, trackwick_ingest
+from ffl.services import farmer_communications, trackolap_metrics, trackwick_board, trackwick_ingest
 
 
 router = APIRouter(prefix="/api/v1/trackwick")
@@ -88,6 +88,24 @@ def get_daily_brief_reading(request: Request, _manager_id: str = Depends(require
             _connection(request), source_key=trackwick_ingest.SOURCE_KEY,
         )
     }
+
+
+@router.get("/farmer-communication")
+def get_farmer_communication(
+    request: Request,
+    cohort: str = Query(default="first_spray", pattern="^(first_spray|second_spray|second_spray_vayego)$"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=40, ge=1, le=100),
+    _manager_id: str = Depends(require_operating_read),
+) -> dict:
+    """Return a review-only timing list; no communications are created here."""
+    try:
+        return farmer_communications.board_for_source(
+            _connection(request), source_key=trackwick_ingest.SOURCE_KEY,
+            cohort=cohort, offset=offset, limit=limit,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
 
 
 @router.post("/refresh")

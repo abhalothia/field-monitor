@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { CommandSearch, CommandSearchItem } from "./command-search";
 import { FarmActivityFilter, FarmOrder, FarmStateFilter, MultiFilter, SortMenu } from "./directory-controls";
 
-type View = "home" | "map" | "fields" | "farmers" | "actions" | "settings";
+type View = "home" | "map" | "fields" | "farmers" | "communications" | "actions" | "settings";
 type Language = "en" | "hi";
 
 type OperatingProfile = {
@@ -196,6 +196,37 @@ type TrackwickBoard = {
   map?: { points: Array<MapPoint>; places?: PlaceOperatingSummary[]; total_points: number; truncated: boolean };
 };
 type DailyBriefReading = { summary: string; attention: string; model: string };
+type FarmerCommunicationCohort = {
+  key: "first_spray" | "second_spray" | "second_spray_vayego";
+  label: string;
+  minimum_days: number;
+  maximum_days: number;
+  count: number;
+};
+type FarmerCommunicationRecord = {
+  id: string;
+  name: string;
+  transplanted_on: string;
+  days_since_transplant: number;
+  latest_field_record_at?: string | null;
+  crop_stage?: string | null;
+  kit_status?: string | null;
+  reported_vayego_applied: boolean;
+  reported_issue_since_transplant: boolean;
+  open_work: number;
+  place?: string | null;
+  place_status: "reported" | "multiple_reported_places" | "not_reported";
+};
+type FarmerCommunicationBoard = {
+  selected_cohort: FarmerCommunicationCohort["key"];
+  evaluated_on: string;
+  source: { state: string; last_synced_at?: string | null; data_through?: string | null };
+  summary: { reported_farmers: number; timing_available: number; missing_transplant_date: number; ambiguous_transplant_dates: number; first_timing: number; second_timing: number; second_timing_vayego: number };
+  cohorts: FarmerCommunicationCohort[];
+  records: FarmerCommunicationRecord[];
+  page: { offset: number; limit: number; total: number; has_more: boolean };
+  delivery: { state: "review_only"; detail: string };
+};
 type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
 type MapPoint = {
   id: string;
@@ -522,7 +553,7 @@ function endExpiredWorkspaceSession() {
 }
 
 type Translation = {
-  home: string; map: string; fields: string; farmers: string; actions: string; settings: string;
+  home: string; map: string; fields: string; farmers: string; communications: string; actions: string; settings: string;
   refresh: string; updated: string; loading: string; noData: string; open: string;
   fieldMap: string; programmeContext: string; notFieldMap: string; reviewedFields: string;
   people: string; nextMove: string; dataReadiness: string; unlock: string; lock: string;
@@ -534,7 +565,7 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", actions: "Agents", settings: "Settings",
+    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", communications: "Comms", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
@@ -546,7 +577,7 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", actions: "एजेंट", settings: "सेटिंग्स",
+    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", communications: "संदेश", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
@@ -564,6 +595,7 @@ const NAV: Array<{ view: View; href: string }> = [
   { view: "map", href: "/map" },
   { view: "fields", href: "/farms" },
   { view: "farmers", href: "/farmers" },
+  { view: "communications", href: "/communications" },
   { view: "actions", href: "/actions" },
   { view: "settings", href: "/settings" },
 ];
@@ -939,7 +971,7 @@ export function CommandCentre({ view }: { view: View }) {
       </header>
       {searchOpen ? <CommandSearch items={commandSearchItems(state)} close={() => setSearchOpen(false)} refresh={() => void load(true)} /> : null}
 
-      {view === "home" || view === "map" || view === "fields" || view === "farmers" ? <section className={`command-intro ${view !== "home" ? "command-intro-compact" : ""}`}>
+      {view === "home" || view === "map" || view === "fields" || view === "farmers" || view === "communications" ? <section className={`command-intro ${view !== "home" ? "command-intro-compact" : ""}`}>
         <div>
           <p className="eyebrow">{state.profile?.coverage_label || "Fortune Farms"}</p>
           {view === "home" ? <FieldMoment points={state.trackwick?.map?.points || []} /> : <h1>{headingFor(view, t)}</h1>}
@@ -951,6 +983,7 @@ export function CommandCentre({ view }: { view: View }) {
       {view === "map" ? <MapView state={state} /> : null}
       {view === "fields" ? <FieldsView t={t} state={state} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} expireManagerSession={expireManagerSession} /> : null}
       {view === "farmers" ? <FarmersView farmers={state.canonicalFarmers} readiness={state.readiness} trackwick={state.trackwick} canOpenProfiles={Boolean(state.session?.authenticated)} accessResolved={state.session !== null} selection={profileSelection} openProfile={openPersonProfile} closeProfile={closeProfile} /> : null}
+      {view === "communications" ? <FarmerCommunicationView canRead={Boolean(state.session?.authenticated)} /> : null}
       {view === "actions" ? <AgentsView agents={state.agents} reload={() => void load(true)} /> : null}
       {view === "settings" ? <SettingsView state={state} managerBusy={managerBusy} logout={endManagerSession} /> : null}
       <nav className="mobile-nav" aria-label="Primary views">
@@ -961,7 +994,7 @@ export function CommandCentre({ view }: { view: View }) {
 }
 
 function headingFor(view: View, t: Translation) {
-  return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, actions: t.nextMove, settings: t.settings })[view];
+  return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, communications: "Farmer communication", actions: t.nextMove, settings: t.settings })[view];
 }
 
 type FieldWeather = { temperature: number; code: number; fetchedAt: number };
@@ -2160,6 +2193,71 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
       <ul>{profile.assignments.map((assignment) => <li key={`${assignment.farm_id}-${assignment.field_id}-${assignment.role}`}><strong>{roleName(assignment.role)}</strong><span>{assignment.field_name} · {assignment.farm_name} · since {assignment.starts_on}</span></li>)}</ul>
     </section>
   </div>;
+}
+
+function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
+  const [cohort, setCohort] = useState<FarmerCommunicationCohort["key"]>("first_spray");
+  const [board, setBoard] = useState<FarmerCommunicationBoard | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+
+  const load = useCallback(async (nextCohort: FarmerCommunicationCohort["key"], nextOffset = 0) => {
+    if (!canRead) return;
+    setLoading(true); setError(null);
+    try {
+      const { value } = await readJson<FarmerCommunicationBoard>(`/api/v1/trackwick/farmer-communication?cohort=${nextCohort}&offset=${nextOffset}&limit=40`);
+      setBoard((current) => nextOffset > 0 && current?.selected_cohort === nextCohort
+        ? { ...value, records: [...current.records, ...value.records] }
+        : value);
+      setOffset(nextOffset);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The timing list could not be read.");
+    } finally { setLoading(false); }
+  }, [canRead]);
+
+  useEffect(() => { void load(cohort); }, [cohort, load]);
+
+  const choose = (next: FarmerCommunicationCohort["key"]) => {
+    setCohort(next); setOffset(0); setBoard(null);
+  };
+  const currentCohort = board?.cohorts.find((item) => item.key === cohort);
+  const sourceUnavailable = board?.source.state === "unavailable" || board?.source.state === "not_ready";
+
+  return <section className="directory-workspace communication-workspace">
+    <div className="communication-heading">
+      <div><p className="eyebrow">Timing list · review only</p><h1>Farmer communication</h1><p>Find the right reported farmers for a specific reminder. This does not create or send messages.</p></div>
+      {board ? <span className={`communication-source ${sourceUnavailable ? "attention" : ""}`}>{sourceUnavailable ? "Source needs attention" : `Data through ${dateTime(board.source.data_through || board.source.last_synced_at)}`}</span> : null}
+    </div>
+    {!canRead ? <section className="communication-empty"><strong>Manager access required</strong><p>Sign in again to read the private timing list.</p><Link className="primary-action" href="/login?next=/communications">Sign in <span aria-hidden="true">→</span></Link></section> : <>
+      <div className="communication-summary" aria-label="Timing list coverage">
+        <div><span>Reported farmers</span><strong>{count(board?.summary.reported_farmers)}</strong></div>
+        <div><span>Usable transplant dates</span><strong>{count(board?.summary.timing_available)}</strong></div>
+        <div><span>Needs data cleanup</span><strong>{count((board?.summary.missing_transplant_date || 0) + (board?.summary.ambiguous_transplant_dates || 0))}</strong></div>
+      </div>
+      <div className="communication-cohorts" role="tablist" aria-label="Communication timing cohorts">
+        {(board?.cohorts || [
+          { key: "first_spray", label: "First timing", minimum_days: 40, maximum_days: 50, count: 0 },
+          { key: "second_spray", label: "Second timing", minimum_days: 55, maximum_days: 60, count: 0 },
+          { key: "second_spray_vayego", label: "Second timing · Vayego reported", minimum_days: 55, maximum_days: 60, count: 0 },
+        ] as FarmerCommunicationCohort[]).map((item) => <button key={item.key} type="button" role="tab" aria-selected={cohort === item.key} className={cohort === item.key ? "active" : ""} onClick={() => choose(item.key)} disabled={loading}>
+          <span>{item.label}</span><strong>{item.minimum_days}–{item.maximum_days} days</strong><b>{count(item.count)}</b>
+        </button>)}
+      </div>
+      {sourceUnavailable ? <div className="communication-warning" role="status"><strong>The latest source refresh is unavailable.</strong><span>Only the last safe snapshot is shown. Do not use an empty list as proof that no farmer is due.</span></div> : null}
+      <div className="communication-list-heading"><div><p className="eyebrow">Reported field timing</p><h2>{currentCohort?.label || "Timing list"}</h2><p>Evaluated on {board?.evaluated_on || "—"}. “Vayego reported” means an applied pesticide record after the recorded transplant date; recommendations do not count.</p></div><button type="button" className="quiet-button" onClick={() => void load(cohort)} disabled={loading}>{loading ? "Refreshing…" : "Refresh list"}</button></div>
+      {loading && !board ? <DirectoryLoadingState label="Reading timing list" /> : null}
+      {error ? <section className="communication-empty"><strong>The timing list could not be read.</strong><p>{error}</p><button type="button" className="quiet-button" onClick={() => void load(cohort)}>Try again</button></section> : null}
+      {board && !board.records.length ? <section className="communication-empty"><strong>No farmers are due in this window yet.</strong><p>{board.summary.timing_available ? "No reported farmer falls in this day range today." : "No usable transplant date is available in the current source snapshot. Record one clear transplant date per farmer before using this list."}</p></section> : null}
+      {board?.records.length ? <div className="communication-records" role="list">{board.records.map((record) => <article key={record.id} role="listitem">
+        <div className="communication-person"><span>{record.name.slice(0, 1).toUpperCase()}</span><div><h3>{record.name}</h3><p>{record.place || (record.place_status === "multiple_reported_places" ? "Multiple reported places" : "Place not reported")}</p></div></div>
+        <dl><div><dt>Transplanted</dt><dd>{record.transplanted_on}</dd></div><div><dt>Days since</dt><dd>{record.days_since_transplant}</dd></div><div><dt>Last field record</dt><dd>{dateTime(record.latest_field_record_at)}</dd></div></dl>
+        <div className="communication-tags">{record.reported_vayego_applied ? <span className="reported">Vayego reported</span> : null}{record.reported_issue_since_transplant ? <span className="attention">Issue reported</span> : null}{record.open_work ? <span> {count(record.open_work)} open task{record.open_work === 1 ? "" : "s"}</span> : null}</div>
+      </article>)}</div> : null}
+      {board?.page.has_more ? <button type="button" className="quiet-button directory-more" onClick={() => void load(cohort, offset + 40)} disabled={loading}>{loading ? "Loading…" : `Show 40 more (${count(board.page.total - board.records.length)} remaining)`}</button> : null}
+      {board ? <p className="communication-disclaimer">{board.delivery.detail}</p> : null}
+    </>}
+  </section>;
 }
 
 function AgentsView({ agents, reload }: {
