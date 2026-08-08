@@ -93,12 +93,12 @@ def get_daily_brief_reading(request: Request, _manager_id: str = Depends(require
 @router.get("/farmer-communication")
 def get_farmer_communication(
     request: Request,
-    cohort: str = Query(default="first_spray", pattern="^(first_spray|second_spray|second_spray_vayego)$"),
+    cohort: str = Query(default="all_reported_farmers", pattern="^(all_reported_farmers|disease_reported|missing_transplant_date|no_reported_visit|first_spray|second_spray|second_spray_vayego)$"),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=40, ge=1, le=100),
     _manager_id: str = Depends(require_operating_read),
 ) -> dict:
-    """Return a review-only timing list; no communications are created here."""
+    """Return a safe campaign audience; no communications are created here."""
     try:
         return farmer_communications.board_for_source(
             _connection(request), source_key=trackwick_ingest.SOURCE_KEY,

@@ -197,22 +197,27 @@ type TrackwickBoard = {
 };
 type DailyBriefReading = { summary: string; attention: string; model: string };
 type FarmerCommunicationCohort = {
-  key: "first_spray" | "second_spray" | "second_spray_vayego";
+  key: "all_reported_farmers" | "disease_reported" | "missing_transplant_date" | "no_reported_visit" | "first_spray" | "second_spray" | "second_spray_vayego";
   label: string;
-  minimum_days: number;
-  maximum_days: number;
+  detail: string;
+  minimum_days?: number;
+  maximum_days?: number;
   count: number;
 };
 type FarmerCommunicationRecord = {
   id: string;
   name: string;
-  transplanted_on: string;
-  days_since_transplant: number;
+  state: "timed" | "excluded";
+  exclusion?: string;
+  transplanted_on?: string;
+  days_since_transplant?: number;
   latest_field_record_at?: string | null;
   crop_stage?: string | null;
   kit_status?: string | null;
-  reported_vayego_applied: boolean;
-  reported_issue_since_transplant: boolean;
+  reported_vayego_applied?: boolean;
+  reported_issue_since_transplant?: boolean;
+  reported_disease: boolean;
+  latest_disease_reported_on?: string | null;
   open_work: number;
   place?: string | null;
   place_status: "reported" | "multiple_reported_places" | "not_reported";
@@ -221,11 +226,11 @@ type FarmerCommunicationBoard = {
   selected_cohort: FarmerCommunicationCohort["key"];
   evaluated_on: string;
   source: { state: string; last_synced_at?: string | null; data_through?: string | null };
-  summary: { reported_farmers: number; timing_available: number; missing_transplant_date: number; ambiguous_transplant_dates: number; first_timing: number; second_timing: number; second_timing_vayego: number };
+  summary: { reported_farmers: number; all_reported_farmers: number; timing_available: number; missing_transplant_date: number; ambiguous_transplant_dates: number; first_timing: number; second_timing: number; second_timing_vayego: number; disease_reported: number; no_reported_visit: number };
   cohorts: FarmerCommunicationCohort[];
   records: FarmerCommunicationRecord[];
   page: { offset: number; limit: number; total: number; has_more: boolean };
-  delivery: { state: "review_only"; detail: string };
+  delivery: { state: "audience_ready"; detail: string };
 };
 type MapSubjectKind = "reported_farm" | "farmer" | "field_worker" | "work" | "point";
 type MapPoint = {
@@ -567,7 +572,7 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", communications: "Farmer comms", actions: "Agents", settings: "Settings",
+    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", communications: "Campaigns", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
@@ -579,7 +584,7 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", communications: "किसान संदेश", actions: "एजेंट", settings: "सेटिंग्स",
+    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", communications: "अभियान", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
@@ -597,7 +602,7 @@ const NAV: Array<{ view: View; href: string }> = [
   { view: "map", href: "/map" },
   { view: "fields", href: "/farms" },
   { view: "farmers", href: "/farmers" },
-  { view: "communications", href: "/communications" },
+  { view: "communications", href: "/campaigns" },
   { view: "actions", href: "/actions" },
   { view: "settings", href: "/settings" },
 ];
@@ -996,7 +1001,7 @@ export function CommandCentre({ view }: { view: View }) {
 }
 
 function headingFor(view: View, t: Translation) {
-  return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, communications: "Farmer communication", actions: t.nextMove, settings: t.settings })[view];
+  return ({ home: "Today, in the field.", map: "Map", fields: languageFarmHeading(t), farmers: t.farmers, communications: "Campaigns", actions: t.nextMove, settings: t.settings })[view];
 }
 
 type FieldWeather = { temperature: number; code: number; fetchedAt: number };
@@ -2294,7 +2299,7 @@ function PersonProfileFacts({ profile }: { profile: PersonProfile }) {
 }
 
 function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
-  const [cohort, setCohort] = useState<FarmerCommunicationCohort["key"]>("first_spray");
+  const [cohort, setCohort] = useState<FarmerCommunicationCohort["key"]>("all_reported_farmers");
   const [board, setBoard] = useState<FarmerCommunicationBoard | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2310,7 +2315,7 @@ function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
         : value);
       setOffset(nextOffset);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The timing list could not be read.");
+      setError(reason instanceof Error ? reason.message : "The campaign audience could not be read.");
     } finally { setLoading(false); }
   }, [canRead]);
 
@@ -2321,36 +2326,43 @@ function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
   };
   const currentCohort = board?.cohorts.find((item) => item.key === cohort);
   const sourceUnavailable = board?.source.state === "unavailable" || board?.source.state === "not_ready";
+  const fallbackCohorts: FarmerCommunicationCohort[] = [
+    { key: "all_reported_farmers", label: "All reported farmers", detail: "Every valid farmer in this source snapshot.", count: 0 },
+    { key: "disease_reported", label: "Disease reported", detail: "At least one reported disease finding.", count: 0 },
+    { key: "missing_transplant_date", label: "Missing transplant date", detail: "No transplant date is recorded.", count: 0 },
+    { key: "no_reported_visit", label: "No reported visit", detail: "No reported field visit is linked.", count: 0 },
+    { key: "first_spray", label: "First spray timing", detail: "40–50 days after transplanting.", minimum_days: 40, maximum_days: 50, count: 0 },
+    { key: "second_spray", label: "Second spray timing", detail: "55–60 days after transplanting.", minimum_days: 55, maximum_days: 60, count: 0 },
+    { key: "second_spray_vayego", label: "Second spray · Vayego reported", detail: "Applied Vayego recorded after transplanting.", minimum_days: 55, maximum_days: 60, count: 0 },
+  ];
+  const audienceDescription = currentCohort?.detail || "Choose a reported farmer audience.";
+  const isTimingAudience = Boolean(currentCohort?.minimum_days);
 
   return <section className="directory-workspace communication-workspace">
     <div className="communication-heading">
-      <div><p className="eyebrow">Timing list · review only</p><h1>Farmer communication</h1><p>Find the right reported farmers for a specific reminder. This does not create or send messages.</p></div>
+      <div><p className="eyebrow">Campaign audiences · reported source</p><h1>Campaigns</h1><p>Choose the farmers for an outbound message—everyone, or a clear field-data group. This page never exposes phone numbers.</p></div>
       {board ? <span className={`communication-source ${sourceUnavailable ? "attention" : ""}`}>{sourceUnavailable ? "Source needs attention" : `Data through ${dateTime(board.source.data_through || board.source.last_synced_at)}`}</span> : null}
     </div>
-    {!canRead ? <section className="communication-empty"><strong>Manager access required</strong><p>Sign in again to read the private timing list.</p><Link className="primary-action" href="/login?next=/communications">Sign in <span aria-hidden="true">→</span></Link></section> : <>
-      <div className="communication-summary" aria-label="Timing list coverage">
+    {!canRead ? <section className="communication-empty"><strong>Manager access required</strong><p>Sign in again to build private campaign audiences.</p><Link className="primary-action" href="/login?next=/campaigns">Sign in <span aria-hidden="true">→</span></Link></section> : <>
+      <div className="communication-summary" aria-label="Campaign audience coverage">
         <div><span>Reported farmers</span><strong>{count(board?.summary.reported_farmers)}</strong></div>
-        <div><span>Usable transplant dates</span><strong>{count(board?.summary.timing_available)}</strong></div>
-        <div><span>Needs data cleanup</span><strong>{count((board?.summary.missing_transplant_date || 0) + (board?.summary.ambiguous_transplant_dates || 0))}</strong></div>
+        <div><span>Disease reported</span><strong>{count(board?.summary.disease_reported)}</strong></div>
+        <div><span>No reported visit</span><strong>{count(board?.summary.no_reported_visit)}</strong></div>
       </div>
-      <div className="communication-cohorts" role="tablist" aria-label="Communication timing cohorts">
-        {(board?.cohorts || [
-          { key: "first_spray", label: "First timing", minimum_days: 40, maximum_days: 50, count: 0 },
-          { key: "second_spray", label: "Second timing", minimum_days: 55, maximum_days: 60, count: 0 },
-          { key: "second_spray_vayego", label: "Second timing · Vayego reported", minimum_days: 55, maximum_days: 60, count: 0 },
-        ] as FarmerCommunicationCohort[]).map((item) => <button key={item.key} type="button" role="tab" aria-selected={cohort === item.key} className={cohort === item.key ? "active" : ""} onClick={() => choose(item.key)} disabled={loading}>
-          <span>{item.label}</span><strong>{item.minimum_days}–{item.maximum_days} days</strong><b>{count(item.count)}</b>
+      <div className="communication-cohorts" role="tablist" aria-label="Campaign audiences">
+        {(board?.cohorts || fallbackCohorts).map((item) => <button key={item.key} type="button" role="tab" aria-selected={cohort === item.key} className={cohort === item.key ? "active" : ""} onClick={() => choose(item.key)} disabled={loading}>
+          <span>{item.label}</span><strong>{item.minimum_days ? `${item.minimum_days}–${item.maximum_days} days` : item.detail}</strong><b>{count(item.count)}</b>
         </button>)}
       </div>
       {sourceUnavailable ? <div className="communication-warning" role="status"><strong>The latest source refresh is unavailable.</strong><span>Only the last safe snapshot is shown. Do not use an empty list as proof that no farmer is due.</span></div> : null}
-      <div className="communication-list-heading"><div><p className="eyebrow">Reported field timing</p><h2>{currentCohort?.label || "Timing list"}</h2><p>Evaluated on {board?.evaluated_on || "—"}. “Vayego reported” means an applied pesticide record after the recorded transplant date; recommendations do not count.</p></div><button type="button" className="quiet-button" onClick={() => void load(cohort)} disabled={loading}>{loading ? "Refreshing…" : "Refresh list"}</button></div>
-      {loading && !board ? <DirectoryLoadingState label="Reading timing list" /> : null}
-      {error ? <section className="communication-empty"><strong>The timing list could not be read.</strong><p>{error}</p><button type="button" className="quiet-button" onClick={() => void load(cohort)}>Try again</button></section> : null}
-      {board && !board.records.length ? <section className="communication-empty"><strong>No farmers are due in this window yet.</strong><p>{board.summary.timing_available ? "No reported farmer falls in this day range today." : "No usable transplant date is available in the current source snapshot. Record one clear transplant date per farmer before using this list."}</p></section> : null}
+      <div className="communication-list-heading"><div><p className="eyebrow">Audience: reported farmers</p><h2>{currentCohort?.label || "Campaign audience"}</h2><p>{audienceDescription}{isTimingAudience ? ` Evaluated on ${board?.evaluated_on || "—"}. “Vayego reported” means an applied pesticide record after the recorded transplant date; recommendations do not count.` : ""}</p></div><button type="button" className="quiet-button" onClick={() => void load(cohort)} disabled={loading}>{loading ? "Refreshing…" : "Refresh audience"}</button></div>
+      {loading && !board ? <DirectoryLoadingState label="Building campaign audience" /> : null}
+      {error ? <section className="communication-empty"><strong>The campaign audience could not be read.</strong><p>{error}</p><button type="button" className="quiet-button" onClick={() => void load(cohort)}>Try again</button></section> : null}
+      {board && !board.records.length ? <section className="communication-empty"><strong>No reported farmers match this audience.</strong><p>{cohort === "missing_transplant_date" ? "No farmer is missing a transplant date in this source snapshot." : cohort === "no_reported_visit" ? "Every reported farmer has a linked field visit in this source snapshot." : "Try another audience or refresh after the next source update."}</p></section> : null}
       {board?.records.length ? <div className="communication-records" role="list">{board.records.map((record) => <article key={record.id} role="listitem">
         <div className="communication-person"><span>{record.name.slice(0, 1).toUpperCase()}</span><div><h3>{record.name}</h3><p>{record.place || (record.place_status === "multiple_reported_places" ? "Multiple reported places" : "Place not reported")}</p></div></div>
-        <dl><div><dt>Transplanted</dt><dd>{record.transplanted_on}</dd></div><div><dt>Days since</dt><dd>{record.days_since_transplant}</dd></div><div><dt>Last field record</dt><dd>{dateTime(record.latest_field_record_at)}</dd></div></dl>
-        <div className="communication-tags">{record.reported_vayego_applied ? <span className="reported">Vayego reported</span> : null}{record.reported_issue_since_transplant ? <span className="attention">Issue reported</span> : null}{record.open_work ? <span> {count(record.open_work)} open task{record.open_work === 1 ? "" : "s"}</span> : null}</div>
+        <dl>{isTimingAudience ? <><div><dt>Transplanted</dt><dd>{record.transplanted_on || "—"}</dd></div><div><dt>Days since</dt><dd>{record.days_since_transplant ?? "—"}</dd></div></> : <><div><dt>Last field record</dt><dd>{dateTime(record.latest_field_record_at)}</dd></div><div><dt>Audience reason</dt><dd>{record.exclusion || (record.reported_disease ? `Disease reported ${record.latest_disease_reported_on || ""}` : "Reported record")}</dd></div></>}<div><dt>Open tasks</dt><dd>{count(record.open_work)}</dd></div></dl>
+        <div className="communication-tags">{record.reported_vayego_applied ? <span className="reported">Vayego reported</span> : null}{record.reported_disease ? <span className="attention">Disease reported</span> : null}{record.reported_issue_since_transplant && !record.reported_disease ? <span className="attention">Issue reported</span> : null}</div>
       </article>)}</div> : null}
       {board?.page.has_more ? <button type="button" className="quiet-button directory-more" onClick={() => void load(cohort, offset + 40)} disabled={loading}>{loading ? "Loading…" : `Show 40 more (${count(board.page.total - board.records.length)} remaining)`}</button> : null}
       {board ? <p className="communication-disclaimer">{board.delivery.detail}</p> : null}

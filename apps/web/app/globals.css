@@ -445,7 +445,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .communication-summary strong { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.65rem; font-weight: 400; letter-spacing: -.04em; line-height: 1; }
 .communication-cohorts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); padding: 18px 0; }
 .communication-cohorts button { display: grid; min-height: 90px; align-content: start; gap: 5px; border: 1px solid rgba(20, 61, 45, .18); border-left: 0; background: rgba(255, 253, 244, .48); color: var(--ink-soft); cursor: pointer; padding: 14px 16px; text-align: left; }
-.communication-cohorts button:first-child { border-left: 1px solid rgba(20, 61, 45, .18); }
+.communication-cohorts button:nth-child(3n + 1) { border-left: 1px solid rgba(20, 61, 45, .18); }
 .communication-cohorts button:hover, .communication-cohorts button:focus-visible { background: rgba(220, 231, 211, .45); }
 .communication-cohorts button.active { background: var(--ink); color: #fff9ec; }
 .communication-cohorts span { font-size: .77rem; font-weight: 800; }

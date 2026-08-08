@@ -1,9 +1,8 @@
-"""Evidence-backed farmer communication cohorts.
+"""Evidence-backed campaign audiences from reported field records.
 
-The cohorts identify reported field timing only.  They do not expose contacts,
-compose agronomy advice, create a campaign, or dispatch a message.  A reported
-TrackWick farmer becomes messageable only through the separate, reviewed
-communications control plane.
+These lists deliberately identify an audience, not a delivery endpoint.  They
+never expose contacts or create/send messages.  A reported TrackWick farmer
+only becomes messageable through the reviewed communications control plane.
 """
 
 from __future__ import annotations
@@ -20,10 +19,31 @@ from ffl.services.trackwick_ingest import SOURCE_KEY
 
 
 _REPORTING_TIMEZONE = ZoneInfo("Asia/Kolkata")
-_COHORTS = {
-    "first_spray": {"label": "First timing", "minimum_days": 40, "maximum_days": 50},
-    "second_spray": {"label": "Second timing", "minimum_days": 55, "maximum_days": 60},
-    "second_spray_vayego": {"label": "Second timing · Vayego reported", "minimum_days": 55, "maximum_days": 60},
+_AUDIENCES = {
+    "all_reported_farmers": {
+        "label": "All reported farmers", "detail": "Every valid farmer record in the current source snapshot.",
+    },
+    "disease_reported": {
+        "label": "Disease reported", "detail": "At least one reported disease finding in the source snapshot.",
+    },
+    "missing_transplant_date": {
+        "label": "Missing transplant date", "detail": "No transplant date is recorded in any reported visit.",
+    },
+    "no_reported_visit": {
+        "label": "No reported visit", "detail": "No valid reported field visit is linked to the farmer.",
+    },
+    "first_spray": {
+        "label": "First spray timing", "detail": "40–50 days after one recorded transplant date.",
+        "minimum_days": 40, "maximum_days": 50,
+    },
+    "second_spray": {
+        "label": "Second spray timing", "detail": "55–60 days after one recorded transplant date.",
+        "minimum_days": 55, "maximum_days": 60,
+    },
+    "second_spray_vayego": {
+        "label": "Second spray · Vayego reported", "detail": "Second-spray timing with an applied Vayego record after transplanting.",
+        "minimum_days": 55, "maximum_days": 60,
+    },
 }
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
 _VAYEGO = re.compile(r"(?<![a-z0-9])vayego(?![a-z0-9])", re.IGNORECASE)
@@ -38,9 +58,9 @@ def board_for_source(
     limit: int = 40,
     evaluated_on: date | None = None,
 ) -> dict[str, Any]:
-    """Return a paginated, manager-safe timing cohort and explicit exclusions."""
-    if cohort not in _COHORTS:
-        raise ValueError("unknown farmer communication cohort")
+    """Return one paginated, manager-safe campaign audience."""
+    if cohort not in _AUDIENCES:
+        raise ValueError("unknown campaign audience")
     if offset < 0 or not 1 <= limit <= 100:
         raise ValueError("pagination is invalid")
     evaluated_on = evaluated_on or datetime.now(_REPORTING_TIMEZONE).date()
@@ -84,7 +104,7 @@ def board_for_source(
         (source.id,),
     ).fetchall()
     findings = conn.execute(
-        """SELECT task.farmer_party_id, finding.observed_at
+        """SELECT task.farmer_party_id, finding.observed_at, finding.finding_kind
            FROM trackwick_visit_findings AS finding
            JOIN trackwick_tasks AS task ON task.id = finding.visit_task_id
            WHERE finding.source_id = ? AND finding.data_quality_status = 'valid'
@@ -108,10 +128,7 @@ def board_for_source(
     records = _timing_records(
         farmers, visits, inputs, findings, tasks, places, evaluated_on,
     )
-    cohort_records = {
-        key: _for_window(records, values["minimum_days"], values["maximum_days"], vayego_only=key == "second_spray_vayego")
-        for key, values in _COHORTS.items()
-    }
+    cohort_records = _audience_records(records)
     selected = cohort_records[cohort]
     result["source"] = {
         "state": latest_run["status"] if latest_run is not None else "registered",
@@ -121,7 +138,7 @@ def board_for_source(
     result["summary"] = _summary(farmers, records, cohort_records)
     result["cohorts"] = [
         {"key": key, **values, "count": len(cohort_records[key])}
-        for key, values in _COHORTS.items()
+        for key, values in _AUDIENCES.items()
     ]
     result["records"] = selected[offset:offset + limit]
     result["page"] = {"offset": offset, "limit": limit, "total": len(selected), "has_more": offset + limit < len(selected)}
@@ -151,10 +168,13 @@ def _timing_records(
     for row in inputs:
         inputs_by_farmer[str(row["farmer_party_id"])].append(row)
     finding_dates: dict[str, list[date]] = defaultdict(list)
+    disease_dates: dict[str, list[date]] = defaultdict(list)
     for row in findings:
         observed = _as_date(row["observed_at"])
         if observed is not None:
             finding_dates[str(row["farmer_party_id"])].append(observed)
+            if str(row["finding_kind"]).casefold() == "disease":
+                disease_dates[str(row["farmer_party_id"])].append(observed)
     open_work: dict[str, int] = defaultdict(int)
     for row in tasks:
         if str(row["task_status"]) in _OPEN_TASK_STATUSES:
@@ -172,7 +192,22 @@ def _timing_records(
         farmer_id = str(farmer["id"])
         rows = visits_by_farmer.get(farmer_id, [])
         transplant_dates = {parsed for row in rows if (parsed := _as_date(row["transplanted_on"])) is not None}
-        base = {"id": farmer_id, "name": str(farmer["display_name"]), "state": "excluded"}
+        latest_visit = max(rows, key=lambda row: str(row["observed_at"] or "")) if rows else None
+        latest_visit_on = _as_date(latest_visit["observed_at"]) if latest_visit else None
+        places_for_farmer = places_by_farmer.get(farmer_id, set())
+        disease_for_farmer = disease_dates.get(farmer_id, [])
+        base = {
+            "id": farmer_id,
+            "name": str(farmer["display_name"]),
+            "state": "excluded",
+            "latest_field_record_at": latest_visit["observed_at"] if latest_visit else None,
+            "latest_field_record_on": latest_visit_on.isoformat() if latest_visit_on else None,
+            "reported_disease": bool(disease_for_farmer),
+            "latest_disease_reported_on": max(disease_for_farmer).isoformat() if disease_for_farmer else None,
+            "open_work": open_work.get(farmer_id, 0),
+            "place": next(iter(places_for_farmer)) if len(places_for_farmer) == 1 else None,
+            "place_status": "multiple_reported_places" if len(places_for_farmer) > 1 else "reported" if places_for_farmer else "not_reported",
+        }
         if not transplant_dates:
             result[farmer_id] = {**base, "exclusion": "No recorded transplant date"}
             continue
@@ -187,9 +222,7 @@ def _timing_records(
             if (occurred := _as_date(row["occurred_at"])) is not None and occurred >= transplanted_on
         ]
         reported_vayego = any(_is_vayego(row["reported_product"]) for row in applied_inputs)
-        latest_visit_on = _as_date(latest_visit["observed_at"])
         has_reported_issue = any(item >= transplanted_on for item in finding_dates.get(farmer_id, []))
-        places_for_farmer = places_by_farmer.get(farmer_id, set())
         result[farmer_id] = {
             **base,
             "state": "timed",
@@ -201,9 +234,6 @@ def _timing_records(
             "kit_status": latest_visit["kit_status"],
             "reported_vayego_applied": reported_vayego,
             "reported_issue_since_transplant": has_reported_issue,
-            "open_work": open_work.get(farmer_id, 0),
-            "place": next(iter(places_for_farmer)) if len(places_for_farmer) == 1 else None,
-            "place_status": "multiple_reported_places" if len(places_for_farmer) > 1 else "reported" if places_for_farmer else "not_reported",
         }
     return result
 
@@ -218,6 +248,34 @@ def _for_window(records: Mapping[str, Mapping[str, Any]], minimum_days: int, max
     return sorted(selected, key=lambda record: (-int(record["days_since_transplant"]), str(record["name"]).casefold()))
 
 
+def _audience_records(records: Mapping[str, Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Keep the campaign criteria narrow, explicit, and independently auditable."""
+    audiences = {
+        "all_reported_farmers": sorted(
+            (dict(record) for record in records.values()), key=lambda record: str(record["name"]).casefold(),
+        ),
+        "disease_reported": sorted(
+            (dict(record) for record in records.values() if record.get("reported_disease")),
+            key=lambda record: (str(record.get("latest_disease_reported_on") or ""), str(record["name"]).casefold()),
+            reverse=True,
+        ),
+        "missing_transplant_date": sorted(
+            (dict(record) for record in records.values() if record.get("exclusion") == "No recorded transplant date"),
+            key=lambda record: str(record["name"]).casefold(),
+        ),
+        "no_reported_visit": sorted(
+            (dict(record) for record in records.values() if record.get("latest_field_record_at") is None),
+            key=lambda record: str(record["name"]).casefold(),
+        ),
+    }
+    audiences.update({
+        key: _for_window(records, values["minimum_days"], values["maximum_days"], vayego_only=key == "second_spray_vayego")
+        for key, values in _AUDIENCES.items()
+        if "minimum_days" in values
+    })
+    return audiences
+
+
 def _summary(
     farmers: Iterable[Mapping[str, Any]],
     records: Mapping[str, Mapping[str, Any]],
@@ -226,12 +284,15 @@ def _summary(
     values = list(records.values())
     return {
         "reported_farmers": len(list(farmers)),
+        "all_reported_farmers": len(cohorts["all_reported_farmers"]),
         "timing_available": sum(record.get("state") == "timed" for record in values),
         "missing_transplant_date": sum(record.get("exclusion") == "No recorded transplant date" for record in values),
         "ambiguous_transplant_dates": sum(record.get("exclusion") == "More than one recorded transplant date" for record in values),
         "first_timing": len(cohorts["first_spray"]),
         "second_timing": len(cohorts["second_spray"]),
         "second_timing_vayego": len(cohorts["second_spray_vayego"]),
+        "disease_reported": len(cohorts["disease_reported"]),
+        "no_reported_visit": len(cohorts["no_reported_visit"]),
     }
 
 
@@ -263,15 +324,15 @@ def _empty_board(cohort: str, evaluated_on: date, offset: int, limit: int) -> di
         "evaluated_on": evaluated_on.isoformat(),
         "source": {"state": "not_configured", "last_synced_at": None, "data_through": None},
         "summary": {
-            "reported_farmers": 0, "timing_available": 0, "missing_transplant_date": 0,
+            "reported_farmers": 0, "all_reported_farmers": 0, "timing_available": 0, "missing_transplant_date": 0,
             "ambiguous_transplant_dates": 0, "first_timing": 0, "second_timing": 0,
-            "second_timing_vayego": 0,
+            "second_timing_vayego": 0, "disease_reported": 0, "no_reported_visit": 0,
         },
-        "cohorts": [{"key": key, **values, "count": 0} for key, values in _COHORTS.items()],
+        "cohorts": [{"key": key, **values, "count": 0} for key, values in _AUDIENCES.items()],
         "records": [],
         "page": {"offset": offset, "limit": limit, "total": 0, "has_more": False},
         "delivery": {
-            "state": "review_only",
-            "detail": "This is a review list only. It cannot send messages or prescribe a spray.",
+            "state": "audience_ready",
+            "detail": "Audience only. Delivery starts after a verified recipient, consent, approved template, and sender are selected.",
         },
     }
