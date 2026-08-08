@@ -6,6 +6,7 @@ MIGRATION = ROOT / "db" / "postgres" / "0009_agro_trackwick_private_spatial_evid
 CLASSIFICATION_MIGRATION = ROOT / "db" / "postgres" / "0023_agro_operating_classification_spine.sql"
 PLACE_SUMMARIES_MIGRATION = ROOT / "db" / "postgres" / "0024_agro_place_operating_summaries.sql"
 VOCABULARY_MIGRATION = ROOT / "db" / "postgres" / "0025_agro_operating_vocabulary_registry.sql"
+LANGUAGE_MIGRATION = ROOT / "db" / "postgres" / "0029_agro_operating_language_packs.sql"
 
 
 def test_private_spatial_migration_defines_the_typed_trackwick_graph():
@@ -103,3 +104,25 @@ def test_vocabulary_migration_stays_private_and_reviewable(ffl_db):
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'operating_vocabulary_terms'"
     ).fetchone()
     assert relation is not None
+
+
+def test_operating_language_packs_are_private_and_review_first(ffl_db):
+    sql = LANGUAGE_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS agro_operating_vocabulary_localizations" in sql
+    assert "CREATE TABLE IF NOT EXISTS agro_operating_issue_group_proposals" in sql
+    assert "CREATE TABLE IF NOT EXISTS agro_place_localizations" in sql
+    assert "REFERENCES agro_operating_vocabulary_terms" in sql
+    assert "REFERENCES agro_place_catalog" in sql
+    assert "REVOKE ALL ON TABLE agro_operating_vocabulary_localizations FROM PUBLIC, anon, authenticated" in sql
+    assert "REVOKE ALL ON TABLE agro_operating_issue_group_proposals FROM PUBLIC, anon, authenticated" in sql
+    assert "REVOKE ALL ON TABLE agro_place_localizations FROM PUBLIC, anon, authenticated" in sql
+
+    relations = {
+        row[0] for row in ffl_db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    assert {
+        "operating_vocabulary_localizations", "operating_issue_group_proposals", "place_localizations",
+    } <= relations

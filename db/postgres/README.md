@@ -70,3 +70,12 @@ a deliberate one-time backfill; each eight-term batch commits separately. A
 model can also record `unmapped` when a term should safely remain raw. Neither
 state changes facts, boundaries, identities, or browser-visible filters on its
 own.
+
+`0029_agro_operating_language_packs.sql` adds three private, review-first
+companions: Hindi vocabulary labels/search aliases, Hindi place display/search
+aliases, and a small issue-group review queue for values that already share a
+proposed normalized key. Apply it through the direct migration connection, then
+run `scripts/enrich_operating_language.py --apply --batches 40`. The model sees
+only controlled display labels or village/block/district components. It cannot
+merge places, change raw source values, identify people, draw boundaries, or
+diagnose a reported issue. Suggested labels remain invisible until reviewed.
