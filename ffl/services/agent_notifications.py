@@ -21,47 +21,17 @@ def _parse_time(value: object) -> datetime | None:
 
 
 def default_agents(conn) -> list[dict]:
-    """Return four current counts without exposing source records to the browser."""
+    """Return the two live, source-backed notifications the team can act on now."""
     source = repository.get_source_registry_by_key(conn, SOURCE_KEY)
     if source is None:
         return [
-            {"id": "paddy-no-visits", "name": "Paddy — no visits", "count": 0, "summary": "No farm visits need attention."},
-            {"id": "farmer-no-visits", "name": "Farmer — no visits", "count": 0, "summary": "No farmers need a first visit."},
-            {"id": "farmer-no-update", "name": "Farmer — no update", "count": 0, "summary": "No farmers are waiting for an update."},
-            {"id": "disease-watch", "name": "Disease watch", "count": 0, "summary": "No disease reports need review."},
+            {"id": "farmer-no-update-7d", "name": "No update in 7 days", "count": 0,
+             "summary": "No farmers are waiting for an update.", "status": "live"},
+            {"id": "disease-watch", "name": "Disease reports", "count": 0,
+             "summary": "No disease reports need review.", "status": "live"},
         ]
 
     source_id = source.id
-    paddy_no_visits = conn.execute(
-        """SELECT COUNT(*) AS total
-           FROM trackwick_registrations AS registration
-           WHERE registration.source_id = ? AND registration.registration_status = 'completed'
-             AND registration.data_quality_status = 'valid'
-             AND NOT EXISTS (
-                SELECT 1 FROM trackwick_tasks AS task
-                JOIN trackwick_visits AS visit ON visit.task_id = task.id
-                 AND visit.data_quality_status = 'valid'
-                WHERE task.source_id = registration.source_id
-                  AND task.farmer_party_id = registration.farmer_party_id
-                  AND task.data_quality_status = 'valid'
-             )""",
-        (source_id,),
-    ).fetchone()["total"]
-    farmer_no_visits = conn.execute(
-        """SELECT COUNT(*) AS total
-           FROM trackwick_parties AS farmer
-           WHERE farmer.source_id = ? AND farmer.party_kind = 'farmer'
-             AND farmer.data_quality_status = 'valid'
-             AND NOT EXISTS (
-                SELECT 1 FROM trackwick_tasks AS task
-                JOIN trackwick_visits AS visit ON visit.task_id = task.id
-                 AND visit.data_quality_status = 'valid'
-                WHERE task.source_id = farmer.source_id
-                  AND task.farmer_party_id = farmer.id
-                  AND task.data_quality_status = 'valid'
-             )""",
-        (source_id,),
-    ).fetchone()["total"]
     rows = conn.execute(
         """SELECT farmer.id, MAX(COALESCE(task.provider_completed_at, task.provider_started_at,
                 task.provider_created_at, task.last_seen_at)) AS latest_activity
@@ -75,8 +45,8 @@ def default_agents(conn) -> list[dict]:
     ).fetchall()
     activity_times = [_parse_time(row["latest_activity"]) for row in rows]
     latest = max((item for item in activity_times if item is not None), default=None)
-    stale_cutoff = latest - timedelta(days=14) if latest is not None else None
-    farmer_no_update = sum(
+    stale_cutoff = latest - timedelta(days=7) if latest is not None else None
+    farmers_without_update = sum(
         activity is None or (stale_cutoff is not None and activity < stale_cutoff)
         for activity in activity_times
     )
@@ -86,14 +56,10 @@ def default_agents(conn) -> list[dict]:
         (source_id,),
     ).fetchone()["total"]
     return [
-        {"id": "paddy-no-visits", "name": "Paddy — no visits", "count": int(paddy_no_visits),
-         "summary": f"{int(paddy_no_visits):,} paddy records have no visit yet."},
-        {"id": "farmer-no-visits", "name": "Farmer — no visits", "count": int(farmer_no_visits),
-         "summary": f"{int(farmer_no_visits):,} farmers have no visit yet."},
-        {"id": "farmer-no-update", "name": "Farmer — no update", "count": int(farmer_no_update),
-         "summary": f"{farmer_no_update:,} farmers have no update in the last 14 days of available activity."},
-        {"id": "disease-watch", "name": "Disease watch", "count": int(disease_watch),
-         "summary": f"{int(disease_watch):,} disease reports need attention."},
+        {"id": "farmer-no-update-7d", "name": "No update in 7 days", "count": int(farmers_without_update),
+         "summary": f"{farmers_without_update:,} farmers have no update in the last 7 days of recorded activity.", "status": "live"},
+        {"id": "disease-watch", "name": "Disease reports", "count": int(disease_watch),
+         "summary": f"{int(disease_watch):,} disease reports need review.", "status": "live"},
     ]
 
 
@@ -103,7 +69,7 @@ def board(conn) -> dict:
         "custom_agents": [
             {
                 "id": item.id, "name": item.name, "instruction": item.natural_language_rule,
-                "enabled": item.enabled, "updated_at": item.updated_at,
+                "enabled": item.enabled, "status": "live" if item.enabled else "in_review", "updated_at": item.updated_at,
             }
             for item in repository.list_agent_notifications(conn)
         ],

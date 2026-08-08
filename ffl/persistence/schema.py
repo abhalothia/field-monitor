@@ -620,7 +620,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 80),
             natural_language_rule TEXT NOT NULL CHECK (length(trim(natural_language_rule)) BETWEEN 8 AND 500),
-            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
             created_by_person_id TEXT NOT NULL REFERENCES people(id),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL

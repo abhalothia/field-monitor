@@ -3447,7 +3447,7 @@ def _active_farm_for_reviewed_registration(conn, registration_id: str) -> Option
 
 def create_agent_notification(
     conn: sqlite3.Connection, created_by_person_id: str, name: str,
-    natural_language_rule: str, enabled: bool = True,
+    natural_language_rule: str, enabled: bool = False,
 ) -> AgentNotification:
     """Store a manager's notification intent without executing it."""
     created_by_person_id = _required_text(created_by_person_id, "created_by_person_id", 128)

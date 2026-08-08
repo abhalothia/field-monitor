@@ -40,15 +40,15 @@ def _seed_source(conn):
     return owner
 
 
-def test_agents_return_four_plain_checks_and_save_custom_rule(ffl_db):
+def test_agents_return_two_live_checks_and_save_custom_rule_for_review(ffl_db):
     owner = _seed_source(ffl_db)
     checks = agent_notifications.default_agents(ffl_db)
     assert [item["name"] for item in checks] == [
-        "Paddy — no visits", "Farmer — no visits", "Farmer — no update", "Disease watch",
+        "No update in 7 days", "Disease reports",
     ]
     assert checks[0]["count"] == 1
-    assert checks[1]["count"] == 2
-    assert checks[3]["count"] == 1
+    assert checks[1]["count"] == 1
+    assert checks[0]["status"] == checks[1]["status"] == "live"
 
     created = repository.create_agent_notification(
         ffl_db, owner.id, "Priority farmers", "Tell me when a farmer has repeated disease reports.",
@@ -58,7 +58,7 @@ def test_agents_return_four_plain_checks_and_save_custom_rule(ffl_db):
     assert agent_notifications.board(ffl_db)["custom_agents"] == [{
         "id": created.id, "name": "Priority farmers",
         "instruction": "Tell me when a farmer has repeated disease reports.",
-        "enabled": False, "updated_at": changed.updated_at,
+        "enabled": False, "status": "in_review", "updated_at": changed.updated_at,
     }]
 
 
@@ -69,15 +69,17 @@ def test_agent_routes_are_manager_only_and_allow_a_saved_rule(tmp_path):
         app.state.manager_person_id = manager.id
         assert client.get("/api/v1/agents").status_code == 403
         created = client.post("/api/v1/agents", headers={"X-FFL-Manager-Token": "manager-secret"}, json={
-            "name": "Priority farmers", "instruction": "Tell me when disease reports repeat.",
+            "instruction": "Tell me when disease reports repeat.",
         })
         assert created.status_code == 201
+        assert created.json()["status"] == "in_review"
         agent_id = created.json()["id"]
         updated = client.patch(f"/api/v1/agents/{agent_id}", headers={"X-FFL-Manager-Token": "manager-secret"}, json={"enabled": False})
         board = client.get("/api/v1/agents", headers={"X-FFL-Manager-Token": "manager-secret"})
 
     assert updated.json()["enabled"] is False
-    assert board.json()["custom_agents"][0]["name"] == "Priority farmers"
+    assert board.json()["custom_agents"][0]["name"] == "Agent request"
+    assert board.json()["custom_agents"][0]["status"] == "in_review"
 
 
 def test_agent_activity_accepts_postgres_timestamp_values():

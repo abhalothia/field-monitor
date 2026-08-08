@@ -225,6 +225,9 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .agent-icon.disease { border-color: rgba(166, 87, 75, .28); background: #f4d8d2; color: #8a4439; }
 .agent-row h3, .agent-builder h3 { color: var(--ink); font-size: .88rem; margin: 0 0 4px; }
 .agent-row p, .agent-builder > div > p { color: var(--muted); font-size: .72rem; line-height: 1.45; margin: 0; }
+.agent-live { display: flex; align-items: center; gap: 5px; color: #426647 !important; font-family: "DM Mono", monospace; font-size: .53rem !important; font-weight: 700; letter-spacing: .05em; margin: 0 0 5px !important; text-transform: uppercase; }
+.agent-live i { width: 6px; height: 6px; border-radius: 50%; background: #5c9b61; box-shadow: 0 0 0 0 rgba(92, 155, 97, .5); animation: agent-live-pulse 1.8s ease-out infinite; }
+@keyframes agent-live-pulse { 70% { box-shadow: 0 0 0 5px rgba(92, 155, 97, 0); } 100% { box-shadow: 0 0 0 0 rgba(92, 155, 97, 0); } }
 .agent-builder { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(0, 1.35fr); gap: 22px; border-top: 1px solid var(--line); margin-top: 34px; padding-top: 26px; }
 .agent-builder .eyebrow { margin-bottom: 8px; }
 .agent-form { display: grid; gap: 12px; }
@@ -233,6 +236,14 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .agent-form input { min-height: 42px; }
 .agent-form textarea { min-height: 86px; line-height: 1.45; resize: vertical; }
 .agent-form .primary-action { justify-self: start; border: 0; cursor: pointer; }
+.agent-command { display: flex; align-items: stretch; gap: 8px; }
+.agent-command input { min-width: 0; flex: 1; border: 1px solid rgba(20, 61, 45, .3); border-radius: 999px; background: rgba(255, 253, 244, .78); color: var(--ink); font: inherit; font-size: .82rem; padding: 12px 17px; }
+.agent-command .primary-action { flex: 0 0 auto; margin: 0; }
+.agent-review-list { display: grid; grid-column: 1 / -1; max-width: 880px; margin-top: 4px; }
+.agent-review-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 11px; border-top: 1px solid rgba(20, 61, 45, .14); padding: 13px 0; }
+.agent-review-item:last-child { border-bottom: 1px solid rgba(20, 61, 45, .14); }
+.agent-review-item > span { border-radius: 999px; background: rgba(184, 129, 35, .13); color: #765619; font-family: "DM Mono", monospace; font-size: .52rem; font-weight: 700; letter-spacing: .04em; padding: 4px 6px; text-transform: uppercase; }
+.agent-review-item p { color: var(--ink-soft); font-size: .74rem; line-height: 1.45; margin: 0; }
 .agent-enabled { display: flex !important; align-items: center; gap: 7px; width: fit-content; font-family: system-ui, sans-serif !important; font-size: .71rem !important; letter-spacing: 0 !important; text-transform: none !important; }
 .agent-enabled input { width: 15px; min-height: 15px; padding: 0; }
 .custom-agent-list { display: grid; grid-column: 1 / -1; margin-top: 4px; }
@@ -608,6 +619,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .action-list .text-link { grid-column: 2; justify-self: start; }
   .agent-row { grid-template-columns: 46px 31px minmax(0, 1fr); gap: 10px; }
   .agent-row .text-link { grid-column: 3; justify-self: start; }
+  .agent-command { align-items: stretch; flex-direction: column; }
+  .agent-command .primary-action { align-self: start; }
   .single-stage { min-height: 440px; padding: 30px 24px; }
   .single-stage h2 { font-size: clamp(2.8rem, 15vw, 4.2rem); }
   .single-surface { padding: 22px 18px; }

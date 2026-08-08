@@ -446,8 +446,8 @@ type ProfileSelection = {
   reauth?: boolean;
 };
 
-type OperatingAgent = { id: string; name: string; count: number; summary: string };
-type CustomAgent = { id: string; name: string; instruction: string; enabled: boolean; updated_at: string };
+type OperatingAgent = { id: string; name: string; count: number; summary: string; status: "live" };
+type CustomAgent = { id: string; name: string; instruction: string; enabled: boolean; status: "in_review" | "live"; updated_at: string };
 type AgentBoard = { agents: OperatingAgent[]; custom_agents: CustomAgent[] };
 
 type State = {
@@ -2122,7 +2122,6 @@ function AgentsView({ agents, reload }: {
   agents: AgentBoard | null;
   reload: () => void;
 }) {
-  const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -2132,44 +2131,43 @@ function AgentsView({ agents, reload }: {
     try {
       const response = await fetch("/api/v1/agents", {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, instruction }),
+        body: JSON.stringify({ instruction }),
       });
       const payload = await response.json().catch(() => null) as { detail?: string } | null;
-      if (!response.ok) throw new Error(payload?.detail || "Agent could not be saved.");
-      setName(""); setInstruction(""); setMessage("Agent saved."); reload();
+      if (!response.ok) throw new Error(payload?.detail || "Your request could not be saved.");
+      setInstruction(""); setMessage("Saved for review. It will not notify anyone until it is implemented and made live."); reload();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Agent could not be saved.");
+      setMessage(error instanceof Error ? error.message : "Your request could not be saved.");
     } finally { setBusy(false); }
   }
 
   return <section className="directory-workspace agents-workspace">
-    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Agents</h1><span>{count(agents?.agents.length)}</span></div></div>
+    <div className="directory-toolbar people-toolbar"><div className="directory-title"><h1>Agents</h1><span>{count(agents?.agents.length)} live</span></div></div>
     <div className="agent-list">
       {(agents?.agents || []).map((agent) => <article className="agent-row" key={agent.id}>
         <strong className="agent-count">{count(agent.count)}</strong>
         <AgentIcon id={agent.id} />
-        <div><h3>{agent.name}</h3><p>{agent.summary}</p></div>
+        <div><p className="agent-live"><i aria-hidden="true" />Live</p><h3>{agent.name}</h3><p>{agent.summary}</p></div>
         <Link href={agent.id === "disease-watch" ? "/farms?state=reported" : "/farmers"} className="text-link">Open <span aria-hidden="true">→</span></Link>
       </article>)}
       {!agents ? <DirectoryLoadingState label="Opening agents" /> : null}
     </div>
     <section className="agent-builder">
-      <div><p className="eyebrow">Your agent</p><h3>Tell us what to watch</h3><p>Write a plain-language notification for anything in your operating data.</p></div>
-      <form className="agent-form" onSubmit={createAgent}>
-        <label>Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. High-priority farmers" required /></label>
-        <label>Notification<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} minLength={8} placeholder="Tell me when a farmer has two disease reports in a week." required /></label>
-        <button className="primary-action" disabled={busy}>{busy ? "Saving…" : "Save agent"} <span aria-hidden="true">→</span></button>
+      <div><p className="eyebrow">Request an agent</p><h3>What should we watch?</h3><p>Write it plainly. We save it as-is for review, then make it live only when the data and rule are ready.</p></div>
+      <form className="agent-command" onSubmit={createAgent}>
+        <label className="sr-only" htmlFor="agent-command">Agent request</label>
+        <input id="agent-command" value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} minLength={8} placeholder="e.g. Tell me when a farm has no update for 14 days" required />
+        <button className="primary-action" disabled={busy}>{busy ? "Saving…" : "Add to review"} <span aria-hidden="true">→</span></button>
       </form>
       {message ? <p className="form-error" role="status">{message}</p> : null}
-      {agents?.custom_agents.length ? <div className="custom-agent-list">{agents.custom_agents.map((agent) => <CustomAgentEditor key={agent.id} agent={agent} reload={reload} />)}</div> : null}
+      {agents?.custom_agents.length ? <div className="agent-review-list">{agents.custom_agents.map((agent) => <article className="agent-review-item" key={agent.id}><span>In review</span><p>{agent.instruction}</p></article>)}</div> : null}
     </section>
   </section>;
 }
 
 function AgentIcon({ id }: { id: string }) {
   if (id === "disease-watch") return <span className="agent-icon disease" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 18C5 9 10 4 19 4c0 9-5 14-14 14Z" /><path d="M7 16c3-3 6-5 10-7" /><circle cx="14.7" cy="8.6" r="1" /><circle cx="11.4" cy="12" r="1" /></svg></span>;
-  if (id === "farmer-no-update") return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><path d="M12 8v4l2.8 1.8M6 5v3H3" /></svg></span>;
-  if (id === "farmer-no-visits") return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M6 19c.8-3.4 2.8-5 6-5s5.2 1.6 6 5M5 5l14 14" /></svg></span>;
+  if (id === "farmer-no-update-7d") return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><path d="M12 8v4l2.8 1.8M6 5v3H3" /></svg></span>;
   return <span className="agent-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 19V8l6-4 6 4v11" /><path d="M9 19v-5h6v5M4 19h16" /></svg></span>;
 }
 
@@ -2183,24 +2181,6 @@ function NotificationDropdown({ items, close }: { items: OperatingAgent[]; close
     </Link>)}</div> : <p className="notification-empty">Nothing needs attention right now.</p>}
     <Link className="notification-footer" href="/actions" onClick={close}>Open agents <span aria-hidden="true">→</span></Link>
   </section>;
-}
-
-function CustomAgentEditor({ agent, reload }: { agent: CustomAgent; reload: () => void }) {
-  const [name, setName] = useState(agent.name);
-  const [instruction, setInstruction] = useState(agent.instruction);
-  const [enabled, setEnabled] = useState(agent.enabled);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  async function update(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setMessage(null);
-    try {
-      const response = await fetch(`/api/v1/agents/${agent.id}`, { method: "PATCH", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, instruction, enabled }) });
-      const payload = await response.json().catch(() => null) as { detail?: string } | null;
-      if (!response.ok) throw new Error(payload?.detail || "Agent could not be updated.");
-      setMessage("Saved."); reload();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Agent could not be updated."); } finally { setBusy(false); }
-  }
-  return <details className="custom-agent"><summary><span><strong>{agent.name}</strong><small>{agent.enabled ? "Active" : "Paused"}</small></span><span>Edit</span></summary><form className="agent-form" onSubmit={update}><label>Name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required /></label><label>Notification<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} maxLength={500} minLength={8} required /></label><label className="agent-enabled"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Active</label><button className="quiet-button" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></form>{message ? <p className="form-error" role="status">{message}</p> : null}</details>;
 }
 
 function TrackwickSourceCoverage({ counts: source }: { counts: TrackwickBoard["counts"] }) {

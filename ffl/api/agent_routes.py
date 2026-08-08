@@ -15,13 +15,15 @@ router = APIRouter(prefix="/api/v1/agents")
 
 class AgentCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=80)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     instruction: str = Field(min_length=8, max_length=500)
-    enabled: bool = True
+    enabled: bool = False
 
     @field_validator("name", "instruction")
     @classmethod
-    def nonempty(cls, value: str) -> str:
+    def nonempty(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("value must not be blank")
         return value.strip()
@@ -48,7 +50,7 @@ def _connection(request: Request):
 def _item(item: repository.AgentNotification) -> dict:
     return {
         "id": item.id, "name": item.name, "instruction": item.natural_language_rule,
-        "enabled": item.enabled, "updated_at": item.updated_at,
+        "enabled": item.enabled, "status": "live" if item.enabled else "in_review", "updated_at": item.updated_at,
     }
 
 
@@ -62,7 +64,7 @@ def create_agent(payload: AgentCreateRequest, request: Request,
                  manager_id: str = Depends(require_manager)) -> dict:
     try:
         return _item(repository.create_agent_notification(
-            _connection(request), manager_id, payload.name, payload.instruction, payload.enabled,
+            _connection(request), manager_id, payload.name or "Agent request", payload.instruction, payload.enabled,
         ))
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error))
