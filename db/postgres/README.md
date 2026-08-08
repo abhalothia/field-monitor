@@ -65,6 +65,8 @@ terms automatically without calling a model. After applying the migration with
 the direct migration connection, run `scripts/enrich_operating_vocabulary.py`
 to populate the dictionary. A deliberate `--apply` run can ask the configured
 server-only Gemini Flash-Lite model for bounded spelling/casing/translation
-suggestions. It uses `GEMINI_API_KEY` and remains optional. Those suggestions
-remain `suggested` until reviewed and never change facts, boundaries, identities,
-or browser-visible filters on their own.
+suggestions. It uses `GEMINI_API_KEY` and remains optional. Use `--batches` for
+a deliberate one-time backfill; each eight-term batch commits separately. A
+model can also record `unmapped` when a term should safely remain raw. Neither
+state changes facts, boundaries, identities, or browser-visible filters on its
+own.

@@ -87,6 +87,7 @@ def test_discovery_is_deterministic_and_never_calls_a_model(ffl_db, owner, monke
     }
     assert operating_vocabulary.vocabulary_summary(ffl_db, source.id) == {
         "terms": 3, "pending": 2, "suggested": 0, "reviewed": 0, "automatic": 1,
+        "unmapped": 0,
     }
 
 
@@ -112,7 +113,10 @@ def test_gemini_only_stores_reviewable_suggestions(ffl_db, owner, monkeypatch):
         (source.id,),
     ).fetchone()
 
-    assert result == {"state": "suggested", "considered": 1, "suggested": 1, "model": "gemini-3.5-flash-lite"}
+    assert result == {
+        "state": "suggested", "considered": 1, "suggested": 1, "kept_raw": 0,
+        "model": "gemini-3.5-flash-lite",
+    }
     assert calls[0]["schema_name"] == "operating_vocabulary_suggestions"
     assert "Bacterial Leaf Blight" not in calls[0]["prompt"]
     assert dict(stored) == {
@@ -150,6 +154,37 @@ def test_invalid_model_result_is_not_saved_and_a_manual_review_is_versioned(ffl_
     }
 
 
+def test_explicit_keep_raw_is_a_reviewable_terminal_mapping(ffl_db, owner, monkeypatch):
+    source = _seed_vocabulary_source(ffl_db, owner)
+    operating_vocabulary.refresh_source_vocabulary(ffl_db, source.id)
+    monkeypatch.setattr(
+        operating_vocabulary.gemini_structured,
+        "structured_output",
+        lambda **_: ({"items": [{
+            "id": "0", "outcome": "keep_raw", "normalized_key": None,
+            "display_label": None, "confidence": 0.88,
+        }]}, "gemini-3.5-flash-lite"),
+    )
+
+    result = operating_vocabulary.suggest_pending_terms(ffl_db, source.id, limit=1)
+    stored = ffl_db.execute(
+        """SELECT mapping_state, mapping_method, normalized_key, display_label,
+                  classifier_model, confidence
+           FROM operating_vocabulary_terms
+           WHERE source_id = ? AND vocabulary_kind = 'crop_product'""",
+        (source.id,),
+    ).fetchone()
+
+    assert result == {
+        "state": "kept_raw", "considered": 1, "suggested": 0, "kept_raw": 1,
+        "model": "gemini-3.5-flash-lite",
+    }
+    assert dict(stored) == {
+        "mapping_state": "unmapped", "mapping_method": "ai", "normalized_key": None,
+        "display_label": None, "classifier_model": "gemini-3.5-flash-lite", "confidence": 0.88,
+    }
+
+
 def test_suspicious_raw_terms_remain_private_and_are_not_model_candidates(ffl_db, owner):
     source = _seed_vocabulary_source(ffl_db, owner)
     ffl_db.execute(
@@ -169,3 +204,31 @@ def test_suspicious_raw_terms_remain_private_and_are_not_model_candidates(ffl_db
         "SELECT count(*) FROM operating_vocabulary_terms WHERE source_id = ? AND vocabulary_kind = 'crop_product'",
         (source.id,),
     ).fetchone()[0] == 1
+
+
+def test_private_high_frequency_terms_do_not_hide_later_safe_vocabulary(ffl_db, owner):
+    source = _seed_vocabulary_source(ffl_db, owner)
+    operating_vocabulary.refresh_source_vocabulary(ffl_db, source.id)
+    private_rows = []
+    for index in range(40):
+        raw_value = f"https://private-{index}.example.test"
+        private_rows.append((
+            source.id, "reported_issue", "reported_disease", raw_value,
+            operating_vocabulary._fingerprint("reported_issue", "reported_disease", raw_value),
+            100, "pending", "deterministic", operating_vocabulary.VOCABULARY_VERSION,
+            NOW, NOW, NOW,
+        ))
+    ffl_db.executemany(
+        """INSERT INTO operating_vocabulary_terms (
+               source_id, vocabulary_kind, source_context, raw_value, raw_fingerprint,
+               occurrence_count, mapping_state, mapping_method, mapping_version,
+               first_seen_at, last_seen_at, refreshed_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        private_rows,
+    )
+    ffl_db.commit()
+
+    candidates = operating_vocabulary.pending_terms_for_source(ffl_db, source.id, limit=8)
+
+    assert len(candidates) == 2
+    assert all(operating_vocabulary._safe_for_model(term.raw_value) for term in candidates)

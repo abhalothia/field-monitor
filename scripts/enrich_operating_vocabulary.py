@@ -36,6 +36,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Call Gemini and save reviewable suggestions")
     parser.add_argument("--limit", type=int, default=8, help="Maximum unresolved terms to consider (1-8)")
+    parser.add_argument("--batches", type=int, default=1, help="Bounded Gemini batches to run (1-40)")
     args = parser.parse_args()
     try:
         target = database_target(database_url=_database_url())
@@ -50,19 +51,24 @@ def main() -> int:
         if source is None:
             print(json.dumps({"state": "no_source"}, sort_keys=True))
             return 0
-        operating_vocabulary.refresh_source_vocabulary(conn, source.id, commit=False)
+        operating_vocabulary.refresh_source_vocabulary(conn, source.id)
         before = operating_vocabulary.vocabulary_summary(conn, source.id)
         if not args.apply:
-            conn.commit()
             print(json.dumps({"state": "discovered", "summary": before}, sort_keys=True))
             return 0
-        result = operating_vocabulary.suggest_pending_terms(
-            conn, source.id, limit=args.limit, commit=False,
-        )
-        conn.commit()
-        print(json.dumps({"state": result["state"], "result": result,
-                          "summary": operating_vocabulary.vocabulary_summary(conn, source.id)}, sort_keys=True))
-        return 0 if result["state"] != "unavailable" else 2
+        batches = max(1, min(int(args.batches), 40))
+        results = []
+        for _ in range(batches):
+            result = operating_vocabulary.suggest_pending_terms(conn, source.id, limit=args.limit)
+            results.append(result)
+            if result["state"] in {"unavailable", "nothing_pending", "no_safe_suggestions"}:
+                break
+        final = operating_vocabulary.vocabulary_summary(conn, source.id)
+        print(json.dumps({
+            "state": results[-1]["state"], "batches": len(results), "results": results,
+            "summary": final,
+        }, sort_keys=True))
+        return 0 if all(result["state"] != "unavailable" for result in results) else 2
     except Exception:
         conn.rollback()
         print(json.dumps({"state": "failed"}, sort_keys=True))

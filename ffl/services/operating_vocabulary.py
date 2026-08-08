@@ -26,6 +26,10 @@ _EMAIL_PATTERN = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
 _URL_PATTERN = re.compile(r"\b(?:https?://|www\.)", re.IGNORECASE)
 _LONG_NUMBER_PATTERN = re.compile(r"\d[\d\s().-]{5,}\d")
 _MODEL_BATCH_SIZE = 8
+# Vocabulary is intentionally low-cardinality.  Scan enough pending rows to
+# move past any high-frequency values withheld from the model for privacy;
+# only eight safe phrases are ever sent in one request.
+_PENDING_SCAN_LIMIT = 1_000
 
 
 @dataclass(frozen=True)
@@ -139,9 +143,10 @@ def pending_terms_for_source(conn, source_id: str, *, limit: int = _MODEL_BATCH_
     if not vocabulary_schema_available(conn):
         return []
     limit = max(1, min(int(limit), _MODEL_BATCH_SIZE))
-    # Fetch a small safety buffer: some raw terms are retained for audit but
-    # intentionally unsuitable for a model (for example, a pasted phone
-    # number).  They remain pending for an accountable manual review.
+    # Some high-frequency raw values are retained for audit but intentionally
+    # unsuitable for a model (for example, a pasted phone number).  Scan past
+    # them so they cannot hide lower-frequency safe vocabulary from the one-
+    # time pass.  The request itself remains strictly bounded below.
     rows = conn.execute(
         """SELECT source_id, vocabulary_kind, source_context, raw_value, raw_fingerprint,
                   occurrence_count, normalized_key, display_label, mapping_state,
@@ -151,7 +156,7 @@ def pending_terms_for_source(conn, source_id: str, *, limit: int = _MODEL_BATCH_
              AND vocabulary_kind IN ('reported_issue', 'crop_product')
            ORDER BY occurrence_count DESC, vocabulary_kind, raw_value
            LIMIT ?""",
-        (source_id, limit * 4),
+        (source_id, _PENDING_SCAN_LIMIT),
     ).fetchall()
     return [
         term for term in (_term_from_row(row) for row in rows)
@@ -182,8 +187,11 @@ def suggest_pending_terms(
         schema=_classification_schema(),
     )
     if payload is None or model is None:
-        return {"state": "unavailable", "considered": len(candidates), "suggested": 0, "model": None}
-    suggestions = _validated_suggestions(payload, candidates)
+        return {
+            "state": "unavailable", "considered": len(candidates), "suggested": 0,
+            "kept_raw": 0, "model": None,
+        }
+    suggestions, kept_raw = _validated_decisions(payload, candidates)
     if suggestions:
         now = _now()
         conn.executemany(
@@ -202,12 +210,30 @@ def suggest_pending_terms(
                 for candidate, suggestion in suggestions
             ],
         )
-        if commit:
-            conn.commit()
+    if kept_raw:
+        now = _now()
+        conn.executemany(
+            """UPDATE operating_vocabulary_terms
+               SET normalized_key = NULL, display_label = NULL, mapping_state = 'unmapped',
+                   mapping_method = 'ai', confidence = ?, classifier_model = ?,
+                   mapping_version = ?, classified_at = ?, refreshed_at = ?
+               WHERE source_id = ? AND vocabulary_kind = ? AND source_context = ?
+                 AND raw_fingerprint = ? AND mapping_state = 'pending'""",
+            [
+                (
+                    confidence, model, AI_MAPPING_VERSION, now, now, candidate.source_id,
+                    candidate.vocabulary_kind, candidate.source_context, candidate.raw_fingerprint,
+                )
+                for candidate, confidence in kept_raw
+            ],
+        )
+    if (suggestions or kept_raw) and commit:
+        conn.commit()
     return {
-        "state": "suggested" if suggestions else "no_safe_suggestions",
+        "state": "suggested" if suggestions else "kept_raw" if kept_raw else "no_safe_suggestions",
         "considered": len(candidates),
         "suggested": len(suggestions),
+        "kept_raw": len(kept_raw),
         "model": model,
     }
 
@@ -253,17 +279,24 @@ def review_term(
 def vocabulary_summary(conn, source_id: str) -> dict[str, int]:
     """Safe aggregate receipt for a CLI or settings surface; never raw terms."""
     if not vocabulary_schema_available(conn):
-        return {"terms": 0, "pending": 0, "suggested": 0, "reviewed": 0, "automatic": 0}
+        return {
+            "terms": 0, "pending": 0, "suggested": 0, "reviewed": 0,
+            "automatic": 0, "unmapped": 0,
+        }
     row = conn.execute(
         """SELECT count(*) AS terms,
                   sum(CASE WHEN mapping_state = 'pending' THEN 1 ELSE 0 END) AS pending,
                   sum(CASE WHEN mapping_state = 'suggested' THEN 1 ELSE 0 END) AS suggested,
                   sum(CASE WHEN mapping_state = 'reviewed' THEN 1 ELSE 0 END) AS reviewed,
-                  sum(CASE WHEN mapping_state = 'automatic' THEN 1 ELSE 0 END) AS automatic
+                  sum(CASE WHEN mapping_state = 'automatic' THEN 1 ELSE 0 END) AS automatic,
+                  sum(CASE WHEN mapping_state = 'unmapped' THEN 1 ELSE 0 END) AS unmapped
            FROM operating_vocabulary_terms WHERE source_id = ?""",
         (source_id,),
     ).fetchone()
-    return {key: int(row[key] or 0) for key in ("terms", "pending", "suggested", "reviewed", "automatic")}
+    return {
+        key: int(row[key] or 0)
+        for key in ("terms", "pending", "suggested", "reviewed", "automatic", "unmapped")
+    }
 
 
 def _discover_terms(conn, source_id: str, *, fallback_at: str) -> list[VocabularyTerm]:
@@ -379,8 +412,10 @@ For each source phrase, propose at most a spelling/casing/translation normalizat
 Do not make a diagnosis, infer an ingredient, make an agronomy recommendation,
 identify a person, or add a fact not present in the phrase. For reported issues,
 the display label must remain a source-reported label, not a diagnosis. For crop
-products, do not guess the product family. If a safe normalization is unclear,
-return outcome `keep_raw`. Return exactly one item for every input id.
+products, do not guess the product family. A normalized key must use only
+lowercase ASCII letters, digits, hyphens, or underscores and be at most 80
+characters. If a safe normalization is unclear, return outcome `keep_raw` with
+null normalized_key and display_label. Return exactly one item for every input id.
 
 INPUT TERMS:
 """ + json.dumps(terms, ensure_ascii=True, separators=(",", ":"))
@@ -411,14 +446,15 @@ def _classification_schema() -> dict[str, Any]:
     }
 
 
-def _validated_suggestions(
+def _validated_decisions(
     payload: Mapping[str, Any], candidates: Sequence[VocabularyTerm],
-) -> list[tuple[VocabularyTerm, dict[str, Any]]]:
+) -> tuple[list[tuple[VocabularyTerm, dict[str, Any]]], list[tuple[VocabularyTerm, float]]]:
     raw_items = payload.get("items")
     if not isinstance(raw_items, list):
-        return []
+        return [], []
     candidates_by_id = {str(index): term for index, term in enumerate(candidates)}
     accepted: list[tuple[VocabularyTerm, dict[str, Any]]] = []
+    kept_raw: list[tuple[VocabularyTerm, float]] = []
     seen: set[str] = set()
     for item in raw_items:
         if not isinstance(item, Mapping):
@@ -428,22 +464,32 @@ def _validated_suggestions(
         if candidate is None or item_id in seen:
             continue
         seen.add(item_id)
+        confidence = _validated_confidence(item.get("confidence"))
+        if confidence is None:
+            continue
+        if item.get("outcome") == "keep_raw":
+            if item.get("normalized_key") is None and item.get("display_label") is None:
+                kept_raw.append((candidate, confidence))
+            continue
         if item.get("outcome") != "suggest":
             continue
         normalized_key = _validated_key(item.get("normalized_key"))
         display_label = _validated_label(item.get("display_label"))
-        confidence = item.get("confidence")
-        if normalized_key is None or display_label is None or not isinstance(confidence, (int, float)):
-            continue
-        confidence = float(confidence)
-        if not 0 <= confidence <= 1:
+        if normalized_key is None or display_label is None:
             continue
         accepted.append((candidate, {
             "normalized_key": normalized_key,
             "display_label": display_label,
             "confidence": confidence,
         }))
-    return accepted
+    return accepted, kept_raw
+
+
+def _validated_suggestions(
+    payload: Mapping[str, Any], candidates: Sequence[VocabularyTerm],
+) -> list[tuple[VocabularyTerm, dict[str, Any]]]:
+    """Compatibility helper for focused callers that need suggestions only."""
+    return _validated_decisions(payload, candidates)[0]
 
 
 def _safe_raw(value: Any) -> Optional[str]:
@@ -474,6 +520,13 @@ def _validated_label(value: Any) -> Optional[str]:
         return None
     value = " ".join(value.split()).strip()
     return value if 1 <= len(value) <= 160 else None
+
+
+def _validated_confidence(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    confidence = float(value)
+    return confidence if 0 <= confidence <= 1 else None
 
 
 def _fingerprint(vocabulary_kind: str, source_context: str, raw_value: str) -> str:
