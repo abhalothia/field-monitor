@@ -242,6 +242,19 @@ def test_postgres_outbox_reservation_translation_is_private_and_not_sqlite_speci
     assert "ON CONFLICT DO NOTHING" in statement
 
 
+def test_postgres_final_send_gate_uses_the_private_outbox_relation():
+    from ffl.communications.persistence import claim_outbox_final_send
+    from ffl.persistence.database import PostgresConnection
+
+    raw = _FakeRawConnection()
+    assert claim_outbox_final_send(PostgresConnection(raw), "interaction-1")
+
+    statement, _params = raw.calls[0]
+    assert statement.startswith("UPDATE agro_communication_outbox")
+    assert "final_send_reserved_at" in statement
+    assert "final_send_reserved_at IS NULL" in statement
+
+
 def test_create_outbox_entry_uses_postgres_adapter_for_first_and_duplicate_reservations():
     from ffl.communications.persistence import create_outbox_entry
     from ffl.persistence.database import PostgresConnection

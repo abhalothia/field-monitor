@@ -268,15 +268,15 @@ def _suppress_future_runs(conn, interaction) -> None:
     ).fetchall()
     for row in rows:
         entry, _created = persistence.create_outbox_entry(conn, row["id"], row["legacy_prompt_id"])
-        if entry["status"] in {"pending", "dispatching"}:
-            persistence.update_outbox_entry(
-                conn, row["id"], "suppressed", policy_code="scoped_opt_out",
+        if entry["status"] in {"pending", "dispatching"} and persistence.suppress_outbox_if_unreserved(
+            conn, row["id"], "scoped_opt_out",
+        ):
+            conn.execute(
+                "UPDATE communication_interaction_runs SET status = 'cancelled' "
+                "WHERE id = ? AND status IN ('ready', 'dispatching')",
+                (row["id"],),
             )
-        conn.execute(
-            "UPDATE communication_interaction_runs SET status = 'cancelled' WHERE id = ? AND status IN ('ready', 'dispatching')",
-            (row["id"],),
-        )
-        conn.commit()
+            conn.commit()
 
 
 def _interaction_purpose(conn, interaction_run_id: str) -> Optional[str]:

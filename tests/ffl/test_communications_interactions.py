@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0021_agro_communications_control_plane.sql"
 OUTBOX_MIGRATION = ROOT / "db" / "postgres" / "0026_agro_communication_outbox.sql"
 INBOUND_MIGRATION = ROOT / "db" / "postgres" / "0027_agro_communication_inbound_reviews.sql"
+FINAL_SEND_MIGRATION = ROOT / "db" / "postgres" / "0028_agro_communication_final_send_gate.sql"
 
 
 @pytest.fixture
@@ -270,3 +271,7 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     assert translate_sqlite_sql(
         "SELECT * FROM communication_inbound_outcomes WHERE event_id = ?"
     ) == "SELECT * FROM agro_communication_inbound_outcomes WHERE event_id = %s"
+    final_send_sql = FINAL_SEND_MIGRATION.read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS final_send_reserved_at" in final_send_sql
+    assert "agro_idx_communication_outbox_final_send_gate" in final_send_sql
+    assert "REVOKE ALL ON TABLE agro_communication_outbox FROM PUBLIC" in final_send_sql

@@ -9,9 +9,10 @@ import threading
 import pytest
 
 from ffl.communications import outbox as outbox_module
+from ffl.communications import inbound as inbound_module
 from ffl.communications import persistence
 from ffl.communications.fake import FakeLoopMessageProvider
-from ffl.communications.interactions import context_token_for_run, find_interaction_for_dispatch_callback
+from ffl.communications.interactions import context_token_for_run, find_interaction_for_dispatch_callback, interaction_run
 from ffl.communications.outbox import (
     _valid_parameters,
     dispatch_due_workflows,
@@ -128,27 +129,23 @@ def test_dispatch_refuses_revoked_consent_without_calling_provider(dispatch_cont
     assert provider.sent == []
 
 
-def test_opt_out_between_claim_and_send_suppresses_without_provider_call(dispatch_context, monkeypatch):
+def test_opt_out_after_prior_checks_but_before_final_gate_suppresses_without_provider_call(dispatch_context, monkeypatch):
     provider = FakeLoopMessageProvider()
-    real_details = outbox_module._dispatch_details
-    calls = 0
+    real_final_gate = persistence.claim_outbox_final_send
 
-    def details_with_interleaved_opt_out(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            dispatch_context.conn.execute(
-                "UPDATE communication_scoped_consents SET status = 'revoked', revoked_at = ? WHERE endpoint_id = ?",
-                ("2026-08-10T04:00:00+00:00", dispatch_context.endpoint["id"]),
-            )
-            dispatch_context.conn.commit()
-            persistence.update_outbox_entry(
-                dispatch_context.conn, dispatch_context.run.interaction_run_id,
-                "suppressed", policy_code="scoped_opt_out",
-            )
-        return real_details(*args, **kwargs)
+    def final_gate_after_exact_opt_out(conn, interaction_run_id):
+        run = interaction_run(conn, interaction_run_id)
+        endpoint = conn.execute(
+            "SELECT person_id FROM communication_endpoints WHERE id = ?", (run.endpoint_id,),
+        ).fetchone()
+        set_scoped_consent(
+            conn, run.profile_id, run.endpoint_id, "weekly_farmer_checkin", "crop_allocation",
+            run.allocation_id, False, "exact test opt-out", endpoint["person_id"],
+        )
+        inbound_module._suppress_future_runs(conn, run)
+        return real_final_gate(conn, interaction_run_id)
 
-    monkeypatch.setattr(outbox_module, "_dispatch_details", details_with_interleaved_opt_out)
+    monkeypatch.setattr(persistence, "claim_outbox_final_send", final_gate_after_exact_opt_out)
     result = dispatch_ready_interaction(
         dispatch_context.conn, provider, dispatch_context.run.interaction_run_id,
         datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc), context_token=dispatch_context.run.context_token,
@@ -157,6 +154,33 @@ def test_opt_out_between_claim_and_send_suppresses_without_provider_call(dispatc
     assert result.status == "suppressed"
     assert provider.sent == []
     assert persistence.outbox_entry(dispatch_context.conn, dispatch_context.run.interaction_run_id)["status"] == "suppressed"
+
+
+def test_opt_out_after_final_gate_revokes_scope_but_does_not_claim_suppression(dispatch_context):
+    class PostGateOptOutProvider(FakeLoopMessageProvider):
+        def send_template(self, *args, **kwargs):
+            run = interaction_run(dispatch_context.conn, dispatch_context.run.interaction_run_id)
+            endpoint = dispatch_context.conn.execute(
+                "SELECT person_id FROM communication_endpoints WHERE id = ?", (run.endpoint_id,),
+            ).fetchone()
+            set_scoped_consent(
+                dispatch_context.conn, run.profile_id, run.endpoint_id, "weekly_farmer_checkin",
+                "crop_allocation", run.allocation_id, False, "exact test opt-out", endpoint["person_id"],
+            )
+            inbound_module._suppress_future_runs(dispatch_context.conn, run)
+            return super().send_template(*args, **kwargs)
+
+    provider = PostGateOptOutProvider()
+    result = dispatch_ready_interaction(
+        dispatch_context.conn, provider, dispatch_context.run.interaction_run_id,
+        datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc), context_token=dispatch_context.run.context_token,
+    )
+
+    outbox = persistence.outbox_entry(dispatch_context.conn, dispatch_context.run.interaction_run_id)
+    assert result.status == "dispatched"
+    assert len(provider.sent) == 1
+    assert outbox["status"] == "dispatched"
+    assert outbox["final_send_reserved_at"] is not None
 
 
 def test_ambiguous_dispatch_is_unknown_and_never_retries(dispatch_context):

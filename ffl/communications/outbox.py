@@ -203,6 +203,15 @@ def _dispatch_interaction(
         persisted = persistence.update_outbox_entry(conn, run.id, "suppressed", policy_code=policy["code"])
         _sync_legacy_prompt(conn, persisted, "failed")
         return DispatchResult(run.id, "suppressed", reason=policy["code"])
+    # This conditional mutation, not the preceding policy read, is the final
+    # send gate. An exact scoped opt-out can suppress only while unreserved;
+    # once this commits the single provider attempt is auditable and cannot be
+    # truthfully reported as suppressed.
+    if not persistence.claim_outbox_final_send(conn, run.id):
+        current = persistence.outbox_entry(conn, run.id)
+        if current is None:
+            raise RuntimeError("final communication send gate disappeared")
+        return DispatchResult(run.id, current["status"], current["provider_message_id"], current["policy_code"])
     try:
         sent = provider.send_template(
             endpoint["address"], provider.sender_id, template["provider_template_id"],

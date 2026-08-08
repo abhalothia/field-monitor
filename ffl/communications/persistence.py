@@ -260,6 +260,7 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
                 'pending', 'dispatching', 'dispatched', 'suppressed', 'failed', 'unknown'
             )),
             policy_code TEXT,
+            final_send_reserved_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -497,6 +498,7 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
     _add_column(conn, "communication_attachments", "last_error TEXT")
     _add_column(conn, "communication_receipts", "claim_token TEXT")
     _add_column(conn, "communication_receipts", "lease_expires_at TEXT")
+    _add_column(conn, "communication_outbox", "final_send_reserved_at TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_communication_prompts_logical_action ON communication_prompts(logical_action_key) WHERE logical_action_key IS NOT NULL")
     conn.execute("INSERT OR IGNORE INTO communication_schema_migrations VALUES (?, ?)", ("communications-v2-security", datetime.now(timezone.utc).isoformat()))
     conn.commit()
@@ -1126,6 +1128,8 @@ def update_outbox_entry(
     ).fetchone()
     if row is None:
         raise ValueError("communication outbox entry does not exist")
+    if status == "suppressed" and row["final_send_reserved_at"] is not None:
+        raise ValueError("outbox send is already reserved")
     allowed = {
         "pending": {"dispatching", "suppressed"},
         "dispatching": {"dispatched", "failed", "unknown", "suppressed"},
@@ -1160,6 +1164,42 @@ def claim_outbox_dispatch(conn: sqlite3.Connection, interaction_run_id: str) -> 
         """UPDATE communication_outbox SET status = 'dispatching', updated_at = ?
            WHERE interaction_run_id = ? AND status = 'pending'""",
         (now, interaction_run_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def claim_outbox_final_send(conn: sqlite3.Connection, interaction_run_id: str) -> bool:
+    """Durably reserve the one provider attempt after all mutable policy checks.
+
+    A matching opt-out uses the opposite conditional transition: it can only
+    suppress an entry while this marker is NULL.  The two updates serialize in
+    the database, establishing a truthful committed order without holding a
+    transaction open around provider I/O.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        """UPDATE communication_outbox
+           SET final_send_reserved_at = ?, updated_at = ?
+           WHERE interaction_run_id = ? AND status = 'dispatching'
+             AND final_send_reserved_at IS NULL""",
+        (now, now, interaction_run_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def suppress_outbox_if_unreserved(
+    conn: sqlite3.Connection, interaction_run_id: str, policy_code: str,
+) -> bool:
+    """Suppress a future dispatch only if its provider attempt is not reserved."""
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        """UPDATE communication_outbox
+           SET status = 'suppressed', policy_code = COALESCE(?, policy_code), updated_at = ?
+           WHERE interaction_run_id = ? AND status IN ('pending', 'dispatching')
+             AND final_send_reserved_at IS NULL""",
+        (policy_code, now, interaction_run_id),
     )
     conn.commit()
     return cursor.rowcount == 1

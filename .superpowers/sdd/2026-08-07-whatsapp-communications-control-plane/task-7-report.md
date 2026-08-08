@@ -52,3 +52,21 @@
 ### Review-round commit
 
 `fix: harden WhatsApp inbound review routing` (scoped follow-up commit in this worktree).
+
+## Review round 2 — durable final-send gate
+
+- Added additive private migration `0028_agro_communication_final_send_gate.sql` and SQLite schema parity for nullable `final_send_reserved_at` on the outbox.
+- The sender atomically claims this marker after all policy checks and immediately before the one provider call.  This is the final send gate; it commits before provider I/O, so no provider call occurs inside an unbounded transaction.
+- Exact opt-out suppression uses the reciprocal conditional update: it can transition only pending/dispatching entries with no final-send reservation.  If it wins first, the final gate fails and sends nothing.  If the final gate wins first, opt-out still revokes consent but cannot mark/cancel that already reserved provider attempt as suppressed.
+- The outbox reconciliation path continues treating a crashed, reserved dispatch as unknown rather than attempting a second provider call.
+
+### Review-round 2 verification
+
+- TDD red: the new pre-gate regression initially failed because `claim_outbox_final_send` did not exist; the post-gate case also showed the older suppression path cancelled a run after provider entry.
+- `.venv/bin/python -m pytest tests/ffl/test_communications_outbox.py tests/ffl/test_communications.py tests/ffl/test_communications_inbound.py tests/ffl/test_communications_interactions.py tests/ffl/test_database_targets.py -q` — 68 passed.
+- Covered both committed orders: opt-out after all policy reads but before the final gate yields zero sends and `suppressed`; opt-out after the final gate yields one auditable `dispatched` attempt with a reservation marker, while consent is still revoked for future scope.
+- Compile and whitespace checks are recorded with the scoped commit below.
+
+### Review-round 2 commit
+
+`fix: serialize WhatsApp opt-out final send gate` (scoped follow-up commit in this worktree).
