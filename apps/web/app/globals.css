@@ -326,7 +326,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .cached-map-point circle { fill: rgba(255, 250, 238, .94); stroke: #143d2d; stroke-width: 2; transition: r .16s ease, fill .16s ease; }
 .cached-map-point.disease circle { fill: #f4d8d2; stroke: #a6574b; }
 .cached-map-point.task circle { fill: #f5e7bd; stroke: #a67a2d; }
+.cached-map-point.current circle { fill: #dcebcf; stroke: #497054; }
 .cached-map-point.earlier circle { fill: #f3f5ed; stroke: #879783; }
+.cached-map-cluster-box { fill: none; stroke-width: 1.2; stroke-dasharray: 4 4; pointer-events: none; }
+.cached-map-cluster-box.disease { stroke: #a6574b; }.cached-map-cluster-box.task { stroke: #a67a2d; }.cached-map-cluster-box.current { stroke: #497054; }.cached-map-cluster-box.earlier { stroke: #879783; }
 .cached-map-point:hover circle, .cached-map-point:focus circle { fill: #d8e7c9; }
 .cached-map-point .cached-map-point-core { fill: #143d2d; stroke: none; }
 .operating-map .leaflet-tile-pane { filter: saturate(.54) sepia(.13) hue-rotate(30deg) brightness(1.07); }

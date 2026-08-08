@@ -1162,6 +1162,7 @@ function OperatingMap({ points, mode = "disease", preview = false, selectedPoint
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const clusterLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const fittedDataRef = useRef<string | null>(null);
   const [active, setActive] = useState<MapPoint | null>(selectedPoint || null);
@@ -1210,6 +1211,7 @@ function OperatingMap({ points, mode = "disease", preview = false, selectedPoint
       }).addTo(map);
       leafletRef.current = L;
       mapRef.current = map;
+      clusterLayerRef.current = L.layerGroup().addTo(map);
       markerLayerRef.current = L.layerGroup().addTo(map);
       setMapReady(true);
       setMapHealth("ready");
@@ -1228,6 +1230,7 @@ function OperatingMap({ points, mode = "disease", preview = false, selectedPoint
       if (mapRef.current === map) {
         mapRef.current = null;
         markerLayerRef.current = null;
+        clusterLayerRef.current = null;
         leafletRef.current = null;
       }
     };
@@ -1237,12 +1240,24 @@ function OperatingMap({ points, mode = "disease", preview = false, selectedPoint
     const L = leafletRef.current;
     const map = mapRef.current;
     const layer = markerLayerRef.current;
-    if (!L || !map || !layer) return;
+    const clusterLayer = clusterLayerRef.current;
+    if (!L || !map || !layer || !clusterLayer) return;
     layer.clearLayers();
+    clusterLayer.clearLayers();
     if (!modePoints.length) return;
     const render = () => {
       layer.clearLayers();
-      for (const group of mapClusters(modePoints, map.getZoom())) {
+      clusterLayer.clearLayers();
+      const groups = mapClusters(modePoints, map.getZoom());
+      for (const group of groups) {
+        if (group.points.length < 3) continue;
+        const trend = mapClusterTrend(group.points, mode);
+        const color = mapMarkerColor(trend.tone);
+        L.rectangle(mapClusterBounds(group), {
+          color: color.stroke, weight: 1.1, opacity: .54, fillColor: color.fill, fillOpacity: .08, dashArray: "3 4", interactive: false,
+        }).bindTooltip(trend.label, { direction: "top", sticky: true, opacity: .98 }).addTo(clusterLayer);
+      }
+      for (const group of groups) {
         if (group.points.length > 1) {
           const status = mapClusterStatus(group.points, mode);
           const color = mapMarkerColor(status.tone);
@@ -1291,9 +1306,9 @@ function MapModeSwitcher({ mode }: { mode: MapMode }) {
 }
 
 function MapLegend({ mode }: { mode: MapMode }) {
-  if (mode === "disease") return <div className="map-legend" aria-label="Disease map legend"><span className="disease"><i />Disease reported</span><span className="map-size-copy">Circle size = reports nearby</span></div>;
-  if (mode === "active") return <div className="map-legend" aria-label="Active map legend"><span className="task"><i />Open task</span><span className="current"><i />Recently checked</span><span className="map-size-copy">Circle size = active workload nearby</span></div>;
-  return <div className="map-legend" aria-label="Compliance map legend"><span className="task"><i />Approval pending</span><span className="map-size-copy">Circle size = fertilizer/pesticide records nearby</span></div>;
+  if (mode === "disease") return <div className="map-legend" aria-label="Disease map legend"><span className="disease"><i />Disease reported</span><span className="current"><i />No disease reported</span><span className="map-size-copy">Circle size = checks nearby · dashed boxes = local pattern</span></div>;
+  if (mode === "active") return <div className="map-legend" aria-label="Active map legend"><span className="task"><i />Open task</span><span className="current"><i />Recently checked</span><span className="map-size-copy">Circle size = active workload nearby · dashed boxes = local pattern</span></div>;
+  return <div className="map-legend" aria-label="Compliance map legend"><span className="task"><i />Approval pending</span><span className="map-size-copy">Circle size = fertilizer/pesticide records nearby · dashed boxes = local pattern</span></div>;
 }
 
 function mapAreaLabel(points: MapPoint[]) {
@@ -1325,7 +1340,7 @@ function CachedMapFallback({ points, mode, onSelect }: { points: MapPoint[]; mod
         const radius = clusterMarkerRadius(group.points, mode);
         const status = mapClusterStatus(group.points, mode);
         return <g key={`${group.latitude}:${group.longitude}:${index}`} className={`cached-map-point ${status.tone}`} role="button" tabIndex={0} aria-label={`${first.subject.name}, ${count(group.points.length)} activities, ${status.label}`} onClick={() => onSelect(first)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(first); } }}>
-          <title>{`${first.subject.name} · ${count(group.points.length)} activities`}</title><circle cx={x} cy={y} r={radius} /><circle cx={x} cy={y} r="2.4" className="cached-map-point-core" />
+          <title>{`${first.subject.name} · ${count(group.points.length)} activities`}</title>{group.points.length >= 3 ? <rect className={`cached-map-cluster-box ${mapClusterTrend(group.points, mode).tone}`} x={x - radius - 7} y={y - radius - 7} width={(radius + 7) * 2} height={(radius + 7) * 2} /> : null}<circle cx={x} cy={y} r={radius} /><circle cx={x} cy={y} r="2.4" className="cached-map-point-core" />
         </g>;
       })}
     </svg>
@@ -1453,7 +1468,9 @@ function matchesMapFocus(point: MapPoint, focus: Array<"all" | "disease" | "rece
 }
 
 function mapActivityStatus(point: MapPoint, mode?: MapMode): { tone: MapActivityTone; label: string } {
-  if (mode === "disease") return { tone: "disease", label: "Disease reported" };
+  if (mode === "disease") return point.has_disease
+    ? { tone: "disease", label: "Disease reported" }
+    : { tone: "current", label: "No disease reported" };
   if (mode === "compliance") {
     if (point.input_approval === true) return { tone: "current", label: "Approved input record" };
     if (point.input_approval === false) return { tone: "disease", label: "Input not approved" };
@@ -1469,6 +1486,7 @@ function mapActivityStatus(point: MapPoint, mode?: MapMode): { tone: MapActivity
 }
 
 function mapClusterStatus(points: MapPoint[], mode?: MapMode) {
+  if (mode) return mapClusterTrend(points, mode);
   const statuses = points.map((point) => mapActivityStatus(point, mode));
   const disease = statuses.filter((status) => status.tone === "disease").length;
   const task = statuses.filter((status) => status.tone === "task").length;
@@ -1480,13 +1498,13 @@ function mapClusterStatus(points: MapPoint[], mode?: MapMode) {
 }
 
 function mapPointsForMode(points: MapPoint[], mode: MapMode) {
-  if (mode === "disease") return points.filter((point) => point.has_disease);
+  if (mode === "disease") return points;
   if (mode === "active") return points.filter((point) => point.subject.open_work > 0 || Date.now() - new Date(point.observed_at).valueOf() <= 7 * 86_400_000);
   return points.filter((point) => Boolean(point.input_kinds?.length));
 }
 
 function mapModeNoun(mode: MapMode) {
-  return mode === "disease" ? "disease reports" : mode === "active" ? "active records" : "input records";
+  return mode === "disease" ? "disease checks" : mode === "active" ? "active records" : "input records";
 }
 
 function pointMarkerRadius(point: MapPoint, mode: MapMode) {
@@ -1502,6 +1520,40 @@ function clusterMarkerRadius(points: MapPoint[], mode: MapMode) {
       ? points.reduce((total, point) => total + (point.input_kinds?.length || 1), 0)
       : points.length;
   return Math.min(24, 6 + Math.sqrt(magnitude) * 2);
+}
+
+function mapClusterTrend(points: MapPoint[], mode: MapMode): { tone: MapActivityTone; label: string } {
+  if (mode === "disease") {
+    const reported = points.filter((point) => point.has_disease).length;
+    const clear = points.length - reported;
+    if (!reported) return { tone: "current", label: `${count(clear)} checks with no disease reported` };
+    if (!clear) return { tone: "disease", label: `${count(reported)} disease reports` };
+    return reported >= clear
+      ? { tone: "disease", label: `${count(reported)} disease reported · ${count(clear)} no disease reported` }
+      : { tone: "current", label: `${count(clear)} no disease reported · ${count(reported)} disease reported` };
+  }
+  if (mode === "active") {
+    const openTasks = points.filter((point) => point.subject.open_work > 0).length;
+    const checked = points.length - openTasks;
+    if (!openTasks) return { tone: "current", label: `${count(checked)} recently checked` };
+    if (!checked) return { tone: "task", label: `${count(openTasks)} locations with open tasks` };
+    return openTasks >= checked
+      ? { tone: "task", label: `${count(openTasks)} open-task locations · ${count(checked)} recently checked` }
+      : { tone: "current", label: `${count(checked)} recently checked · ${count(openTasks)} open-task locations` };
+  }
+  const approved = points.filter((point) => point.input_approval === true).length;
+  const notApproved = points.filter((point) => point.input_approval === false).length;
+  const pending = points.length - approved - notApproved;
+  if (notApproved) return { tone: "disease", label: `${count(notApproved)} input records not approved` };
+  if (approved && !pending) return { tone: "current", label: `${count(approved)} approved input records` };
+  return { tone: "task", label: `${count(pending)} input approvals pending` };
+}
+
+function mapClusterBounds(group: { latitude: number; longitude: number; points: MapPoint[] }): [[number, number], [number, number]] {
+  const latitudes = group.points.map((point) => point.latitude);
+  const longitudes = group.points.map((point) => point.longitude);
+  const span = Math.max(.006, Math.max(...latitudes) - Math.min(...latitudes), Math.max(...longitudes) - Math.min(...longitudes)) * 1.25;
+  return [[group.latitude - span / 2, group.longitude - span / 2], [group.latitude + span / 2, group.longitude + span / 2]];
 }
 
 function mapMarkerColor(tone: MapActivityTone) {
