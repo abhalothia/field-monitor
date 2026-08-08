@@ -941,7 +941,16 @@ function FieldMoment({ points, updatedAt }: { points: MapPoint[]; updatedAt: str
   const date = now ? new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(now) : "Field briefing";
   const time = now ? new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata", timeZoneName: "short" }).format(now) : "";
   const weatherLine = weather ? `${Math.round(weather.temperature)}°C · ${weatherLabel(weather.code)}` : "Weather updating";
-  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p>{[fieldLocation?.label, weatherLine, updatedAt ? updatedAgo(updatedAt).replace("Updated ", "Saved ") : null].filter(Boolean).join(" · ")}</p></div>;
+  return <div className="field-moment"><h1>{date}{time ? <span> · {time}</span> : null}</h1><p><i aria-hidden="true">{weather ? weatherIcon(weather.code) : "◌"}</i>{[fieldLocation?.label, weatherLine, updatedAt ? updatedAgo(updatedAt).replace("Updated ", "Saved ") : null].filter(Boolean).join(" · ")}</p></div>;
+}
+
+function weatherIcon(code: number) {
+  if (code === 0) return "☀";
+  if (code <= 3) return "⛅";
+  if (code <= 48) return "☁";
+  if (code <= 67 || code <= 82) return "☂";
+  if (code <= 86) return "❄";
+  return "ϟ";
 }
 
 function weatherLabel(code: number) {

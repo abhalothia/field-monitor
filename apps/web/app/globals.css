@@ -99,9 +99,10 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .command-intro .eyebrow { margin-bottom: 9px; }
 .command-intro h1 { margin: 0; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2.6rem, 4.6vw, 4.3rem); font-weight: 400; letter-spacing: -.065em; line-height: .9; }
 .field-moment { display: grid; gap: 10px; }
-.field-moment h1 { max-width: 20ch; }
+.field-moment h1 { max-width: none; white-space: nowrap; }
 .field-moment h1 span { color: var(--ink-soft); font-size: .6em; letter-spacing: -.045em; white-space: nowrap; }
-.field-moment p { margin: 0; color: #4e6755; font-size: .75rem; font-weight: 750; }
+.field-moment p { display: flex; align-items: center; gap: 6px; margin: 0; color: #4e6755; font-size: .75rem; font-weight: 750; white-space: nowrap; }
+.field-moment p i { display: inline-grid; width: 18px; place-items: center; color: var(--ink); font-family: Georgia, serif; font-size: 1.05rem; font-style: normal; line-height: 1; }
 .command-intro > p { margin: 0 0 4px; color: var(--muted); font-size: .67rem; }
 .command-intro-compact { padding: 18px 0 12px; }
 .command-intro-compact .eyebrow { display: none; }
@@ -530,6 +531,7 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .personal-item footer { border-top: 1px solid rgba(20, 61, 45, .16); color: var(--ink-soft); font-family: "DM Mono", monospace; font-size: .6rem; margin-top: 20px; padding-top: 12px; text-transform: uppercase; }
 
 @media (max-width: 860px) {
+  .field-moment h1, .field-moment p { white-space: normal; }
   .command-shell-map { height: auto; min-height: 0; overflow: visible; }
   .command-header { padding-bottom: 11px; }
   .command-nav { display: none; }
