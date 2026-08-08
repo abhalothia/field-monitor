@@ -567,7 +567,7 @@ type Translation = {
 
 const WORDS: Record<Language, Translation> = {
   en: {
-    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", communications: "Comms", actions: "Agents", settings: "Settings",
+    home: "Home", map: "Map", fields: "Farms", farmers: "Farmers", communications: "Farmer comms", actions: "Agents", settings: "Settings",
     refresh: "Refresh", updated: "Updated", loading: "Reading the operating record…",
     noData: "Nothing has been verified here yet.", open: "Open", fieldMap: "Field map",
     programmeContext: "Programme context", notFieldMap: "This is public programme context, not a farm boundary.",
@@ -579,7 +579,7 @@ const WORDS: Record<Language, Translation> = {
     farmTruth: "Review",
   },
   hi: {
-    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", communications: "संदेश", actions: "एजेंट", settings: "सेटिंग्स",
+    home: "होम", map: "नक्शा", fields: "फार्म", farmers: "किसान", communications: "किसान संदेश", actions: "एजेंट", settings: "सेटिंग्स",
     refresh: "ताज़ा करें", updated: "अपडेट", loading: "रिकॉर्ड पढ़ा जा रहा है…",
     noData: "अभी यहां कोई सत्यापित जानकारी नहीं है।", open: "खुला", fieldMap: "खेत का नक्शा",
     programmeContext: "कार्यक्रम संदर्भ", notFieldMap: "यह सार्वजनिक कार्यक्रम संदर्भ है, खेत की सीमा नहीं।",
