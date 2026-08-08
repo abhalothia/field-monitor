@@ -834,7 +834,7 @@ git commit -m "feat: add confirmed WhatsApp admin commands"
 **Interfaces:**
 
 - Consumes: all prior services; existing `require_manager` and portal session authority.
-- Produces: manager-only HTTP projections for profiles, workflows, campaigns, commands, inbox, and health; all browser writes use these routes rather than raw tables.
+- Produces: manager-only HTTP projections for profiles, workflows, campaigns, commands, inbox, health, and the Settings **People & access** inventory; all browser writes use these routes rather than raw tables.
 
 - [ ] **Step 1: Write failing authorization/redaction tests**
 
@@ -863,11 +863,20 @@ Expected: FAIL because the control router is absent.
 - [ ] **Step 3: Implement explicit, manager-only request/response models**
 
 Add routes for profile status, consent grant/revoke, workflow draft/publish/pause,
-campaign draft/preview/approve/pause/cancel, command-proposal read, and the
-redacted review inbox. Require `require_manager` on every route. Return
-endpoint last-four, aggregate exclusions, record IDs, policy codes, timestamps,
-and evidence metadata only. Do not add an endpoint that sends arbitrary text,
+campaign draft/preview/approve/pause/cancel, command-proposal read, the
+redacted review inbox, and a `People & access` inventory keyed only by canonical
+reviewed `person_id`. Require `require_manager` on every route. Return endpoint
+last-four, aggregate exclusions, record IDs, policy codes, timestamps, and
+evidence metadata only. Do not add an endpoint that sends arbitrary text,
 returns raw provider event data, or allows a browser to set worker attestation.
+
+Add a separate server-issued, short-lived preview-grant flow for an active,
+reviewed farmer or field-worker portal membership. The preview read projection
+must use the same scope policy as that person's portal role, but every write,
+upload, action execution, message dispatch, and cross-person read must be
+denied. It must not change the manager's session or mint a transferable role
+token. Do not allow reported/source-only people, owner/admin views, or
+role inference through this flow.
 
 Mount the router in `ffl/app.py`; leave the provider webhook on its dedicated
 authorization path.
@@ -902,7 +911,7 @@ git commit -m "feat: expose governed communications control APIs"
 **Interfaces:**
 
 - Consumes: Task 11 redacted APIs only.
-- Produces: an authenticated manager UI for readiness, review cases, workflows, campaign previews, and campaign pause/cancel.
+- Produces: an authenticated manager UI for readiness, review cases, workflows, campaign previews, campaign pause/cancel, and the two linked person surfaces below.
 
 - [ ] **Step 1: Add the focused web test harness**
 
@@ -944,6 +953,23 @@ command centre. Show redacted identity/scope state, candidate/evidence
 availability, audience counts/exclusions, required approval, send state,
 pause/cancel controls, and readiness gaps. Keep existing Settings’ disabled
 WhatsApp row until Task 13 records controlled-pilot approval.
+
+Also add two linked, intentionally non-duplicative person experiences:
+
+1. Keep the Farms/Farmers in-place operating-profile panel as the primary
+   person record. Add a read-only **Access & communications** summary and a
+   link to Settings; do not add credentials, raw endpoints, or conversations
+   to the panel.
+2. In Settings add **People & access** for canonical reviewed people with an
+   explicit portal membership or communication profile. It links back to the
+   operating profile and offers governed setup actions. Reported-only people
+   have no row or invite path.
+3. Add an owner/admin-only **Preview farmer view** / **Preview field-worker
+   view** action for active reviewed memberships. Open it in a new tab with a
+   persistent manager-preview banner, use the restricted preview API, and
+   omit or disable every mutation, upload, send, sign-in, and cross-person
+   control. This is a read-only preview, never impersonation or session
+   switching.
 
 Do not render searchable conversations, raw payloads, phone numbers, source
 contacts, or direct arbitrary-message composer.

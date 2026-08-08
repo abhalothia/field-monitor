@@ -433,6 +433,71 @@ The recipient experience stays short and bilingual. Every field-facing message
 includes the meaningful context, a clear response path, and a PWA/deep-link or
 callback fallback where appropriate.
 
+### Person profile, access, and preview decision
+
+There are two complementary manager surfaces, with deliberately different
+jobs. They must meet on a canonical `person_id`, never on a display name,
+imported source contact, or phone number.
+
+| Surface | Job | Primary entry point | Must not become |
+|---|---|---|---|
+| **Operating profile** | Understand the person's current work relationship and take an operating action. | Farmers/field-workers directory; links from a Farm or Field. | A credentials, consent, or chat-management console. |
+| **People & access** | Manage a reviewed person's sign-in, portal role, WhatsApp readiness, consent, and communication eligibility. | Settings. It links back to the operating profile. | A second operational directory or an imported-contact list. |
+
+The existing in-place profile panels remain the primary way to open a person
+from the operating record. A reviewed farmer panel should lead with: current
+farm/allocation context, crop stage or next check-in, open/overdue work or
+exceptions, latest reviewable evidence, and a single next action. A reviewed
+field-worker panel should lead with: today's assigned/overdue work, active
+farm/block scope, latest submitted evidence or deviation, and capacity/open
+work. In both cases, the lower-priority **Access & communications** summary is
+read-only and contains only status: portal access state, WhatsApp readiness,
+preferred language/time window, active purpose count, and a link to **Manage
+access & communications**. It never exposes a raw address, raw chat, provider
+payload, or source-derived contact.
+
+Settings gains **People & access**, a compact, filterable list of *reviewed
+people who have an explicit portal membership or communication profile*. A row
+shows name, portal role, membership/access state, operating-scope summary,
+communication state (`not set up`, `needs verification`, `ready`, `paused`, or
+`not eligible`), and its next safe action. From a row the manager can open the
+operating profile, invite/suspend access under existing policy, or manage
+consent/endpoint verification through the governed communications controls.
+Reported-only people remain outside this list: their sole path is Farm Truth
+review; they cannot be invited, messaged, or previewed.
+
+#### Preview, never impersonation
+
+An owner/admin may need to check what a person would see before a workflow is
+published or access is handed over. This is a **read-only manager preview**,
+not a role/session switch and not an account impersonation feature.
+
+- It is available only for a reviewed person with an active portal membership;
+  it calculates the same server-side, time-bounded scope projection used by
+  that portal role.
+- It opens in a new tab at a dedicated preview route, so the manager keeps the
+  original operational record and never replaces their authenticated session.
+- A persistent `Manager preview — no actions are sent or saved` banner is
+  rendered in the preview. Mutating controls, message submission, uploads,
+  authentication/session controls, and cross-person navigation are absent or
+  disabled at both route and API layers.
+- The preview is capability-checked on every request and has a short-lived,
+  single-person, single-role server-issued preview grant. It carries an audit
+  event for creation/open/expiry, but no transferable client role token.
+- If one person legitimately has both portal roles, the manager explicitly
+  chooses **Preview farmer view** or **Preview field-worker view**. We do not
+  infer a role from their operating relationship. Owner/admin views are not
+  previewable in this feature.
+- WhatsApp content is represented only as the structured interaction card a
+  person could receive (purpose, scoped farm/block, approved language, due
+  window, evidence type). It is never a simulation that sends a message or
+  exposes a message archive.
+
+This preserves an important distinction: **profile** answers “what is this
+person responsible for now?”; **access** answers “may they enter and receive
+communications?”; **preview** answers “what would this already-authorized
+person be allowed to see?”
+
 ## Security, privacy, and reliability requirements
 
 - Keep the live webhook and worker on the private Hetzner deployment as
