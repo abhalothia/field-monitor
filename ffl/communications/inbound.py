@@ -8,6 +8,7 @@ the provider reply ID or the one-way context-token digest.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Dict, Optional
 
 from ffl.communications import persistence
@@ -30,6 +31,10 @@ _EXACT_TEXT_INTENTS = {
     "help": "help",
     "stop": "opt_out",
     "opt_out": "opt_out",
+}
+_REDACTED_SUMMARIES = {
+    "report_deviation": "field_deviation_reported",
+    "submit_evidence": "evidence_submitted",
 }
 
 
@@ -55,9 +60,10 @@ def process_inbound_event(conn, provider, event: Dict[str, Any], stored_event: D
         return _outcome(previous)
     existing_candidate = persistence.get_candidate_for_event(conn, event_id)
     if existing_candidate is not None:
-        _recover_candidate_lifecycle(conn, existing_candidate)
+        interaction_run_id = _recover_candidate_lifecycle(conn, existing_candidate)
         return _persist_outcome(
             conn, event_id, "review_candidate",
+            interaction_run_id=interaction_run_id,
             candidate_id=existing_candidate["id"],
         )
     existing_review = persistence.get_inbound_review_for_event(conn, event_id)
@@ -123,8 +129,8 @@ def process_inbound_event(conn, provider, event: Dict[str, Any], stored_event: D
             # A review candidate is bounded to one report, not an endpoint
             # conversation archive.  Acceptance remains a separate canonical
             # signal/exception operation.
-            "text": event.get("text", ""),
             "intent": intent,
+            "redacted_summary": _REDACTED_SUMMARIES[intent],
             "message_type": event["message_type"],
             "attachment_ids": [attachment["id"] for attachment in attachments],
             "context_resolved": True,
@@ -194,7 +200,7 @@ def _mark_prompt_responded(conn, prompt_id: str) -> None:
         persistence.update_prompt(conn, prompt_id, "responded")
 
 
-def _recover_candidate_lifecycle(conn, candidate: Dict[str, Any]) -> None:
+def _recover_candidate_lifecycle(conn, candidate: Dict[str, Any]) -> Optional[str]:
     """Finish local lifecycle bookkeeping after a crash before receipt completion."""
     if candidate.get("prompt_id"):
         _mark_prompt_responded(conn, candidate["prompt_id"])
@@ -202,12 +208,13 @@ def _recover_candidate_lifecycle(conn, candidate: Dict[str, Any]) -> None:
     # be malformed historical rows, so no recovery path is allowed to infer a
     # run from endpoint history.
     try:
-        import json
         interaction_run_id = json.loads(candidate["draft_json"]).get("interaction_run_id")
     except (TypeError, ValueError):
         interaction_run_id = None
     if isinstance(interaction_run_id, str):
         _mark_responded(conn, interaction_run_id)
+        return interaction_run_id
+    return None
 
 
 def _revoke_interaction_scope(conn, interaction) -> None:
@@ -250,10 +257,14 @@ def _suppress_future_runs(conn, interaction) -> None:
            LEFT JOIN communication_workflow_versions workflow ON workflow.id = run.workflow_version_id
            LEFT JOIN communication_prompts prompt ON prompt.id = run.legacy_prompt_id
            LEFT JOIN communication_templates legacy_template ON legacy_template.id = prompt.template_id
-           WHERE run.endpoint_id = ? AND run.profile_id IS ?
-             AND run.allocation_id = ? AND run.status = 'ready'
+           WHERE run.endpoint_id = ?
+             AND ((? IS NULL AND run.profile_id IS NULL) OR run.profile_id = ?)
+             AND run.allocation_id = ? AND run.status IN ('ready', 'dispatching')
              AND COALESCE(workflow.purpose, legacy_template.purpose) = ?""",
-        (interaction.endpoint_id, interaction.profile_id, interaction.allocation_id, purpose),
+        (
+            interaction.endpoint_id, interaction.profile_id, interaction.profile_id,
+            interaction.allocation_id, purpose,
+        ),
     ).fetchall()
     for row in rows:
         entry, _created = persistence.create_outbox_entry(conn, row["id"], row["legacy_prompt_id"])
@@ -262,7 +273,7 @@ def _suppress_future_runs(conn, interaction) -> None:
                 conn, row["id"], "suppressed", policy_code="scoped_opt_out",
             )
         conn.execute(
-            "UPDATE communication_interaction_runs SET status = 'cancelled' WHERE id = ? AND status = 'ready'",
+            "UPDATE communication_interaction_runs SET status = 'cancelled' WHERE id = ? AND status IN ('ready', 'dispatching')",
             (row["id"],),
         )
         conn.commit()

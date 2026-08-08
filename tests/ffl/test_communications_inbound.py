@@ -28,6 +28,9 @@ def test_known_farmer_photo_reply_creates_review_candidate_for_exact_allocation(
         assert outcome.kind == "review_candidate"
         assert candidate is not None
         assert candidate["allocation_id"] == seed["allocation_id"]
+        normal_candidate = str(candidate)
+        assert "SUBMIT_EVIDENCE" not in normal_candidate
+        assert "https://evidence.example.invalid/photo.jpg" not in normal_candidate
 
 
 def test_stop_revokes_interaction_scope_and_suppresses_future_dispatch(tmp_path):

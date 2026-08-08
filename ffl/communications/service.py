@@ -419,8 +419,8 @@ def candidate_review_detail(conn: sqlite3.Connection, candidate_id: str) -> Dict
         "work_item_id": candidate["work_item_id"],
         "created_at": candidate["created_at"],
         "context": {
-            "reported_text": draft.get("text", ""),
-            "intent": draft.get("intent"),
+            "reported_intent": draft.get("intent"),
+            "reported_summary": draft.get("redacted_summary"),
             "message_type": draft.get("message_type"),
             "observed_at": draft.get("observed_at"),
             "received_at": detail["event"]["received_at"],
@@ -487,11 +487,14 @@ def accept_candidate(
         raise ValueError("candidate linkage is incomplete")
     draft = _candidate_draft(candidate)
     observed_at = draft.get("observed_at") or event["received_at"]
+    if draft.get("attachment_ids"):
+        if evidence_artifact_id is None or not persistence.evidence_is_linked_to_event(conn, candidate["event_id"], evidence_artifact_id):
+            raise ValueError("communication attachment requires retained evidence linked to this communication")
     if candidate["kind"] == "exception":
         if not exception_owner_id or not exception_fallback_owner_id:
             raise ValueError("exception acceptance requires owner and fallback owner")
         record = operations.report_exception(
-            conn, candidate["allocation_id"], draft["text"] or "WhatsApp field deviation", severity,
+            conn, candidate["allocation_id"], "WhatsApp field deviation", severity,
             exception_owner_id, exception_fallback_owner_id, observed_at, "communication-candidate:" + candidate["id"],
         )
         return persistence.review_candidate(conn, candidate_id, "accepted", reviewer_id, "exception_record", record.id)
@@ -499,9 +502,6 @@ def accept_candidate(
         raise ValueError("signal acceptance requires template id and version")
     if signal_values is None:
         raise ValueError("signal acceptance requires reviewed signal values")
-    if draft.get("attachment_ids"):
-        if evidence_artifact_id is None or not persistence.evidence_is_linked_to_event(conn, candidate["event_id"], evidence_artifact_id):
-            raise ValueError("communication attachment requires retained evidence linked to this communication")
     record = season.record_field_signal(
         conn, candidate["allocation_id"], signal_template_id, signal_template_version, observed_at,
         endpoint["person_id"], signal_values, evidence_artifact_id=evidence_artifact_id, status="submitted",

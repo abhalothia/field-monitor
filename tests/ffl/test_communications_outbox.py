@@ -8,6 +8,8 @@ import threading
 
 import pytest
 
+from ffl.communications import outbox as outbox_module
+from ffl.communications import persistence
 from ffl.communications.fake import FakeLoopMessageProvider
 from ffl.communications.interactions import context_token_for_run, find_interaction_for_dispatch_callback
 from ffl.communications.outbox import (
@@ -124,6 +126,37 @@ def test_dispatch_refuses_revoked_consent_without_calling_provider(dispatch_cont
 
     assert result.status == "suppressed"
     assert provider.sent == []
+
+
+def test_opt_out_between_claim_and_send_suppresses_without_provider_call(dispatch_context, monkeypatch):
+    provider = FakeLoopMessageProvider()
+    real_details = outbox_module._dispatch_details
+    calls = 0
+
+    def details_with_interleaved_opt_out(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            dispatch_context.conn.execute(
+                "UPDATE communication_scoped_consents SET status = 'revoked', revoked_at = ? WHERE endpoint_id = ?",
+                ("2026-08-10T04:00:00+00:00", dispatch_context.endpoint["id"]),
+            )
+            dispatch_context.conn.commit()
+            persistence.update_outbox_entry(
+                dispatch_context.conn, dispatch_context.run.interaction_run_id,
+                "suppressed", policy_code="scoped_opt_out",
+            )
+        return real_details(*args, **kwargs)
+
+    monkeypatch.setattr(outbox_module, "_dispatch_details", details_with_interleaved_opt_out)
+    result = dispatch_ready_interaction(
+        dispatch_context.conn, provider, dispatch_context.run.interaction_run_id,
+        datetime(2026, 8, 10, 4, 0, tzinfo=timezone.utc), context_token=dispatch_context.run.context_token,
+    )
+
+    assert result.status == "suppressed"
+    assert provider.sent == []
+    assert persistence.outbox_entry(dispatch_context.conn, dispatch_context.run.interaction_run_id)["status"] == "suppressed"
 
 
 def test_ambiguous_dispatch_is_unknown_and_never_retries(dispatch_context):

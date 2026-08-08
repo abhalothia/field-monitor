@@ -23,6 +23,7 @@ from ffl.persistence.database import translate_sqlite_sql
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0021_agro_communications_control_plane.sql"
 OUTBOX_MIGRATION = ROOT / "db" / "postgres" / "0026_agro_communication_outbox.sql"
+INBOUND_MIGRATION = ROOT / "db" / "postgres" / "0027_agro_communication_inbound_reviews.sql"
 
 
 @pytest.fixture
@@ -257,3 +258,15 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     assert translate_sqlite_sql(
         "SELECT * FROM communication_outbox WHERE status = ?"
     ) == "SELECT * FROM agro_communication_outbox WHERE status = %s"
+    inbound_sql = INBOUND_MIGRATION.read_text(encoding="utf-8")
+    for table in (
+        "agro_communication_inbound_reviews",
+        "agro_communication_inbound_outcomes",
+    ):
+        assert "CREATE TABLE IF NOT EXISTS " + table in inbound_sql
+        assert "REVOKE ALL ON TABLE " + table + " FROM PUBLIC" in inbound_sql
+    assert "agro_idx_communication_inbound_outcomes_interaction" in inbound_sql
+    assert "agro_idx_communication_inbound_outcomes_candidate" in inbound_sql
+    assert translate_sqlite_sql(
+        "SELECT * FROM communication_inbound_outcomes WHERE event_id = ?"
+    ) == "SELECT * FROM agro_communication_inbound_outcomes WHERE event_id = %s"

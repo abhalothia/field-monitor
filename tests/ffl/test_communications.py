@@ -139,10 +139,23 @@ def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acc
         assert conn.execute("SELECT count(*) FROM communication_attachments").fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM exception_records").fetchone()[0] == 0
 
-        accepted = client.post(
+        unretained = client.post(
             "/api/v1/communications/candidates/{}/accept".format(candidate_id),
             json={"reviewer_id": seed["manager_id"], "exception_owner_id": seed["manager_id"],
                   "exception_fallback_owner_id": seed["lead_id"], "severity": "high"},
+        )
+        assert unretained.status_code == 422
+        attachment_id = json.loads(conn.execute(
+            "SELECT draft_json FROM communication_candidates WHERE id = ?", (candidate_id,),
+        ).fetchone()[0])["attachment_ids"][0]
+        evidence_artifact_id = retain_inbound_attachment(
+            conn, attachment_id, b"retained exception photo", "image/jpeg", str(tmp_path / "evidence"),
+        )
+        accepted = client.post(
+            "/api/v1/communications/candidates/{}/accept".format(candidate_id),
+            json={"reviewer_id": seed["manager_id"], "exception_owner_id": seed["manager_id"],
+                  "exception_fallback_owner_id": seed["lead_id"], "severity": "high",
+                  "evidence_artifact_id": evidence_artifact_id},
         )
         assert accepted.status_code == 200
         assert accepted.json()["accepted_record_type"] == "exception_record"
@@ -783,7 +796,9 @@ def test_manager_candidate_detail_is_narrow_redacted_and_not_an_archive(tmp_path
         detail = client.get("/api/v1/communications/candidates/{}".format(candidate_id))
         assert detail.status_code == 200
         body = detail.json()
-        assert body["context"]["reported_text"] == "REPORT_DEVIATION"
+        assert body["context"]["reported_intent"] == "report_deviation"
+        assert body["context"]["reported_summary"] == "field_deviation_reported"
+        assert "REPORT_DEVIATION" not in json.dumps(body)
         assert body["endpoint"]["address_last4"] == "0001"
         assert "address" not in body["endpoint"]
         assert "draft_json" not in json.dumps(body)

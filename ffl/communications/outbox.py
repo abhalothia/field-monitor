@@ -181,6 +181,28 @@ def _dispatch_interaction(
         if current is None:
             raise RuntimeError("claimed communication outbox entry disappeared")
         return DispatchResult(run.id, current["status"], current["provider_message_id"], current["policy_code"])
+    # A scoped opt-out can arrive while this worker owns a dispatching entry.
+    # Re-read the complete mutable policy and the outbox state after the claim,
+    # immediately before the irreversible provider call.  A suppressing
+    # opt-out wins and no provider request is made.
+    current = persistence.outbox_entry(conn, run.id)
+    details = _dispatch_details(conn, provider, run.id, instant)
+    if current is None or current["status"] != "dispatching" or details is None:
+        if current is not None and current["status"] == "dispatching":
+            persisted = persistence.update_outbox_entry(conn, run.id, "suppressed", policy_code="dispatch_not_allowed")
+            _sync_legacy_prompt(conn, persisted, "failed")
+            return DispatchResult(run.id, "suppressed", reason=persisted["policy_code"])
+        return DispatchResult(
+            run.id,
+            "suppressed" if current is None else current["status"],
+            None if current is None else current["provider_message_id"],
+            None if current is None else current["policy_code"],
+        )
+    policy, template, endpoint, parameters = details
+    if not policy["allowed"]:
+        persisted = persistence.update_outbox_entry(conn, run.id, "suppressed", policy_code=policy["code"])
+        _sync_legacy_prompt(conn, persisted, "failed")
+        return DispatchResult(run.id, "suppressed", reason=policy["code"])
     try:
         sent = provider.send_template(
             endpoint["address"], provider.sender_id, template["provider_template_id"],

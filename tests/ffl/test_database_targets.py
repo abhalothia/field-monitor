@@ -198,6 +198,16 @@ def test_postgres_translation_includes_follow_on_private_migrations():
     assert translate_sqlite_sql("SELECT * FROM person_operating_relationships WHERE person_id = ?") == (
         "SELECT * FROM agro_person_operating_relationships WHERE person_id = %s"
     )
+    assert translate_sqlite_sql(
+        "SELECT * FROM communication_inbound_reviews WHERE event_id = ?"
+    ) == "SELECT * FROM agro_communication_inbound_reviews WHERE event_id = %s"
+    assert translate_sqlite_sql(
+        "SELECT * FROM communication_interaction_runs run "
+        "WHERE ((? IS NULL AND run.profile_id IS NULL) OR run.profile_id = ?)"
+    ) == (
+        "SELECT * FROM agro_communication_interaction_runs run "
+        "WHERE ((%s IS NULL AND run.profile_id IS NULL) OR run.profile_id = %s)"
+    )
 
 
 def test_postgres_connection_preserves_repository_row_contract_without_a_network_call():

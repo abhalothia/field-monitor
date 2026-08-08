@@ -31,4 +31,24 @@
 
 ## Concerns / follow-up
 
-- The task's approved file list did not include a new PostgreSQL migration.  The new SQLite/private-schema tables are created by `create_communications_schema`; production PostgreSQL deployment needs the equivalent reviewed migration before enabling this routing path there.  Until then, a missing-table error requeues the sealed receipt and fails closed rather than creating a candidate.
+- Resolved in review round 1: additive private PostgreSQL migration `0027_agro_communication_inbound_reviews.sql` creates the inbound review/outcome tables, constraints, foreign-key indexes, and PUBLIC revokes.  Translation parity is covered, so the private Postgres adapter maps both new relations.
+
+## Review round 1 fixes
+
+- Added the reviewed additive Postgres migration after `0026`; no already-applied migration was changed.
+- Moved the retained-evidence proof check before both canonical candidate acceptance branches.  An exception candidate with media now rejects until an attachment has been privately retained and linked to the same event.
+- Re-read exact mutable dispatch policy and outbox state after the durable claim and immediately before `send_template`; a scoped opt-out that revokes/suppresses in that interval wins without a provider call.  Matching ready and dispatching runs are suppressed/cancelled by exact scope.
+- Replaced SQLite-only `profile_id IS ?` with an explicit NULL/non-NULL predicate that translates safely to PostgreSQL.
+- Removed raw inbound text from new candidate drafts and candidate API projection.  They retain only a constrained lowercase intent and fixed redacted summary; raw text remains in the sealed receipt flow.
+- Candidate-replay recovery now returns and records the existing exact interaction-run identifier when available.
+
+### Review-round verification
+
+- Red verification before the implementation: the new exception-media and normal-record redaction assertions failed (acceptance was incorrectly allowed and candidate/API records exposed raw text).
+- `.venv/bin/python -m pytest tests/ffl/test_communications.py tests/ffl/test_communications_inbound.py tests/ffl/test_communications_interactions.py tests/ffl/test_communications_outbox.py tests/ffl/test_database_targets.py -q` — 66 passed.
+- `.venv/bin/python -m pytest tests/ffl/test_communications_inbound.py -v` — 4 passed.
+- `.venv/bin/python -m compileall -q ffl/communications` and `git diff --check` passed.
+
+### Review-round commit
+
+`fix: harden WhatsApp inbound review routing` (scoped follow-up commit in this worktree).
