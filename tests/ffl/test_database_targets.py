@@ -69,6 +69,59 @@ class _BulkRawConnection(_FakeRawConnection):
         return self.bulk_cursor
 
 
+class _OutboxCursor:
+    def __init__(self, rowcount, row=None):
+        self.rowcount = rowcount
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+    def fetchall(self):
+        return [] if self._row is None else [self._row]
+
+
+class _OutboxRawConnection:
+    """Small stateful psycopg stand-in for outbox reservation coverage."""
+
+    def __init__(self):
+        self.calls = []
+        self.entries = {}
+        self.insert_rowcounts = []
+
+    def execute(self, sql, params):
+        self.calls.append((sql, params))
+        if sql.startswith("INSERT INTO agro_communication_outbox"):
+            identifier, interaction_id, legacy_prompt_id, created_at, updated_at = params
+            if interaction_id in self.entries:
+                self.insert_rowcounts.append(0)
+                return _OutboxCursor(0)
+            self.entries[interaction_id] = {
+                "id": identifier,
+                "interaction_run_id": interaction_id,
+                "legacy_prompt_id": legacy_prompt_id,
+                "provider_message_id": None,
+                "status": "pending",
+                "policy_code": None,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+            self.insert_rowcounts.append(1)
+            return _OutboxCursor(1)
+        if sql.startswith("SELECT * FROM agro_communication_outbox"):
+            return _OutboxCursor(1, self.entries.get(params[0]))
+        raise AssertionError("unexpected SQL: " + sql)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
 def test_legacy_sqlite_paths_remain_the_default_target(monkeypatch):
     monkeypatch.delenv("FFL_DATABASE_URL", raising=False)
     monkeypatch.delenv("FFL_POSTGRES_DATABASE_URL", raising=False)
@@ -177,6 +230,29 @@ def test_postgres_outbox_reservation_translation_is_private_and_not_sqlite_speci
     assert "INSERT OR IGNORE" not in statement
     assert "SELECT changes()" not in statement
     assert "ON CONFLICT DO NOTHING" in statement
+
+
+def test_create_outbox_entry_uses_postgres_adapter_for_first_and_duplicate_reservations():
+    from ffl.communications.persistence import create_outbox_entry
+    from ffl.persistence.database import PostgresConnection
+
+    raw = _OutboxRawConnection()
+    conn = PostgresConnection(raw)
+
+    first, first_created = create_outbox_entry(conn, "interaction-1")
+    duplicate, duplicate_created = create_outbox_entry(conn, "interaction-1")
+
+    assert first_created is True
+    assert duplicate_created is False
+    assert first["id"] == duplicate["id"]
+    assert raw.insert_rowcounts == [1, 0]
+    for statement, _params in raw.calls:
+        assert "SELECT changes()" not in statement
+        assert "INSERT OR IGNORE" not in statement
+        assert "communication_outbox" not in statement or "agro_communication_outbox" in statement
+    inserts = [statement for statement, _params in raw.calls if statement.startswith("INSERT")]
+    assert all(statement.startswith("INSERT INTO agro_communication_outbox") for statement in inserts)
+    assert all("ON CONFLICT DO NOTHING" in statement for statement in inserts)
 
 
 def test_postgres_batch_writes_translate_conflict_safe_repository_sql_without_a_network_call():
