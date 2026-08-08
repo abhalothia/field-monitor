@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import json
 import sqlite3
 
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from ffl.app import create_app
 from ffl.communications import persistence
+from ffl.communications import private
 from ffl.communications.fake import FakeLoopMessageProvider
 from ffl.communications import loopmessage as loopmessage_module
 from ffl.communications.loopmessage import LoopMessageProvider
@@ -108,6 +110,54 @@ def test_consent_backed_prompt_inbound_attachment_replay_and_human_exception_acc
         assert accepted.json()["accepted_record_type"] == "exception_record"
         assert conn.execute("SELECT count(*) FROM exception_records").fetchone()[0] == 1
         assert repository.get_work_item(conn, work.id).status == "planned"
+
+
+def test_receipt_redacts_raw_context_token_and_replay_correlates_by_digest(tmp_path):
+    for client, conn, provider, seed, work, endpoint, _consent, template in _setup(tmp_path):
+        prompt = _send_prompt(client, work, endpoint, template, seed)
+        raw_token = provider.sent[0]["passthrough"]
+        response = client.post(
+            "/api/v1/communications/loopmessage/webhook",
+            json={
+                "event": "message_inbound",
+                "contact": "+15550000001",
+                "text": "REPORT_DEVIATION",
+                "message_type": "text",
+                "message_id": "digest-inbound",
+                "webhook_id": "digest-receipt",
+                "passthrough": raw_token,
+                "sender": "fake-whatsapp-sender",
+            },
+            headers={"Authorization": provider.webhook_authorization},
+        )
+        receipt = conn.execute(
+            """SELECT receipt.ciphertext
+               FROM communication_receipts receipt
+               JOIN communication_events event ON event.id = receipt.event_id
+               WHERE event.provider_event_id = 'digest-receipt'"""
+        ).fetchone()
+        persisted_payload = private.open_receipt("test-receipt-key", receipt["ciphertext"])
+
+        assert response.status_code == 200
+        assert raw_token not in receipt["ciphertext"]
+        assert raw_token not in json.dumps(persisted_payload, sort_keys=True)
+        assert "passthrough" not in persisted_payload
+        assert persisted_payload["_ffl_context_token_hash"] == hashlib.sha256(
+            raw_token.encode("utf-8")
+        ).hexdigest()
+
+        assert process_pending_communications(conn, provider, "test-receipt-key") == 1
+        candidate = conn.execute(
+            """SELECT candidate.work_item_id, candidate.allocation_id
+               FROM communication_candidates candidate
+               JOIN communication_events event ON event.id = candidate.event_id
+               WHERE event.provider_event_id = 'digest-receipt'"""
+        ).fetchone()
+        assert candidate["work_item_id"] == work.id
+        assert candidate["allocation_id"] == seed["allocation_id"]
+        assert conn.execute(
+            "SELECT status FROM communication_prompts WHERE id = ?", (prompt["id"],),
+        ).fetchone()[0] == "responded"
 
 
 def test_invalid_signature_opt_out_and_delivery_failure_remain_visible(tmp_path):

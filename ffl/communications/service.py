@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from ffl.communications import persistence
 from ffl.communications import private
 from ffl.communications.interactions import (
+    context_token_digest,
     create_interaction_run,
     find_interaction_for_dispatch_callback,
     find_interaction_for_inbound,
@@ -25,6 +26,32 @@ _LEGACY_PROMPT_INTENTS = (
     "confirm", "decline", "report_deviation", "submit_evidence",
     "request_callback", "help", "opt_out",
 )
+_RECEIPT_CONTEXT_TOKEN_HASH = "_ffl_context_token_hash"
+
+
+def _receipt_safe_payload(payload: Dict[str, Any], context_token: Optional[str]) -> Dict[str, Any]:
+    """Replace an inbound raw passthrough with its one-way receipt digest."""
+    protected = dict(payload)
+    protected.pop("passthrough", None)
+    protected.pop(_RECEIPT_CONTEXT_TOKEN_HASH, None)
+    if context_token:
+        protected[_RECEIPT_CONTEXT_TOKEN_HASH] = context_token_digest(context_token)
+    return protected
+
+
+def _receipt_payload_for_processing(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Separate private correlation metadata before provider normalization.
+
+    Receipts created before the digest boundary may still contain a raw
+    passthrough. It remains transient during recovery and is hashed for exact
+    lookup; all newly persisted receipts contain only the digest.
+    """
+    provider_payload = dict(payload)
+    token_hash = provider_payload.pop(_RECEIPT_CONTEXT_TOKEN_HASH, None)
+    legacy_raw_token = provider_payload.get("passthrough")
+    if isinstance(legacy_raw_token, str) and legacy_raw_token:
+        token_hash = context_token_digest(legacy_raw_token)
+    return provider_payload, token_hash if isinstance(token_hash, str) else None
 
 
 def _suppress_opted_out_endpoint(conn: sqlite3.Connection, endpoint_id: str, provenance: str) -> None:
@@ -126,7 +153,9 @@ def receive_webhook(
     if not getattr(provider, "whatsapp_capability_enabled", False):
         raise ValueError("validated WhatsApp capability gate is required for inbound delivery")
     event = provider.normalize_webhook(payload)
-    ciphertext = private.seal(receipt_key, payload)
+    ciphertext = private.seal(
+        receipt_key, _receipt_safe_payload(payload, event.get("passthrough")),
+    )
     endpoint = persistence.find_endpoint(conn, provider.name, event["contact"])
     stored, created = persistence.record_event_with_receipt(
         conn, provider.name, event["event_id"], event["message_id"], event["event_type"],
@@ -165,11 +194,12 @@ def process_pending_communications(
                 raise RuntimeError("injected processing crash")
             try:
                 payload = private.open_receipt(receipt_key, receipt["ciphertext"])
+                provider_payload, context_token_hash = _receipt_payload_for_processing(payload)
             except ValueError as error:
                 persistence.quarantine_receipt(conn, receipt["event_id"], claim_token, receipt["ciphertext"], str(error))
                 continue
             try:
-                event = provider.normalize_webhook(payload)
+                event = provider.normalize_webhook(provider_payload)
             except ValueError as error:
                 # A receipt accepted by an older configuration can become
                 # invalid under a newly tightened provider boundary (for
@@ -180,7 +210,10 @@ def process_pending_communications(
             stored = conn.execute("SELECT * FROM communication_events WHERE id = ?", (receipt["event_id"],)).fetchone()
             if stored is None:
                 raise ValueError("communication receipt event is missing")
-            _process_event(conn, provider, event, dict(stored))
+            _process_event(
+                conn, provider, event, dict(stored),
+                context_token_hash=context_token_hash,
+            )
             if persistence.complete_receipt(conn, receipt["event_id"], claim_token):
                 processed += 1
         except Exception as error:
@@ -205,7 +238,8 @@ def process_pending_communication_media(
     for attachment in persistence.attachments_needing_retention(conn):
         try:
             payload = private.open_receipt(receipt_key, attachment["ciphertext"])
-            event = provider.normalize_webhook(payload)
+            provider_payload, _context_token_hash = _receipt_payload_for_processing(payload)
+            event = provider.normalize_webhook(provider_payload)
             source_url = next(
                 (url for url in event["attachments"]
                  if persistence.attachment_reference(attachment["event_id"], url) == attachment["source_reference"]),
@@ -272,7 +306,14 @@ def reconcile_outbound_messages(conn: sqlite3.Connection, provider: Communicatio
     return reconciled
 
 
-def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, event: Dict[str, Any], stored: Dict[str, Any]) -> None:
+def _process_event(
+    conn: sqlite3.Connection,
+    provider: CommunicationsProvider,
+    event: Dict[str, Any],
+    stored: Dict[str, Any],
+    *,
+    context_token_hash: Optional[str] = None,
+) -> None:
     if stored["status"] != "received":
         return
 
@@ -292,6 +333,7 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
                 stored["endpoint_id"],
                 event["message_id"],
                 event.get("passthrough"),
+                context_token_hash=context_token_hash,
             )
             if interaction is not None and interaction.status in ("ready", "dispatching") and event["message_id"]:
                 interaction = record_interaction_dispatch(
@@ -364,6 +406,7 @@ def _process_event(conn: sqlite3.Connection, provider: CommunicationsProvider, e
         endpoint["id"],
         event.get("reply_to_message_id"),
         event.get("passthrough"),
+        context_token_hash=context_token_hash,
     ) if endpoint else None
     prompt = None
     if interaction is not None and interaction.legacy_prompt_id:

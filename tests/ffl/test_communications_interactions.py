@@ -166,9 +166,29 @@ def test_context_token_is_returned_once_but_only_its_hash_is_persisted(interacti
 
     with pytest.raises(Exception, match="immutable"):
         interaction_context.conn.execute(
+            "UPDATE communication_interaction_runs SET id = ? WHERE id = ?",
+            ("rewritten-run-id", run.id),
+        )
+    interaction_context.conn.rollback()
+
+    with pytest.raises(Exception, match="immutable"):
+        interaction_context.conn.execute(
             "UPDATE communication_interaction_runs SET context_token_hash = ? WHERE id = ?",
             ("0" * 64, run.id),
         )
+    interaction_context.conn.rollback()
+
+    record_interaction_dispatch(interaction_context.conn, run.id, "provider-first")
+    dispatch = interaction_context.conn.execute(
+        "SELECT id FROM communication_interaction_dispatches WHERE interaction_run_id = ?",
+        (run.id,),
+    ).fetchone()
+    with pytest.raises(Exception, match="immutable"):
+        interaction_context.conn.execute(
+            "UPDATE communication_interaction_dispatches SET id = ? WHERE id = ?",
+            ("rewritten-dispatch-id", dispatch["id"]),
+        )
+    interaction_context.conn.rollback()
 
 
 def test_context_token_is_bound_to_provider_endpoint_status_and_expiry(interaction_context):
@@ -224,6 +244,8 @@ def test_postgres_interaction_tables_are_private_and_index_exact_correlation_pat
     assert "context_token TEXT" not in sql
     assert "(provider, provider_message_id)" in sql
     assert "agro_idx_communication_interaction_runs_endpoint_status" in sql
+    assert "BEFORE UPDATE OF id, profile_id" in sql
+    assert "BEFORE UPDATE OF id, interaction_run_id" in sql
     assert translate_sqlite_sql(
         "SELECT * FROM communication_interaction_runs WHERE endpoint_id = ?"
     ) == "SELECT * FROM agro_communication_interaction_runs WHERE endpoint_id = %s"

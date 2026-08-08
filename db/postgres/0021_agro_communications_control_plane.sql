@@ -232,7 +232,7 @@ CREATE TRIGGER agro_communication_scoped_consent_events_no_delete
 DROP TRIGGER IF EXISTS agro_communication_interaction_runs_capture_immutable
     ON agro_communication_interaction_runs;
 CREATE TRIGGER agro_communication_interaction_runs_capture_immutable
-    BEFORE UPDATE OF profile_id, endpoint_id, allocation_id, work_item_id,
+    BEFORE UPDATE OF id, profile_id, endpoint_id, allocation_id, work_item_id,
         field_information_request_id, workflow_version_id, campaign_snapshot_id,
         legacy_prompt_id, context_token_hash, expected_intents_json, created_at, expires_at
     ON agro_communication_interaction_runs
@@ -247,7 +247,7 @@ CREATE TRIGGER agro_communication_interaction_runs_no_delete
 DROP TRIGGER IF EXISTS agro_communication_interaction_dispatches_capture_immutable
     ON agro_communication_interaction_dispatches;
 CREATE TRIGGER agro_communication_interaction_dispatches_capture_immutable
-    BEFORE UPDATE OF interaction_run_id, provider, provider_message_id, created_at
+    BEFORE UPDATE OF id, interaction_run_id, provider, provider_message_id, created_at
     ON agro_communication_interaction_dispatches
     FOR EACH ROW EXECUTE FUNCTION agro_reject_interaction_capture_mutation();
 

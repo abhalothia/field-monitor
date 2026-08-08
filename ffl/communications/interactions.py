@@ -232,6 +232,7 @@ def find_interaction_for_inbound(
     context_token: Optional[str],
     *,
     now: Optional[Union[datetime, str]] = None,
+    context_token_hash: Optional[str] = None,
 ) -> Optional[InteractionRun]:
     """Resolve an inbound reply exactly: provider message ID, then token hash."""
     provider = _required_identifier(provider, "provider")
@@ -251,7 +252,8 @@ def find_interaction_for_inbound(
         ).fetchone()
         if row is not None:
             return _run(row)
-    if not isinstance(context_token, str) or not context_token or len(context_token) > 1024:
+    token_hash = _correlation_token_hash(context_token, context_token_hash)
+    if token_hash is None:
         return None
     row = conn.execute(
         """SELECT run.*
@@ -261,7 +263,7 @@ def find_interaction_for_inbound(
              AND run.context_token_hash = ?
              AND run.status IN ('dispatched', 'responded')
              AND run.expires_at > ?""",
-        (provider, endpoint_id, _token_hash(context_token), at),
+        (provider, endpoint_id, token_hash, at),
     ).fetchone()
     return _run(row) if row is not None else None
 
@@ -302,6 +304,7 @@ def route_inbound_interaction(
     intent: str,
     *,
     now: Optional[Union[datetime, str]] = None,
+    context_token_hash: Optional[str] = None,
 ) -> Optional[InteractionRun]:
     """Return a correlated run only when the constrained intent was expected."""
     if intent not in _INTENTS:
@@ -313,6 +316,7 @@ def route_inbound_interaction(
         reply_to_message_id,
         context_token,
         now=now,
+        context_token_hash=context_token_hash,
     )
     if run is None or intent not in run.expected_intents:
         return None
@@ -325,6 +329,8 @@ def find_interaction_for_dispatch_callback(
     endpoint_id: str,
     provider_message_id: Optional[str],
     context_token: Optional[str],
+    *,
+    context_token_hash: Optional[str] = None,
 ) -> Optional[InteractionRun]:
     """Resolve an outbound lifecycle callback, including an ambiguous send.
 
@@ -345,7 +351,8 @@ def find_interaction_for_dispatch_callback(
         ).fetchone()
         if row is not None:
             return _run(row)
-    if not isinstance(context_token, str) or not context_token or len(context_token) > 1024:
+    token_hash = _correlation_token_hash(context_token, context_token_hash)
+    if token_hash is None:
         return None
     row = conn.execute(
         """SELECT run.*
@@ -354,7 +361,7 @@ def find_interaction_for_dispatch_callback(
            WHERE endpoint.provider = ? AND run.endpoint_id = ?
              AND run.context_token_hash = ?
              AND run.status IN ('ready', 'dispatching', 'dispatched', 'responded')""",
-        (provider, endpoint_id, _token_hash(context_token)),
+        (provider, endpoint_id, token_hash),
     ).fetchone()
     return _run(row) if row is not None else None
 
@@ -514,3 +521,24 @@ def _utc_instant(value: Union[datetime, str], label: str) -> datetime:
 
 def _token_hash(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def context_token_digest(raw_token: str) -> str:
+    """Return the persistence-safe digest for one bounded opaque token."""
+    if not isinstance(raw_token, str) or not raw_token or len(raw_token) > 1024:
+        raise ValueError("context token is invalid")
+    return _token_hash(raw_token)
+
+
+def _correlation_token_hash(
+    raw_token: Optional[str], persisted_hash: Optional[str],
+) -> Optional[str]:
+    if isinstance(raw_token, str) and raw_token and len(raw_token) <= 1024:
+        return _token_hash(raw_token)
+    if not isinstance(persisted_hash, str) or len(persisted_hash) != 64:
+        return None
+    if persisted_hash != persisted_hash.lower() or any(
+        character not in "0123456789abcdef" for character in persisted_hash
+    ):
+        return None
+    return persisted_hash

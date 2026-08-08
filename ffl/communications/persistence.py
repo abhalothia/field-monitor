@@ -354,7 +354,7 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_communication_reconciliations_prompt
             ON communication_reconciliations(prompt_id, created_at);
         CREATE TRIGGER IF NOT EXISTS communication_interaction_runs_capture_immutable
-        BEFORE UPDATE OF profile_id, endpoint_id, allocation_id, work_item_id,
+        BEFORE UPDATE OF id, profile_id, endpoint_id, allocation_id, work_item_id,
                          field_information_request_id, workflow_version_id,
                          campaign_snapshot_id, legacy_prompt_id, context_token_hash,
                          expected_intents_json, created_at, expires_at
@@ -368,7 +368,7 @@ def create_communications_schema(conn: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'communication interaction runs are append-only');
         END;
         CREATE TRIGGER IF NOT EXISTS communication_interaction_dispatches_capture_immutable
-        BEFORE UPDATE OF interaction_run_id, provider, provider_message_id, created_at
+        BEFORE UPDATE OF id, interaction_run_id, provider, provider_message_id, created_at
         ON communication_interaction_dispatches
         BEGIN
             SELECT RAISE(ABORT, 'communication interaction dispatch capture is immutable');
