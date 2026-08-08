@@ -57,3 +57,15 @@ reported farms, connected farmers/workers, work, activity, and recorded
 evidence. A task is counted only against places connected to its reported
 farmer; the rollup never claims that a task happened inside a legal field
 boundary. Apply it after `0023` and run the same snapshot backfill once.
+
+`0025_agro_operating_vocabulary_registry.sql` adds a private, versioned
+dictionary for the small vocabulary that repeats across source imports: task
+labels, source-reported issues, and crop-product spellings. Imports discover
+terms automatically without calling a model. After applying the migration with
+the direct migration connection, run `scripts/enrich_operating_vocabulary.py`
+to populate the dictionary. A deliberate `--apply` run can ask the configured
+server-only Luna model for bounded spelling/casing/translation suggestions. In
+Vercel, the deployed API uses its short-lived OIDC identity through AI Gateway;
+for a local run provide `OPENAI_API_KEY` or `AI_GATEWAY_API_KEY`. Those
+suggestions remain `suggested` until reviewed and never change facts, boundaries,
+identities, or browser-visible filters on their own.

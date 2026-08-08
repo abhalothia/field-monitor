@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0009_agro_trackwick_private_spatial_evidence.sql"
 CLASSIFICATION_MIGRATION = ROOT / "db" / "postgres" / "0023_agro_operating_classification_spine.sql"
 PLACE_SUMMARIES_MIGRATION = ROOT / "db" / "postgres" / "0024_agro_place_operating_summaries.sql"
+VOCABULARY_MIGRATION = ROOT / "db" / "postgres" / "0025_agro_operating_vocabulary_registry.sql"
 
 
 def test_private_spatial_migration_defines_the_typed_trackwick_graph():
@@ -83,5 +84,22 @@ def test_place_summary_migration_stays_private_and_reported_only(ffl_db):
 
     relation = ffl_db.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'place_operating_summaries'"
+    ).fetchone()
+    assert relation is not None
+
+
+def test_vocabulary_migration_stays_private_and_reviewable(ffl_db):
+    sql = VOCABULARY_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS agro_operating_vocabulary_terms" in sql
+    assert "'task_type', 'reported_issue', 'crop_product'" in sql
+    assert "'pending', 'suggested', 'reviewed', 'rejected', 'unmapped', 'automatic'" in sql
+    assert "REVOKE ALL ON TABLE agro_operating_vocabulary_terms" in sql
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE agro_operating_vocabulary_terms" in sql
+    assert "provider_identifier" not in sql
+    assert "remote_url" not in sql
+
+    relation = ffl_db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'operating_vocabulary_terms'"
     ).fetchone()
     assert relation is not None

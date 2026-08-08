@@ -1340,6 +1340,32 @@ def create_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (source_id, task_type_key)
         );
 
+        -- Private vocabulary registry.  New imports add source terms here,
+        -- but never invoke a model.  A separate, deliberate maintenance pass
+        -- may add reviewable semantic suggestions without replacing the raw
+        -- source wording or making a diagnosis.
+        CREATE TABLE IF NOT EXISTS operating_vocabulary_terms (
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            vocabulary_kind TEXT NOT NULL CHECK (vocabulary_kind IN ('task_type', 'reported_issue', 'crop_product')),
+            source_context TEXT NOT NULL CHECK (length(source_context) BETWEEN 1 AND 160),
+            raw_value TEXT NOT NULL CHECK (length(raw_value) BETWEEN 1 AND 600),
+            raw_fingerprint TEXT NOT NULL CHECK (length(raw_fingerprint) = 64 AND raw_fingerprint = lower(raw_fingerprint)),
+            occurrence_count INTEGER NOT NULL DEFAULT 0 CHECK (occurrence_count >= 0),
+            normalized_key TEXT CHECK (normalized_key IS NULL OR normalized_key GLOB '[a-z0-9]*'),
+            display_label TEXT CHECK (display_label IS NULL OR length(display_label) BETWEEN 1 AND 160),
+            mapping_state TEXT NOT NULL DEFAULT 'pending' CHECK (mapping_state IN ('pending', 'suggested', 'reviewed', 'rejected', 'unmapped', 'automatic')),
+            mapping_method TEXT NOT NULL DEFAULT 'deterministic' CHECK (mapping_method IN ('deterministic', 'ai', 'manual')),
+            confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+            classifier_model TEXT CHECK (classifier_model IS NULL OR length(classifier_model) BETWEEN 1 AND 120),
+            mapping_version TEXT NOT NULL CHECK (length(mapping_version) BETWEEN 1 AND 32),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            classified_at TEXT,
+            reviewed_at TEXT,
+            refreshed_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, vocabulary_kind, source_context, raw_fingerprint)
+        );
+
         -- A place-level read model for maps and directories.  It is derived
         -- from reported records only and does not turn a place into a Field.
         CREATE TABLE IF NOT EXISTS place_operating_summaries (
@@ -1789,6 +1815,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON place_catalog (source_id, district_name, block_name, village_name);
         CREATE INDEX IF NOT EXISTS idx_task_type_taxonomy_kind
             ON task_type_taxonomy (source_id, task_kind, last_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_operating_vocabulary_pending
+            ON operating_vocabulary_terms (source_id, vocabulary_kind, mapping_state, occurrence_count, last_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_operating_vocabulary_normalized
+            ON operating_vocabulary_terms (source_id, vocabulary_kind, normalized_key)
+            WHERE normalized_key IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_place_operating_summaries_activity
             ON place_operating_summaries (source_id, latest_activity_at);
         CREATE INDEX IF NOT EXISTS idx_place_operating_summaries_open_work

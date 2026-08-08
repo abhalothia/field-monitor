@@ -302,6 +302,15 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert ffl_db.execute(
         "SELECT COUNT(*) FROM place_catalog WHERE source_id = ?", (source.id,)
     ).fetchone()[0] == 1
+    vocabulary = {
+        (row["vocabulary_kind"], row["mapping_state"])
+        for row in ffl_db.execute(
+            """SELECT vocabulary_kind, mapping_state
+               FROM operating_vocabulary_terms WHERE source_id = ?""",
+            (source.id,),
+        ).fetchall()
+    }
+    assert vocabulary == {("task_type", "automatic"), ("reported_issue", "pending")}
     taxonomy = {
         row["task_type_key"]: row["task_kind"]
         for row in ffl_db.execute(

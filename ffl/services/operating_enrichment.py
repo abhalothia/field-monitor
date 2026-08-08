@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 import re
 from typing import Any, Mapping, Optional
 
+from ffl.services import operating_vocabulary
+
 
 ENRICHMENT_VERSION = "operating-v3"
 _OPEN_TASK_STATUSES = {"pending", "in_progress"}
@@ -125,6 +127,13 @@ def refresh_source_snapshots(
                    refreshed_at = excluded.refreshed_at""",
             rows,
         )
+    # The vocabulary registry is a sibling cache: it discovers a small set of
+    # repeatable source terms after every import but never calls a model here.
+    # This preserves the import's atomic, bounded behavior even when optional
+    # AI credentials are absent or a provider is unavailable.
+    operating_vocabulary.refresh_source_vocabulary(
+        conn, source_id, refreshed_at=now, commit=False,
+    )
     if commit:
         conn.commit()
     # psycopg's executemany rowcount is intentionally driver-dependent.  The
