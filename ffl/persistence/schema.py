@@ -984,6 +984,46 @@ def create_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             UNIQUE (provider, provider_message_id)
         );
+        CREATE TABLE IF NOT EXISTS communication_workflows (
+            id TEXT PRIMARY KEY,
+            workflow_key TEXT NOT NULL UNIQUE,
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS communication_workflow_versions (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL REFERENCES communication_workflows(id),
+            version INTEGER NOT NULL CHECK (version > 0),
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'work_prompt', 'weekly_farmer_checkin', 'field_evidence_request',
+                'local_weather_observation', 'problem_report', 'callback_coordination',
+                'safety_escalation', 'operational_campaign'
+            )),
+            owner_id TEXT NOT NULL REFERENCES people(id),
+            status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'paused')),
+            trigger_json TEXT NOT NULL,
+            audience_json TEXT NOT NULL,
+            template_id TEXT NOT NULL REFERENCES communication_templates(id),
+            expected_intents_json TEXT NOT NULL,
+            response_deadline_hours INTEGER NOT NULL CHECK (response_deadline_hours > 0),
+            quiet_hours_json TEXT,
+            frequency_cap INTEGER CHECK (frequency_cap > 0),
+            escalation_owner_id TEXT REFERENCES people(id),
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            UNIQUE (workflow_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS communication_workflow_runs (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES communication_profiles(id),
+            endpoint_id TEXT NOT NULL REFERENCES communication_endpoints(id),
+            allocation_id TEXT NOT NULL REFERENCES crop_allocations(id),
+            workflow_version_id TEXT NOT NULL REFERENCES communication_workflow_versions(id),
+            interaction_run_id TEXT NOT NULL UNIQUE REFERENCES communication_interaction_runs(id),
+            weekly_window TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (profile_id, allocation_id, workflow_version_id, weekly_window)
+        );
         CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_profile
             ON communication_interaction_runs(profile_id);
         CREATE INDEX IF NOT EXISTS idx_communication_interaction_runs_endpoint_status
@@ -996,6 +1036,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON communication_interaction_runs(field_information_request_id);
         CREATE INDEX IF NOT EXISTS idx_communication_interaction_dispatches_message
             ON communication_interaction_dispatches(provider, provider_message_id);
+        CREATE INDEX IF NOT EXISTS idx_communication_workflow_versions_workflow_status
+            ON communication_workflow_versions(workflow_id, status, version);
+        CREATE INDEX IF NOT EXISTS idx_communication_workflow_runs_version_window
+            ON communication_workflow_runs(workflow_version_id, weekly_window);
         CREATE TRIGGER IF NOT EXISTS communication_interaction_runs_capture_immutable
         BEFORE UPDATE OF id, profile_id, endpoint_id, allocation_id, work_item_id,
                          field_information_request_id, workflow_version_id,
@@ -1020,6 +1064,42 @@ def create_schema(conn: sqlite3.Connection) -> None:
         BEFORE DELETE ON communication_interaction_dispatches
         BEGIN
             SELECT RAISE(ABORT, 'communication interaction dispatches are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_workflow_versions_capture_immutable
+        BEFORE UPDATE OF id, workflow_id, version, purpose, owner_id, trigger_json,
+                         audience_json, template_id, expected_intents_json,
+                         response_deadline_hours, quiet_hours_json, frequency_cap,
+                         escalation_owner_id, created_at
+        ON communication_workflow_versions
+        BEGIN
+            SELECT RAISE(ABORT, 'communication workflow version capture is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_workflow_versions_no_delete
+        BEFORE DELETE ON communication_workflow_versions
+        BEGIN
+            SELECT RAISE(ABORT, 'communication workflow versions are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_workflow_versions_lifecycle_guard
+        BEFORE UPDATE OF status, published_at ON communication_workflow_versions
+        WHEN NOT (
+            OLD.status = 'draft' AND NEW.status = 'published'
+            AND OLD.published_at IS NULL AND NEW.published_at IS NOT NULL
+        ) AND NOT (
+            OLD.status = 'published' AND NEW.status = 'paused'
+            AND NEW.published_at IS OLD.published_at
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'communication workflow version lifecycle is invalid');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_workflow_runs_no_update
+        BEFORE UPDATE ON communication_workflow_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'communication workflow runs are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS communication_workflow_runs_no_delete
+        BEFORE DELETE ON communication_workflow_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'communication workflow runs are append-only');
         END;
 
         -- Private TrackWick CRM and spatial evidence.  This is a typed source
