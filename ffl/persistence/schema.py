@@ -21,6 +21,23 @@ def create_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE trackwick_tasks ADD COLUMN provider_plot_reference TEXT"
         )
+    # Keep a long-lived local preview database compatible with the additive
+    # operating-classification migration before its new indexes are created.
+    existing_snapshot_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(entity_operating_snapshots)").fetchall()
+    }
+    snapshot_additions = (
+        ("place_key", "TEXT"),
+        ("linked_place_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("crop_profile", "TEXT NOT NULL DEFAULT 'not_recorded'"),
+        ("latest_activity_kind", "TEXT NOT NULL DEFAULT 'unknown'"),
+    )
+    for column_name, definition in snapshot_additions:
+        if existing_snapshot_columns and column_name not in existing_snapshot_columns:
+            conn.execute(
+                f"ALTER TABLE entity_operating_snapshots ADD COLUMN {column_name} {definition}"
+            )
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS operating_units (
@@ -1273,6 +1290,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
             source_run_id TEXT REFERENCES source_runs(id),
             entity_kind TEXT NOT NULL CHECK (entity_kind IN ('reported_farm', 'farmer', 'field_worker')),
             entity_id TEXT NOT NULL,
+            place_key TEXT,
+            linked_place_count INTEGER NOT NULL DEFAULT 0 CHECK (linked_place_count >= 0),
+            crop_profile TEXT NOT NULL DEFAULT 'not_recorded' CHECK (crop_profile IN ('pb1', '1718', 'mixed', 'not_recorded')),
             farm_count INTEGER NOT NULL DEFAULT 0 CHECK (farm_count >= 0),
             farmer_count INTEGER NOT NULL DEFAULT 0 CHECK (farmer_count >= 0),
             open_task_count INTEGER NOT NULL DEFAULT 0 CHECK (open_task_count >= 0),
@@ -1285,9 +1305,39 @@ def create_schema(conn: sqlite3.Connection) -> None:
             attendance_present_days INTEGER NOT NULL DEFAULT 0 CHECK (attendance_present_days >= 0),
             reported_area_acres REAL CHECK (reported_area_acres IS NULL OR reported_area_acres >= 0),
             latest_activity_at TEXT,
+            latest_activity_kind TEXT NOT NULL DEFAULT 'unknown' CHECK (latest_activity_kind IN ('registration', 'visit', 'issue', 'work', 'location', 'photo', 'attendance', 'unknown')),
             enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),
             refreshed_at TEXT NOT NULL,
             PRIMARY KEY (source_id, entity_kind, entity_id)
+        );
+
+        -- A private, source-scoped location dictionary and task vocabulary.
+        -- They make future imports consistent without turning place aliases or
+        -- task labels into public identity, field-boundary, or diagnosis data.
+        CREATE TABLE IF NOT EXISTS place_catalog (
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            place_key TEXT NOT NULL CHECK (length(place_key) BETWEEN 3 AND 320),
+            village_name TEXT,
+            block_name TEXT,
+            district_name TEXT,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),
+            refreshed_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, place_key),
+            CHECK (village_name IS NOT NULL OR block_name IS NOT NULL OR district_name IS NOT NULL)
+        );
+
+        CREATE TABLE IF NOT EXISTS task_type_taxonomy (
+            source_id TEXT NOT NULL REFERENCES source_registry(id),
+            task_type_key TEXT NOT NULL CHECK (length(task_type_key) BETWEEN 1 AND 160),
+            task_kind TEXT NOT NULL CHECK (task_kind IN ('visit', 'registration', 'soil', 'query', 'team_work', 'other')),
+            classification_state TEXT NOT NULL DEFAULT 'automatic' CHECK (classification_state IN ('automatic', 'reviewed')),
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),
+            refreshed_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, task_type_key)
         );
 
         CREATE TABLE IF NOT EXISTS trackwick_party_person_links (
@@ -1713,6 +1763,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON entity_operating_snapshots (source_id, entity_kind, latest_activity_at);
         CREATE INDEX IF NOT EXISTS idx_entity_operating_snapshot_open_work
             ON entity_operating_snapshots (source_id, entity_kind, open_task_count, latest_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_entity_operating_snapshot_crop
+            ON entity_operating_snapshots (source_id, entity_kind, crop_profile, latest_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_place_catalog_hierarchy
+            ON place_catalog (source_id, district_name, block_name, village_name);
+        CREATE INDEX IF NOT EXISTS idx_task_type_taxonomy_kind
+            ON task_type_taxonomy (source_id, task_kind, last_seen_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_party_links_person
             ON trackwick_party_person_links (person_id, link_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_plot_links_parcel

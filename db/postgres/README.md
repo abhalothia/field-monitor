@@ -42,3 +42,11 @@ append-only scoped-consent foundation. It does not enable WhatsApp traffic,
 infer authority from a phone number, expose `agro` through the Data API, or
 grant browser/runtime privileges. Apply it only after the customer portal and
 person operating relationship migrations are present.
+
+`0023_agro_operating_classification_spine.sql` adds the private, deterministic
+place dictionary and task-type taxonomy used by the cached operating record.
+It also extends the existing snapshot with place coverage, crop profile, and
+latest activity type. It does not create or merge identities, infer a field
+boundary, expose raw task labels, or make diagnostic claims. Apply it with the
+direct migration connection, then run `scripts/backfill_operating_snapshots.py`
+once; future source imports refresh the same facts atomically.

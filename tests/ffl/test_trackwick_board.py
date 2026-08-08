@@ -264,7 +264,29 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert farmer_snapshot["metrics"]["disease_report_count"] == 1
     assert worker_snapshot["metrics"]["farmer_count"] == 1
     assert farm_snapshot["metrics"]["reported_area_acres"] == 5.5
+    assert farm_snapshot["categories"] == {
+        "crop_profile": "mixed",
+        "linked_place_count": 1,
+        "latest_activity_kind": "location",
+    }
+    assert farmer_snapshot["categories"]["linked_place_count"] == 1
+    assert worker_snapshot["categories"]["linked_place_count"] == 1
     assert "needs_attention" in {tag["key"] for tag in farmer_snapshot["tags"]}
+    assert "crop_mixed" in {tag["key"] for tag in farm_snapshot["tags"]}
+    assert ffl_db.execute(
+        "SELECT COUNT(*) FROM place_catalog WHERE source_id = ?", (source.id,)
+    ).fetchone()[0] == 1
+    taxonomy = {
+        row["task_type_key"]: row["task_kind"]
+        for row in ffl_db.execute(
+            "SELECT task_type_key, task_kind FROM task_type_taxonomy WHERE source_id = ?",
+            (source.id,),
+        ).fetchall()
+    }
+    assert taxonomy == {
+        "farmer-visit": "visit",
+        "new-farmer-registration": "registration",
+    }
     assert "PRIVATE DISEASE VALUE 7731" not in repr(enriched_board)
 
     # Production's populated source cache can predate the typed task table.

@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0009_agro_trackwick_private_spatial_evidence.sql"
+CLASSIFICATION_MIGRATION = ROOT / "db" / "postgres" / "0023_agro_operating_classification_spine.sql"
 
 
 def test_private_spatial_migration_defines_the_typed_trackwick_graph():
@@ -46,3 +47,23 @@ def test_sqlite_schema_has_private_trackwick_tables(ffl_db):
         "trackwick_location_observations",
         "trackwick_media_references",
     } <= relations
+
+
+def test_operating_classification_migration_stays_private_and_additive(ffl_db):
+    sql = CLASSIFICATION_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS agro_place_catalog" in sql
+    assert "CREATE TABLE IF NOT EXISTS agro_task_type_taxonomy" in sql
+    assert "ADD COLUMN IF NOT EXISTS place_key" in sql
+    assert "REVOKE ALL ON TABLE agro_place_catalog, agro_task_type_taxonomy" in sql
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE agro_place_catalog, agro_task_type_taxonomy" in sql
+    assert "anon" in sql and "authenticated" in sql
+    assert "provider_address" not in sql
+    assert "remote_url" not in sql
+
+    relations = {
+        row[0] for row in ffl_db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    assert {"place_catalog", "task_type_taxonomy"} <= relations
