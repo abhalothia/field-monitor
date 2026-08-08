@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "db" / "postgres" / "0009_agro_trackwick_private_spatial_evidence.sql"
 CLASSIFICATION_MIGRATION = ROOT / "db" / "postgres" / "0023_agro_operating_classification_spine.sql"
+PLACE_SUMMARIES_MIGRATION = ROOT / "db" / "postgres" / "0024_agro_place_operating_summaries.sql"
 
 
 def test_private_spatial_migration_defines_the_typed_trackwick_graph():
@@ -67,3 +68,20 @@ def test_operating_classification_migration_stays_private_and_additive(ffl_db):
         ).fetchall()
     }
     assert {"place_catalog", "task_type_taxonomy"} <= relations
+
+
+def test_place_summary_migration_stays_private_and_reported_only(ffl_db):
+    sql = PLACE_SUMMARIES_MIGRATION.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS agro_place_operating_summaries" in sql
+    assert "REFERENCES agro_place_catalog" in sql
+    assert "REVOKE ALL ON TABLE agro_place_operating_summaries" in sql
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE agro_place_operating_summaries" in sql
+    assert "boundary" in sql.lower()
+    assert "provider_address" not in sql
+    assert "remote_url" not in sql
+
+    relation = ffl_db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'place_operating_summaries'"
+    ).fetchone()
+    assert relation is not None

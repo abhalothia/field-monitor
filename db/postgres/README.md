@@ -50,3 +50,10 @@ latest activity type. It does not create or merge identities, infer a field
 boundary, expose raw task labels, or make diagnostic claims. Apply it with the
 direct migration connection, then run `scripts/backfill_operating_snapshots.py`
 once; future source imports refresh the same facts atomically.
+
+`0024_agro_place_operating_summaries.sql` adds a compact private rollup for
+each reported place. It powers fast map and directory context with counts of
+reported farms, connected farmers/workers, work, activity, and recorded
+evidence. A task is counted only against places connected to its reported
+farmer; the rollup never claims that a task happened inside a legal field
+boundary. Apply it after `0023` and run the same snapshot backfill once.

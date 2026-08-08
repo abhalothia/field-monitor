@@ -10,7 +10,10 @@ from ffl.integrations.trackolap.trackwick import (
     normalise_trackwick_private_evidence,
 )
 from ffl.persistence import repository
-from ffl.services.operating_enrichment import refresh_source_snapshots
+from ffl.services.operating_enrichment import (
+    place_summaries_for_source,
+    refresh_source_snapshots,
+)
 from ffl.services.trackwick_board import command_centre_board_for_source, manager_board_for_source
 
 
@@ -248,6 +251,7 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert "task_type" not in safe_board["inbox"][0]
     assert "Farmer Visit" not in repr(safe_board)
     assert safe_board["map"]["points"][0]["subject"]["kind"] == "reported_farm"
+    assert safe_board["map"]["places"] == []
     for forbidden in ("crm_status", "provider_tag", "registration_status", "pb1", "1718", "9999999999", "111122223333", "private disease value 7731", "private source field"):
         assert forbidden not in safe_serialized
 
@@ -264,11 +268,18 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
     assert farmer_snapshot["metrics"]["disease_report_count"] == 1
     assert worker_snapshot["metrics"]["farmer_count"] == 1
     assert farm_snapshot["metrics"]["reported_area_acres"] == 5.5
-    assert farm_snapshot["categories"] == {
-        "crop_profile": "mixed",
-        "linked_place_count": 1,
-        "latest_activity_kind": "location",
+    assert farm_snapshot["categories"]["crop_profile"] == "mixed"
+    assert farm_snapshot["categories"]["linked_place_count"] == 1
+    assert farm_snapshot["categories"]["latest_activity_kind"] == "location"
+    assert farm_snapshot["categories"]["coverage"] == {
+        "location_recorded": True,
+        "photo_recorded": False,
+        "visit_recorded": False,
+        "issue_recorded": False,
+        "area_recorded": True,
+        "crop_recorded": True,
     }
+    assert farm_snapshot["categories"]["workload"] == "no_open_tasks"
     assert farmer_snapshot["categories"]["linked_place_count"] == 1
     assert worker_snapshot["categories"]["linked_place_count"] == 1
     assert "needs_attention" in {tag["key"] for tag in farmer_snapshot["tags"]}
@@ -287,6 +298,24 @@ def test_manager_board_turns_private_trackwick_evidence_into_safe_operating_prim
         "farmer-visit": "visit",
         "new-farmer-registration": "registration",
     }
+    place_summaries = place_summaries_for_source(ffl_db, source.id)
+    assert place_summaries == [{
+        "id": "dargava|gabhana|aligarh",
+        "place": "Dargava · Gabhana · Aligarh",
+        "metrics": {
+            "reported_farm_count": 1,
+            "farmer_count": 1,
+            "field_worker_count": 1,
+            "open_task_count": 1,
+            "visit_count": 0,
+            "issue_report_count": 0,
+            "location_evidence_count": 1,
+            "photo_reference_count": 0,
+            "latest_activity_at": "2026-08-03T15:30:00+05:30",
+            "refreshed_at": "2026-08-04T10:00:00+05:30",
+        },
+    }]
+    assert enriched_board["map"]["places"] == place_summaries
     assert "PRIVATE DISEASE VALUE 7731" not in repr(enriched_board)
 
     # Production's populated source cache can predate the typed task table.

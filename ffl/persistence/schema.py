@@ -1340,6 +1340,26 @@ def create_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (source_id, task_type_key)
         );
 
+        -- A place-level read model for maps and directories.  It is derived
+        -- from reported records only and does not turn a place into a Field.
+        CREATE TABLE IF NOT EXISTS place_operating_summaries (
+            source_id TEXT NOT NULL,
+            place_key TEXT NOT NULL,
+            reported_farm_count INTEGER NOT NULL DEFAULT 0 CHECK (reported_farm_count >= 0),
+            farmer_count INTEGER NOT NULL DEFAULT 0 CHECK (farmer_count >= 0),
+            field_worker_count INTEGER NOT NULL DEFAULT 0 CHECK (field_worker_count >= 0),
+            open_task_count INTEGER NOT NULL DEFAULT 0 CHECK (open_task_count >= 0),
+            visit_count INTEGER NOT NULL DEFAULT 0 CHECK (visit_count >= 0),
+            issue_report_count INTEGER NOT NULL DEFAULT 0 CHECK (issue_report_count >= 0),
+            location_evidence_count INTEGER NOT NULL DEFAULT 0 CHECK (location_evidence_count >= 0),
+            photo_reference_count INTEGER NOT NULL DEFAULT 0 CHECK (photo_reference_count >= 0),
+            latest_activity_at TEXT,
+            enrichment_version TEXT NOT NULL CHECK (length(enrichment_version) BETWEEN 1 AND 32),
+            refreshed_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, place_key),
+            FOREIGN KEY (source_id, place_key) REFERENCES place_catalog(source_id, place_key)
+        );
+
         CREATE TABLE IF NOT EXISTS trackwick_party_person_links (
             id TEXT PRIMARY KEY,
             party_id TEXT NOT NULL REFERENCES trackwick_parties(id),
@@ -1769,6 +1789,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ON place_catalog (source_id, district_name, block_name, village_name);
         CREATE INDEX IF NOT EXISTS idx_task_type_taxonomy_kind
             ON task_type_taxonomy (source_id, task_kind, last_seen_at);
+        CREATE INDEX IF NOT EXISTS idx_place_operating_summaries_activity
+            ON place_operating_summaries (source_id, latest_activity_at);
+        CREATE INDEX IF NOT EXISTS idx_place_operating_summaries_open_work
+            ON place_operating_summaries (source_id, open_task_count, latest_activity_at);
         CREATE INDEX IF NOT EXISTS idx_trackwick_party_links_person
             ON trackwick_party_person_links (person_id, link_status);
         CREATE INDEX IF NOT EXISTS idx_trackwick_plot_links_parcel
