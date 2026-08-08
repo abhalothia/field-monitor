@@ -436,8 +436,19 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
 .communication-heading .eyebrow { margin: 0 0 8px; }
 .communication-heading h1 { margin: 0; color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: clamp(2rem, 3vw, 2.85rem); font-weight: 400; letter-spacing: -.06em; line-height: .9; }
 .communication-heading p:not(.eyebrow) { max-width: 58ch; color: var(--muted); font-size: .74rem; line-height: 1.5; margin: 10px 0 0; }
+.campaign-title { display: flex; align-items: center; gap: 10px; }
+.campaign-title > span { border-radius: 99px; background: #dce7d3; color: #315738; font-family: "DM Mono", monospace; font-size: .5rem; font-weight: 700; letter-spacing: .05em; padding: 4px 6px; text-transform: uppercase; }
 .communication-source { flex: 0 0 auto; border-radius: 999px; background: #dce7d3; color: #315738; font-family: "DM Mono", monospace; font-size: .55rem; letter-spacing: .035em; padding: 6px 8px; text-transform: uppercase; }
 .communication-source.attention { background: #f5e7bd; color: #765619; }
+.campaign-setup { display: grid; grid-template-columns: auto minmax(260px, 1.1fr) minmax(260px, .9fr); align-items: center; gap: 16px; border-bottom: 1px solid var(--line); padding: 18px 0; }
+.campaign-setup-mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #dcebcf; color: #245536; }
+.campaign-setup-mark svg { width: 22px; fill: currentColor; }
+.campaign-setup .eyebrow { margin: 0 0 6px; }
+.campaign-setup h2 { color: var(--ink); font-family: "DM Serif Display", Georgia, serif; font-size: 1.2rem; font-weight: 400; letter-spacing: -.03em; line-height: 1; margin: 0; }
+.campaign-setup p:not(.eyebrow) { color: var(--muted); font-size: .68rem; line-height: 1.45; margin: 7px 0 0; }
+.campaign-example { border-left: 1px solid rgba(20, 61, 45, .14); padding-left: 16px; }
+.campaign-example > span { color: #71806d; font-family: "DM Mono", monospace; font-size: .51rem; letter-spacing: .04em; text-transform: uppercase; }
+.campaign-example p { color: var(--ink-soft) !important; font-weight: 700; margin-top: 6px !important; }
 .communication-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
 .communication-summary > div { display: grid; gap: 5px; border-left: 1px solid rgba(20, 61, 45, .14); padding: 18px 16px 17px; }
 .communication-summary > div:first-child { border-left: 0; padding-left: 0; }
@@ -670,6 +681,8 @@ input { min-height: 46px; border: 1px solid rgba(20, 61, 45, .35); border-radius
   .mobile-nav a { display: grid; min-height: 54px; place-items: center; color: #627361; font-size: .61rem; font-weight: 800; text-align: center; }
   .mobile-nav a.active { background: var(--ink); color: #fff9ec; }
   .communication-heading, .communication-list-heading { align-items: start; flex-direction: column; }
+  .campaign-setup { grid-template-columns: auto 1fr; }
+  .campaign-example { grid-column: 1 / -1; border-top: 1px solid rgba(20, 61, 45, .14); border-left: 0; padding: 12px 0 0; }
   .communication-summary, .communication-cohorts { grid-template-columns: 1fr; }
   .communication-summary > div, .communication-summary > div:first-child { border-top: 1px solid rgba(20, 61, 45, .14); border-left: 0; padding: 12px 0; }
   .communication-summary > div:first-child { border-top: 0; }

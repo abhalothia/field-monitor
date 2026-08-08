@@ -2304,6 +2304,7 @@ function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
+  const [exampleIndex, setExampleIndex] = useState(0);
 
   const load = useCallback(async (nextCohort: FarmerCommunicationCohort["key"], nextOffset = 0) => {
     if (!canRead) return;
@@ -2320,6 +2321,10 @@ function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
   }, [canRead]);
 
   useEffect(() => { void load(cohort); }, [cohort, load]);
+  useEffect(() => {
+    const rotation = window.setInterval(() => setExampleIndex((current) => (current + 1) % 3), 6_000);
+    return () => window.clearInterval(rotation);
+  }, []);
 
   const choose = (next: FarmerCommunicationCohort["key"]) => {
     setCohort(next); setOffset(0); setBoard(null);
@@ -2337,13 +2342,23 @@ function FarmerCommunicationView({ canRead }: { canRead: boolean }) {
   ];
   const audienceDescription = currentCohort?.detail || "Choose a reported farmer audience.";
   const isTimingAudience = Boolean(currentCohort?.minimum_days);
+  const campaignExamples = [
+    "Disease follow-up — reach farmers with a reported disease finding in the source snapshot.",
+    "First-spray reminder — reach farmers 40–50 days after one recorded transplant date.",
+    "Record-completion nudge — ask the field team to complete missing transplant dates before the next reminder.",
+  ];
 
   return <section className="directory-workspace communication-workspace">
     <div className="communication-heading">
-      <div><p className="eyebrow">Campaign audiences · reported source</p><h1>Campaigns</h1><p>Choose the farmers for an outbound message—everyone, or a clear field-data group. This page never exposes phone numbers.</p></div>
+      <div><p className="eyebrow">Campaign audiences · reported source</p><div className="campaign-title"><h1>Campaigns</h1><span>Beta</span></div><p>Choose the farmers for an outbound message—everyone, or a clear field-data group. This page never exposes phone numbers.</p></div>
       {board ? <span className={`communication-source ${sourceUnavailable ? "attention" : ""}`}>{sourceUnavailable ? "Source needs attention" : `Data through ${dateTime(board.source.data_through || board.source.last_synced_at)}`}</span> : null}
     </div>
     {!canRead ? <section className="communication-empty"><strong>Manager access required</strong><p>Sign in again to build private campaign audiences.</p><Link className="primary-action" href="/login?next=/campaigns">Sign in <span aria-hidden="true">→</span></Link></section> : <>
+      <section className="campaign-setup" aria-label="WhatsApp campaign setup">
+        <div className="campaign-setup-mark" aria-label="WhatsApp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 4.9A9.6 9.6 0 0 0 3.7 16.3L2.5 21.5l5.3-1.2a9.6 9.6 0 0 0 11.3-15.4ZM12 19.5a7.5 7.5 0 0 1-3.8-1l-.3-.2-3.1.7.7-3-.2-.3A7.5 7.5 0 1 1 12 19.5Zm4.1-5.6c-.2-.1-1.3-.6-1.5-.7s-.4-.1-.5.1-.6.7-.7.8-.2.2-.4.1a6.2 6.2 0 0 1-1.8-1.1 6.8 6.8 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.4a.4.4 0 0 0 0-.4l-.7-1.6c-.2-.4-.4-.3-.5-.3h-.5c-.2 0-.4.1-.6.3s-.8.8-.8 1.9.8 2.1.9 2.3a8.5 8.5 0 0 0 3.2 3 11 11 0 0 0 1.1.4c.5.2 1 .2 1.3.1.4 0 1.3-.5 1.5-1s.2-.9.1-1-.2-.1-.4-.2Z" /></svg></div>
+        <div><p className="eyebrow">WhatsApp · setup</p><h2>Outbound campaigns are being prepared</h2><p>Audience building is live. Sending stays off until the approved WhatsApp sender, template, and consent records are connected.</p></div>
+        <div className="campaign-example" aria-live="polite"><span>Example {exampleIndex + 1} of 3</span><p>{campaignExamples[exampleIndex]}</p></div>
+      </section>
       <div className="communication-summary" aria-label="Campaign audience coverage">
         <div><span>Reported farmers</span><strong>{count(board?.summary.reported_farmers)}</strong></div>
         <div><span>Disease reported</span><strong>{count(board?.summary.disease_reported)}</strong></div>
