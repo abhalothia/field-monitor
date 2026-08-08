@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -200,10 +201,11 @@ def test_workflow_run_conflict_rolls_back_its_interaction_and_retry_creates_one(
     )
     workflow_context.conn.commit()
 
-    assert create_workflow_runs(
-        workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00",
-        now="2026-08-10T04:00:00+00:00",
-    ) == ()
+    with pytest.raises(sqlite3.IntegrityError, match="communication_workflow_runs.profile_id"):
+        create_workflow_runs(
+            workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00",
+            now="2026-08-10T04:00:00+00:00",
+        )
     assert workflow_context.conn.execute(
         "SELECT COUNT(*) AS count FROM communication_interaction_runs",
     ).fetchone()["count"] == before
@@ -222,6 +224,33 @@ def test_workflow_run_conflict_rolls_back_its_interaction_and_retry_creates_one(
     assert workflow_context.conn.execute(
         "SELECT COUNT(*) AS count FROM communication_workflow_runs",
     ).fetchone()["count"] == 1
+
+
+def test_interaction_creation_integrity_error_is_not_treated_as_a_workflow_race(workflow_context):
+    version = publish_workflow_version(
+        workflow_context.conn, _draft(workflow_context, frequency_cap=1).id,
+    )
+    workflow_context.conn.execute(
+        """CREATE TRIGGER interaction_creation_failure_for_test
+           BEFORE INSERT ON communication_interaction_runs
+           BEGIN
+               SELECT RAISE(ABORT, 'forced interaction capture failure');
+           END""",
+    )
+    workflow_context.conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced interaction capture failure"):
+        create_workflow_runs(
+            workflow_context.conn, version.id, due_at="2026-08-10T04:00:00+00:00",
+            now="2026-08-10T04:00:00+00:00",
+        )
+
+    assert workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_interaction_runs",
+    ).fetchone()["count"] == 0
+    assert workflow_context.conn.execute(
+        "SELECT COUNT(*) AS count FROM communication_workflow_runs",
+    ).fetchone()["count"] == 0
 
 
 def test_workflow_run_uses_supplied_now_for_interaction_and_workflow_timestamps(workflow_context):

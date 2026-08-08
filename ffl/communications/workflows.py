@@ -334,23 +334,32 @@ def create_workflow_runs(
                 expires_at=expiry, created_at=created_at, commit=False,
             )
             workflow_run_id = str(uuid.uuid4())
-            conn.execute(
-                """INSERT INTO communication_workflow_runs
-                   (id, profile_id, endpoint_id, allocation_id, workflow_version_id,
-                    interaction_run_id, weekly_window, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    workflow_run_id, target.profile_id, target.endpoint_id, target.allocation_id,
-                    version.id, interaction.id, weekly_window, created_at.isoformat(),
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO communication_workflow_runs
+                       (id, profile_id, endpoint_id, allocation_id, workflow_version_id,
+                        interaction_run_id, weekly_window, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        workflow_run_id, target.profile_id, target.endpoint_id, target.allocation_id,
+                        version.id, interaction.id, weekly_window, created_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                # Suppress only a confirmed competing weekly-run capture. Any
+                # other workflow-run constraint (or an interaction-creation
+                # integrity failure above) remains visible to the caller.
+                winner = conn.execute(
+                    """SELECT 1 FROM communication_workflow_runs
+                       WHERE profile_id = ? AND allocation_id = ?
+                         AND workflow_version_id = ? AND weekly_window = ?""",
+                    (target.profile_id, target.allocation_id, version.id, weekly_window),
+                ).fetchone()
+                if winner is not None:
+                    continue
+                raise
             conn.commit()
-        except sqlite3.IntegrityError:
-            conn.rollback()
-            # The unique key guarantees that a competing scheduler has already
-            # created the logical weekly run. Its token is intentionally never
-            # recoverable here.
-            continue
         except Exception:
             conn.rollback()
             raise
