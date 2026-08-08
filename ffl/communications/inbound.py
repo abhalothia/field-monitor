@@ -99,7 +99,6 @@ def process_inbound_event(conn, provider, event: Dict[str, Any], stored_event: D
 
     if intent == "opt_out":
         _revoke_interaction_scope(conn, interaction)
-        _suppress_future_runs(conn, interaction)
         _mark_responded(conn, interaction.id)
         return _persist_outcome(conn, event_id, "opt_out", interaction_run_id=interaction.id)
 
@@ -218,34 +217,48 @@ def _recover_candidate_lifecycle(conn, candidate: Dict[str, Any]) -> Optional[st
 
 
 def _revoke_interaction_scope(conn, interaction) -> None:
-    """Revoke just the interaction's canonical crop-allocation consent."""
+    """Atomically revoke exact scope and arbitrate every matching future send.
+
+    Suppression takes the durable outbox row lock first, then consent/audit are
+    mutated in the same transaction.  A final-send gate therefore either wins
+    before this transaction (and the opt-out never claims suppression) or is
+    blocked until the committed suppression makes its conditional gate fail.
+    """
     if interaction.profile_id is None or interaction.allocation_id is None:
         return
     purpose = _interaction_purpose(conn, interaction.id)
     if purpose is None:
-        return
-    active = conn.execute(
-        """SELECT 1 FROM communication_scoped_consents
-           WHERE profile_id = ? AND endpoint_id = ? AND purpose = ?
-             AND scope_type = 'crop_allocation' AND scope_id = ?
-             AND channel = 'whatsapp' AND status = 'active'""",
-        (interaction.profile_id, interaction.endpoint_id, purpose, interaction.allocation_id),
-    ).fetchone()
-    if active is None:
         return
     endpoint = conn.execute(
         "SELECT person_id FROM communication_endpoints WHERE id = ?", (interaction.endpoint_id,),
     ).fetchone()
     if endpoint is None:
         return
-    persistence.set_scoped_consent(
-        conn, interaction.profile_id, interaction.endpoint_id, purpose,
-        "crop_allocation", interaction.allocation_id, False,
-        "exact inbound interaction opt-out", endpoint["person_id"],
-    )
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        active = conn.execute(
+            """SELECT 1 FROM communication_scoped_consents
+               WHERE profile_id = ? AND endpoint_id = ? AND purpose = ?
+                 AND scope_type = 'crop_allocation' AND scope_id = ?
+                 AND channel = 'whatsapp' AND status = 'active'""",
+            (interaction.profile_id, interaction.endpoint_id, purpose, interaction.allocation_id),
+        ).fetchone()
+        if active is None:
+            conn.commit()
+            return
+        _suppress_future_runs(conn, interaction, commit=False)
+        persistence.set_scoped_consent(
+            conn, interaction.profile_id, interaction.endpoint_id, purpose,
+            "crop_allocation", interaction.allocation_id, False,
+            "exact inbound interaction opt-out", endpoint["person_id"], commit=False,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
-def _suppress_future_runs(conn, interaction) -> None:
+def _suppress_future_runs(conn, interaction, *, commit: bool = True) -> None:
     if interaction.allocation_id is None:
         return
     purpose = _interaction_purpose(conn, interaction.id)
@@ -267,16 +280,19 @@ def _suppress_future_runs(conn, interaction) -> None:
         ),
     ).fetchall()
     for row in rows:
-        entry, _created = persistence.create_outbox_entry(conn, row["id"], row["legacy_prompt_id"])
+        entry, _created = persistence.create_outbox_entry(
+            conn, row["id"], row["legacy_prompt_id"], commit=commit,
+        )
         if entry["status"] in {"pending", "dispatching"} and persistence.suppress_outbox_if_unreserved(
-            conn, row["id"], "scoped_opt_out",
+            conn, row["id"], "scoped_opt_out", commit=commit,
         ):
             conn.execute(
                 "UPDATE communication_interaction_runs SET status = 'cancelled' "
                 "WHERE id = ? AND status IN ('ready', 'dispatching')",
                 (row["id"],),
             )
-            conn.commit()
+            if commit:
+                conn.commit()
 
 
 def _interaction_purpose(conn, interaction_run_id: str) -> Optional[str]:

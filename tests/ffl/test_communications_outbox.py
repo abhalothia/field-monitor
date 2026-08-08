@@ -135,14 +135,7 @@ def test_opt_out_after_prior_checks_but_before_final_gate_suppresses_without_pro
 
     def final_gate_after_exact_opt_out(conn, interaction_run_id):
         run = interaction_run(conn, interaction_run_id)
-        endpoint = conn.execute(
-            "SELECT person_id FROM communication_endpoints WHERE id = ?", (run.endpoint_id,),
-        ).fetchone()
-        set_scoped_consent(
-            conn, run.profile_id, run.endpoint_id, "weekly_farmer_checkin", "crop_allocation",
-            run.allocation_id, False, "exact test opt-out", endpoint["person_id"],
-        )
-        inbound_module._suppress_future_runs(conn, run)
+        inbound_module._revoke_interaction_scope(conn, run)
         return real_final_gate(conn, interaction_run_id)
 
     monkeypatch.setattr(persistence, "claim_outbox_final_send", final_gate_after_exact_opt_out)
@@ -160,14 +153,7 @@ def test_opt_out_after_final_gate_revokes_scope_but_does_not_claim_suppression(d
     class PostGateOptOutProvider(FakeLoopMessageProvider):
         def send_template(self, *args, **kwargs):
             run = interaction_run(dispatch_context.conn, dispatch_context.run.interaction_run_id)
-            endpoint = dispatch_context.conn.execute(
-                "SELECT person_id FROM communication_endpoints WHERE id = ?", (run.endpoint_id,),
-            ).fetchone()
-            set_scoped_consent(
-                dispatch_context.conn, run.profile_id, run.endpoint_id, "weekly_farmer_checkin",
-                "crop_allocation", run.allocation_id, False, "exact test opt-out", endpoint["person_id"],
-            )
-            inbound_module._suppress_future_runs(dispatch_context.conn, run)
+            inbound_module._revoke_interaction_scope(dispatch_context.conn, run)
             return super().send_template(*args, **kwargs)
 
     provider = PostGateOptOutProvider()
@@ -181,6 +167,82 @@ def test_opt_out_after_final_gate_revokes_scope_but_does_not_claim_suppression(d
     assert len(provider.sent) == 1
     assert outbox["status"] == "dispatched"
     assert outbox["final_send_reserved_at"] is not None
+
+
+def test_opt_out_consent_audit_and_suppression_are_one_cross_connection_transition(dispatch_context, tmp_path, monkeypatch):
+    path = tmp_path / "opt-out-final-gate-race.db"
+    first = sqlite3.connect(path, check_same_thread=False)
+    dispatch_context.conn.backup(first)
+    first.row_factory = sqlite3.Row
+    second = sqlite3.connect(path, check_same_thread=False)
+    second.row_factory = sqlite3.Row
+    first.execute("PRAGMA busy_timeout = 5000")
+    second.execute("PRAGMA busy_timeout = 5000")
+    persistence.create_outbox_entry(first, dispatch_context.run.interaction_run_id)
+    assert persistence.claim_outbox_dispatch(first, dispatch_context.run.interaction_run_id)
+
+    consent_mutated = threading.Event()
+    release_opt_out = threading.Event()
+    gate_finished = threading.Event()
+    original_set_scoped_consent = persistence.set_scoped_consent
+    outcome = {}
+
+    def paused_consent_mutation(*args, **kwargs):
+        result = original_set_scoped_consent(*args, **kwargs)
+        consent_mutated.set()
+        assert release_opt_out.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(persistence, "set_scoped_consent", paused_consent_mutation)
+
+    def revoke_scope():
+        inbound_module._revoke_interaction_scope(
+            first, interaction_run(first, dispatch_context.run.interaction_run_id),
+        )
+
+    def attempt_final_gate():
+        outcome["gate"] = persistence.claim_outbox_final_send(
+            second, dispatch_context.run.interaction_run_id,
+        )
+        gate_finished.set()
+
+    opt_out_thread = threading.Thread(target=revoke_scope)
+    gate_thread = threading.Thread(target=attempt_final_gate)
+    try:
+        opt_out_thread.start()
+        assert consent_mutated.wait(timeout=5)
+        gate_thread.start()
+        assert not gate_finished.wait(timeout=0.2)
+        release_opt_out.set()
+        opt_out_thread.join(timeout=5)
+        gate_thread.join(timeout=5)
+    finally:
+        release_opt_out.set()
+        first.close()
+        second.close()
+
+    assert not opt_out_thread.is_alive()
+    assert not gate_thread.is_alive()
+    assert outcome["gate"] is False
+
+    # The committed opt-out wins both facts together: its immutable audit
+    # event/consent transition and the reciprocal suppressed outbox state.
+    verifier = sqlite3.connect(path)
+    verifier.row_factory = sqlite3.Row
+    try:
+        assert verifier.execute(
+            "SELECT status FROM communication_scoped_consents WHERE endpoint_id = ?",
+            (dispatch_context.endpoint["id"],),
+        ).fetchone()["status"] == "revoked"
+        assert verifier.execute(
+            "SELECT count(*) FROM communication_scoped_consent_events WHERE status = 'revoked'",
+        ).fetchone()[0] == 1
+        assert verifier.execute(
+            "SELECT status, final_send_reserved_at FROM communication_outbox WHERE interaction_run_id = ?",
+            (dispatch_context.run.interaction_run_id,),
+        ).fetchone()["status"] == "suppressed"
+    finally:
+        verifier.close()
 
 
 def test_ambiguous_dispatch_is_unknown_and_never_retries(dispatch_context):

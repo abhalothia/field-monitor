@@ -772,7 +772,7 @@ def _active_profile_scope(
 def set_scoped_consent(
     conn: sqlite3.Connection, profile_id: str, endpoint_id: str, purpose: str,
     scope_type: str, scope_id: str, active: bool, evidence: str,
-    actor_person_id: str, channel: str = "whatsapp",
+    actor_person_id: str, channel: str = "whatsapp", *, commit: bool = True,
 ) -> Dict[str, Any]:
     """Append a scoped consent transition while retaining capture evidence."""
     if purpose not in COMMUNICATION_PURPOSES:
@@ -873,7 +873,8 @@ def set_scoped_consent(
                 scope_id, channel, status, evidence, actor_person_id, created_at,
             ),
         )
-        conn.commit()
+        if commit:
+            conn.commit()
     except Exception:
         conn.rollback()
         raise
@@ -1082,6 +1083,7 @@ def has_unknown_delivery_attempt(conn: sqlite3.Connection, prompt_id: str) -> bo
 
 def create_outbox_entry(
     conn: sqlite3.Connection, interaction_run_id: str, legacy_prompt_id: Optional[str] = None,
+    *, commit: bool = True,
 ) -> Tuple[Dict[str, Any], bool]:
     """Durably reserve one logical interaction before any provider call.
 
@@ -1100,7 +1102,8 @@ def create_outbox_entry(
     # Both sqlite3 and the private Postgres cursor expose the affected row
     # count. Do not use SQLite's SELECT changes(), which is not portable.
     created = cursor.rowcount == 1
-    conn.commit()
+    if commit:
+        conn.commit()
     entry = outbox_entry(conn, interaction_run_id)
     if entry is None:
         raise RuntimeError("communication outbox entry was not created")
@@ -1190,7 +1193,7 @@ def claim_outbox_final_send(conn: sqlite3.Connection, interaction_run_id: str) -
 
 
 def suppress_outbox_if_unreserved(
-    conn: sqlite3.Connection, interaction_run_id: str, policy_code: str,
+    conn: sqlite3.Connection, interaction_run_id: str, policy_code: str, *, commit: bool = True,
 ) -> bool:
     """Suppress a future dispatch only if its provider attempt is not reserved."""
     now = datetime.now(timezone.utc).isoformat()
@@ -1201,7 +1204,8 @@ def suppress_outbox_if_unreserved(
              AND final_send_reserved_at IS NULL""",
         (policy_code, now, interaction_run_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cursor.rowcount == 1
 
 

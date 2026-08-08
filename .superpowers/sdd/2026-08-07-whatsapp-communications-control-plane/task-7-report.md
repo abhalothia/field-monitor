@@ -70,3 +70,20 @@
 ### Review-round 2 commit
 
 `fix: serialize WhatsApp opt-out final send gate` (scoped follow-up commit in this worktree).
+
+## Review round 3 — atomic consent and outbox arbitration
+
+- Refactored scoped-consent, outbox-entry, and reciprocal-suppression persistence helpers to support an explicit caller-owned transaction without changing their default committing behavior.
+- Exact opt-out now starts one transaction, conditionally suppresses/unreserves every matching ready or dispatching outbox entry first, then writes the scoped-consent revocation and its immutable consent event, and commits all facts together.
+- This ordering gives the outbox row a shared database arbitration point: when opt-out wins, the final gate blocks on that row and fails after commit; when the final gate wins, suppression updates zero rows and the opt-out records only its future-scope consent revocation.
+- No provider call occurs in the transaction, and PostgreSQL uses the same private conditional updates through the adapter (its `BEGIN IMMEDIATE` compatibility statement starts the normal connection transaction).
+
+### Review-round 3 verification
+
+- Added a real two-connection SQLite interleaving: it pauses after the uncommitted consent/audit mutation, starts a concurrent final gate, proves the gate is blocked, then releases opt-out and proves the gate returns false.  The verifier observes the revoked consent, exactly one revoked consent event, and a suppressed unreserved outbox row together.
+- Retained the post-gate test: consent is revoked for future scope but the already reserved send remains truthful/auditable and is not reported as suppressed.
+- Focused Task 7/outbox/interaction/database suite: 48 passed.  Full combined communications/outbox/interaction/database suite: 69 passed; `compileall` and `git diff --check` also passed.
+
+### Review-round 3 commit
+
+`fix: atomically arbitrate WhatsApp opt-outs` (scoped follow-up commit in this worktree).
